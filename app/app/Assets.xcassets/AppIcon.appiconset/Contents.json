@@ -1,6 +1,7 @@
 {
   "images" : [
     {
+      "filename" : "imujoco-ios-icon-1024x1024-v1.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -12,6 +13,7 @@
           "value" : "dark"
         }
       ],
+      "filename" : "imujoco-ios-icon-1024x1024-v1-dark.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -23,6 +25,7 @@
           "value" : "tinted"
         }
       ],
+      "filename" : "imujoco-ios-icon-1024x1024-v1-tinted.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
