@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Workspace
+   version = "1.0">
+   <Group
+      location = "group:app"
+      name = "app">
+      <FileRef
+         location = "group:app.xcodeproj">
+      </FileRef>
+      <Group
+         location = "group:app"
+         name = "app">
+         <FileRef
+            location = "group:Assets.xcassets">
+         </FileRef>
+         <FileRef
+            location = "group:app.swift">
+         </FileRef>
+         <FileRef
+            location = "group:content_view.swift">
+         </FileRef>
+      </Group>
+      <Group
+         location = "group:app_tests"
+         name = "app_tests">
+         <FileRef
+            location = "group:app_tests.swift">
+         </FileRef>
+      </Group>
+      <Group
+         location = "group:app_ui_tests"
+         name = "app_ui_tests">
+         <FileRef
+            location = "group:app_ui_tests_launch_tests.swift">
+         </FileRef>
+         <FileRef
+            location = "group:app_ui_tests.swift">
+         </FileRef>
+      </Group>
+   </Group>
+   <Group
+      location = "group:core"
+      name = "core">
+      <Group
+         location = "group:core"
+         name = "core">
+         <FileRef
+            location = "group:core.swift">
+         </FileRef>
+      </Group>
+      <Group
+         location = "group:core_tests"
+         name = "core_tests">
+         <FileRef
+            location = "group:core_tests.swift">
+         </FileRef>
+      </Group>
+      <FileRef
+         location = "group:core.xcodeproj">
+      </FileRef>
+   </Group>
+</Workspace>
