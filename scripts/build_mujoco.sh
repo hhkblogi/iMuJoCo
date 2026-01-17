@@ -19,20 +19,20 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 log_info() {
-    echo "[INFO] $1" >&2
+    echo "${GREEN}[INFO]${NC} $1" >&2
 }
 
 log_warn() {
-    echo "[WARN] $1" >&2
+    echo "${YELLOW}[WARN]${NC} $1" >&2
 }
 
 log_error() {
-    echo "[ERROR] $1" >&2
+    echo "${RED}[ERROR]${NC} $1" >&2
 }
 
 log_progress() {
     # This shows in Xcode's build log
-    echo "[MuJoCo Build] $1" >&2
+    echo "${GREEN}[MuJoCo Build]${NC} $1" >&2
 }
 
 # Check prerequisites
