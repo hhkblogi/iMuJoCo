@@ -6,6 +6,22 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXAggregateTarget section */
+		56C229922F1BC53D0083660B /* mujoco-build */ = {
+			isa = PBXAggregateTarget;
+			buildConfigurationList = 56C229952F1BC53D0083660B /* Build configuration list for PBXAggregateTarget "mujoco-build" */;
+			buildPhases = (
+				56C229962F1BC57F0083660B /* ShellScript */,
+			);
+			dependencies = (
+			);
+			name = "mujoco-build";
+			packageProductDependencies = (
+			);
+			productName = "mujoco-build";
+		};
+/* End PBXAggregateTarget section */
+
 /* Begin PBXBuildFile section */
 		56C2293F2F1B87760083660B /* core.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 56C229352F1B87760083660B /* core.framework */; };
 /* End PBXBuildFile section */
@@ -141,6 +157,9 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
+				KnownAssetTags = (
+					New,
+				);
 				LastSwiftUpdateCheck = 2620;
 				LastUpgradeCheck = 2620;
 				TargetAttributes = {
@@ -148,6 +167,9 @@
 						CreatedOnToolsVersion = 26.2;
 					};
 					56C2293D2F1B87760083660B = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					56C229922F1BC53D0083660B = {
 						CreatedOnToolsVersion = 26.2;
 					};
 				};
@@ -168,6 +190,7 @@
 			targets = (
 				56C229342F1B87760083660B /* core */,
 				56C2293D2F1B87760083660B /* coreTests */,
+				56C229922F1BC53D0083660B /* mujoco-build */,
 			);
 		};
 /* End PBXProject section */
@@ -188,6 +211,27 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		56C229962F1BC57F0083660B /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Type a script or drag a script file from your workspace to insert its path.\n\"$(dirname \"${WORKSPACE_PATH}\")/../scripts/build_mujoco.sh\" xcode\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		56C229312F1B87760083660B /* Sources */ = {
@@ -485,6 +529,24 @@
 			};
 			name = Release;
 		};
+		56C229932F1BC53D0083660B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = GJ6VBRTZLY;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Debug;
+		};
+		56C229942F1BC53D0083660B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = GJ6VBRTZLY;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -511,6 +573,15 @@
 			buildConfigurations = (
 				56C2294B2F1B87760083660B /* Debug */,
 				56C2294C2F1B87760083660B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		56C229952F1BC53D0083660B /* Build configuration list for PBXAggregateTarget "mujoco-build" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				56C229932F1BC53D0083660B /* Debug */,
+				56C229942F1BC53D0083660B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
