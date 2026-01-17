@@ -1,7 +1,7 @@
 {
   "images" : [
     {
-      "filename" : "AppIcon1024x1024.png",
+      "filename" : "imujoco-ios-icon-1024x1024-v1.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -13,7 +13,7 @@
           "value" : "dark"
         }
       ],
-      "filename" : "AppIcon1024x1024 1.png",
+      "filename" : "imujoco-ios-icon-1024x1024-v1-dark.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
@@ -25,7 +25,7 @@
           "value" : "tinted"
         }
       ],
-      "filename" : "AppIcon1024x1024 2.png",
+      "filename" : "imujoco-ios-icon-1024x1024-v1-tinted.png",
       "idiom" : "universal",
       "platform" : "ios",
       "size" : "1024x1024"
