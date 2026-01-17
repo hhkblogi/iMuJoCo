@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct appApp: App {
+struct MuJoCoApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
