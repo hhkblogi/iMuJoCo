@@ -39,6 +39,7 @@ fi
 # Colors
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
+RED='\033[0;31m'
 NC='\033[0m'
 
 log_info() {
@@ -47,6 +48,10 @@ log_info() {
 
 log_warn() {
     echo "${YELLOW}[WARN]${NC} $1"
+}
+
+log_error() {
+    echo "${RED}[ERROR]${NC} $1"
 }
 
 # Build MuJoCo for a specific platform
@@ -151,9 +156,16 @@ create_dynamic_framework() {
     if [[ -f "${DYLIB_PATH}" ]]; then
         cp "${DYLIB_PATH}" "${FRAMEWORK_PATH}/mujoco"
     else
-        # Fallback: look for libmujoco.dylib
+        # Fallback: look for libmujoco.dylib in alternative locations
         cp "${BUILD_DIR}/${PLATFORM}/libmujoco.dylib" "${FRAMEWORK_PATH}/mujoco" 2>/dev/null || \
-        cp "${BUILD_DIR}/${PLATFORM}/mujoco.framework/Versions/A/mujoco" "${FRAMEWORK_PATH}/mujoco"
+        cp "${BUILD_DIR}/${PLATFORM}/mujoco.framework/Versions/A/mujoco" "${FRAMEWORK_PATH}/mujoco" 2>/dev/null || true
+    fi
+
+    # Verify dylib was copied successfully
+    if [[ ! -f "${FRAMEWORK_PATH}/mujoco" ]]; then
+        log_error "Failed to locate MuJoCo dylib for ${PLATFORM}"
+        log_error "Expected at: ${DYLIB_PATH}"
+        exit 1
     fi
 
     # Fix install name

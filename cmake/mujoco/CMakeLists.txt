@@ -357,13 +357,19 @@ target_include_directories(mujoco PUBLIC
 # Print Configuration
 # =============================================================================
 
+if(BUILD_SHARED_MUJOCO)
+    set(MUJOCO_LIBRARY_TYPE "SHARED")
+else()
+    set(MUJOCO_LIBRARY_TYPE "STATIC")
+endif()
+
 message(STATUS "")
 message(STATUS "MuJoCo ${MUJOCO_PLATFORM} Build Configuration:")
 message(STATUS "  Platform: ${MUJOCO_PLATFORM}")
 message(STATUS "  System: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "  Deployment Target: ${CMAKE_OSX_DEPLOYMENT_TARGET}")
 message(STATUS "  Architecture: ${CMAKE_OSX_ARCHITECTURES}")
-message(STATUS "  Library Type: $<IF:$<BOOL:${BUILD_SHARED_MUJOCO}>,SHARED,STATIC>")
+message(STATUS "  Library Type: ${MUJOCO_LIBRARY_TYPE}")
 message(STATUS "  MuJoCo Root: ${MUJOCO_ROOT}")
 message(STATUS "  Output: ${PROJECT_ROOT}/build/mujoco/${MUJOCO_PLATFORM}/${MUJOCO_OUTPUT_NAME}")
 message(STATUS "")
