@@ -54,8 +54,7 @@ iMuJoCo/
 │       └── macos.toolchain.cmake
 │
 ├── scripts/                        # Build automation
-│   ├── build_mujoco.sh             # Build MuJoCo for all platforms
-│   └── build_all.sh                # Build all dependencies
+│   └── build_mujoco_xcframework.sh # Build MuJoCo XCFramework for all platforms
 │
 └── imujoco.xcworkspace/            # Xcode workspace (all projects)
 ```
@@ -116,30 +115,27 @@ git config core.hooksPath .githooks
 
 ### Build
 
-**Option A: Via Xcode (recommended)**
+**Step 1: Build MuJoCo XCFramework**
 
-Open `imujoco.xcworkspace` and build (Cmd+B).
-MuJoCo builds automatically via the Aggregate target dependency.
+```bash
+# Build MuJoCo dynamic XCFramework (includes all platforms: macOS, iOS, tvOS)
+./scripts/build_mujoco_xcframework.sh
+
+# Or build static version (optional)
+./scripts/build_mujoco_xcframework.sh --static
+```
+
+This creates `build/frameworks/mujoco.xcframework` - a dynamic framework with all dependencies bundled inside.
+
+**Step 2: Open and Build in Xcode**
 
 ```bash
 open imujoco.xcworkspace
 ```
 
-**Option B: Manual (CI/CD or command line)**
+Build the project (Cmd+B). The `core` framework links against the MuJoCo XCFramework via `MuJoCoFramework.xcconfig`.
 
-```bash
-# Build for specific platform
-./scripts/build_mujoco.sh ios        # Build for iOS
-./scripts/build_mujoco.sh tvos       # Build for tvOS
-./scripts/build_mujoco.sh macos      # Build for macOS
-
-# Build all platforms
-./scripts/build_mujoco.sh all        # Build all platforms
-./scripts/build_mujoco.sh force-all  # Clean and rebuild all
-
-# Clean build directory
-./scripts/build_mujoco.sh clean
-```
+**Note:** For apps using the `core` framework, add `mujoco.xcframework` to "Frameworks, Libraries, and Embedded Content" with **Embed & Sign**.
 
 ## License
 
