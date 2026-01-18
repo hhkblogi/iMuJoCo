@@ -1,0 +1,11 @@
+#!/bin/bash
+# Pre-commit hook: Strip DEVELOPMENT_TEAM from pbxproj files
+# This prevents accidental commits of personal team IDs
+
+for pbxproj in $(git diff --cached --name-only | grep '\.pbxproj$'); do
+    if grep -q 'DEVELOPMENT_TEAM = ' "$pbxproj"; then
+        echo "Stripping DEVELOPMENT_TEAM from $pbxproj"
+        sed -i '' '/DEVELOPMENT_TEAM = /d' "$pbxproj"
+        git add "$pbxproj"
+    fi
+done
