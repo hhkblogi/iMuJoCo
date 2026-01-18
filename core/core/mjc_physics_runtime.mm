@@ -1,4 +1,4 @@
-// MJPhysicsRuntime.mm
+// mjc_physics_runtime.mm
 // C++ implementation of MuJoCo physics simulation runtime
 // Uses lock-free ring buffer with C++20 atomic wait/notify for lowest latency
 
@@ -27,10 +27,13 @@ namespace {
 constexpr int kRingBufferSize = 3;      // Triple buffering
 constexpr int kMaxGeoms = 10000;        // Maximum geoms per frame
 constexpr int kErrorLength = 1024;      // Error buffer size
+constexpr size_t kMaxUDPPacketSize = 65535;  // Maximum UDP datagram size
+constexpr int kMaxPacketsPerLoop = 100;      // Max UDP packets to process per physics step (prevents infinite loop)
+constexpr int kMaxActuators = 256;           // Maximum actuators for control buffer
 
 // Physics timing constants
-constexpr double kSyncMisalign = 0.1;
-constexpr double kSimRefreshFraction = 0.7;
+constexpr double kSyncMisalign = 0.1;          // Maximum acceptable drift between CPU and simulation time (seconds)
+constexpr double kSimRefreshFraction = 0.7;   // Fraction of timestep to refresh simulation
 
 using Clock = std::chrono::steady_clock;
 using Seconds = std::chrono::duration<double>;
@@ -99,13 +102,13 @@ public:
 
     // Physics thread: publish written frame
     void EndWrite() {
-        int idx = write_index_.load(std::memory_order_relaxed);
+        int idx = write_index_.load(std::memory_order_acquire);
 
         // Update read index to point to this buffer (latest complete frame)
         read_index_.store(idx, std::memory_order_release);
 
         // Move write index to next buffer
-        write_index_.store((idx + 1) % kRingBufferSize, std::memory_order_relaxed);
+        write_index_.store((idx + 1) % kRingBufferSize, std::memory_order_release);
 
         // Increment frame count and notify waiters
         frame_count_.fetch_add(1, std::memory_order_release);
@@ -129,10 +132,13 @@ public:
         return frame_count_.load(std::memory_order_acquire);
     }
 
-    // Signal exit to unblock waiters
+    // Signal exit to unblock waiters (idempotent - safe to call multiple times)
     void SignalExit() {
-        frame_count_.fetch_add(1, std::memory_order_release);
-        frame_count_.notify_all();
+        bool expected = false;
+        if (exit_signaled_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+            frame_count_.fetch_add(1, std::memory_order_release);
+            frame_count_.notify_all();
+        }
     }
 
 private:
@@ -141,6 +147,7 @@ private:
     alignas(64) std::atomic<int> write_index_;    // Cache line aligned
     alignas(64) std::atomic<int> read_index_;     // Cache line aligned
     alignas(64) std::atomic<uint64_t> frame_count_;  // For wait/notify
+    std::atomic<bool> exit_signaled_{false};      // Ensures SignalExit is idempotent
 };
 
 // MARK: - UDP Packet Structures
@@ -237,7 +244,7 @@ public:
     int ReceiveControl(double* ctrl_out, int max_ctrl) {
         if (socket_fd_ < 0) return -1;
 
-        uint8_t buffer[65535];
+        uint8_t buffer[kMaxUDPPacketSize];
         struct sockaddr_in client_addr;
         socklen_t addr_len = sizeof(client_addr);
 
@@ -253,7 +260,8 @@ public:
 
         // Validate minimum header size
         if (recv_len < (ssize_t)sizeof(ControlPacket)) {
-            printf("[UDPServer] Packet too small for header\n");
+            printf("[UDPServer] Packet too small: expected at least %zu bytes for header, got %zd\n",
+                   sizeof(ControlPacket), recv_len);
             return -1;
         }
 
@@ -278,10 +286,17 @@ public:
         // Packet with no controls is valid (just a "tick" request)
         if (nu <= 0) return 0;
 
+        // Validate nu is within reasonable range to prevent integer overflow
+        if (nu > kMaxActuators) {
+            printf("[UDPServer] Invalid nu=%d exceeds max %d\n", nu, kMaxActuators);
+            return -1;
+        }
+
         // Validate packet size
         size_t expected_size = sizeof(ControlPacket) + nu * sizeof(double);
         if ((size_t)recv_len < expected_size) {
-            printf("[UDPServer] Packet too small for %d controls\n", nu);
+            printf("[UDPServer] Packet too small for %d controls: received %zd bytes, expected %zu bytes\n",
+                   nu, recv_len, expected_size);
             return -1;
         }
 
@@ -312,8 +327,9 @@ public:
         size_t data_size = (nq + nv + nu + nsensordata) * sizeof(double);
         size_t packet_size = sizeof(StatePacketHeader) + data_size;
 
-        // Allocate buffer (could use static buffer for better performance)
-        std::vector<uint8_t> buffer(packet_size);
+        // Reuse thread_local buffer to avoid repeated allocations
+        static thread_local std::vector<uint8_t> buffer;
+        buffer.resize(packet_size);
 
         // Fill header
         StatePacketHeader* header = reinterpret_cast<StatePacketHeader*>(buffer.data());
@@ -586,7 +602,9 @@ public:
     }
 
     void Reset() {
-        // Safe to call while running - physics loop will see the reset
+        // WARNING: Not thread-safe if called while physics is running.
+        // For safety, call Pause() first, then Reset(), then Start().
+        // TODO: Add proper synchronization in future iteration.
         if (model_ && data_) {
             if (model_->nkey > 0) {
                 mj_resetDataKeyframe(model_, data_, 0);
@@ -716,7 +734,7 @@ private:
         constexpr double kFrameWriteInterval = 1.0 / kTargetFrameWriteHz;
 
         // Temporary buffer for receiving control values
-        std::vector<double> ctrl_buffer(256);  // Max 256 actuators
+        std::vector<double> ctrl_buffer(kMaxActuators);
 
         while (!exit_requested_ && state_ == MJRuntimeStateRunning) {
             if (busy_wait_) {
@@ -732,10 +750,9 @@ private:
             bool did_udp_step = false;
             if (udp_server_.IsActive()) {
                 int nu = model_->nu;
-                int max_packets = 100;  // Limit to prevent infinite loop
                 int packets_processed = 0;
 
-                while (packets_processed < max_packets) {
+                while (packets_processed < kMaxPacketsPerLoop) {
                     // Receive control packet - pass max buffer size, not model's nu
                     // This way we can receive packets even if model has no actuators
                     int received = udp_server_.ReceiveControl(ctrl_buffer.data(),

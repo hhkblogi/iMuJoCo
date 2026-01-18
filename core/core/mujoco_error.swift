@@ -1,4 +1,4 @@
-// MuJoCoWrapper.swift
+// mujoco_error.swift
 // MuJoCo error types
 
 import Foundation

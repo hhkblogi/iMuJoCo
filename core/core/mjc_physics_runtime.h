@@ -1,9 +1,9 @@
-// MJPhysicsRuntime.h
+// mjc_physics_runtime.h
 // C interface for MuJoCo physics simulation runtime
 // Uses lock-free ring buffer with C++20 atomic wait/notify for lowest latency
 
-#ifndef MJPhysicsRuntime_h
-#define MJPhysicsRuntime_h
+#ifndef mjc_physics_runtime_h
+#define mjc_physics_runtime_h
 
 #include <mujoco/mujoco.h>
 #include <stdbool.h>
@@ -207,4 +207,4 @@ double mj_runtime_get_realtime_factor(MJRuntimeHandle handle);
 }
 #endif
 
-#endif /* MJPhysicsRuntime_h */
+#endif /* mjc_physics_runtime_h */

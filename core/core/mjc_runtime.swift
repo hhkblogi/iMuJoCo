@@ -1,5 +1,5 @@
-// MJRuntime.swift
-// Swift wrapper for MJPhysicsRuntime C interface
+// mjc_runtime.swift
+// Swift wrapper for MJCPhysicsRuntime C interface
 
 import Foundation
 import MJCPhysicsRuntime
@@ -60,8 +60,14 @@ enum MJRuntimeError: Error, LocalizedError {
 
 // MARK: - MJRuntime
 
-/// Swift wrapper for MuJoCo Physics Runtime
-/// Provides thread-safe simulation with proper CPU-simulation time synchronization
+/// Swift wrapper for MuJoCo Physics Runtime.
+/// Provides simulation with proper CPU-simulation time synchronization.
+///
+/// Thread Safety Notes:
+/// - The ring buffer API (latestFrame, waitForFrame, frameCount) is lock-free and thread-safe.
+/// - Control methods (start, pause, reset, step) should be called from a single thread.
+/// - Camera/option pointers are only valid during controlled access periods.
+/// - For safe reset: call pause(), then reset(), then start().
 final class MJRuntime: @unchecked Sendable {
     private let handle: MJRuntimeHandle
 
@@ -190,40 +196,46 @@ final class MJRuntime: @unchecked Sendable {
         stats.packetsSent
     }
 
-    // MARK: - Thread-Safe Scene Access
+    // MARK: - Scene Access
+    // NOTE: With lock-free ring buffer, these methods are for compatibility.
+    // Prefer using latestFrame/waitForFrame for thread-safe frame access.
 
-    /// Lock the simulation mutex for safe access to scene data
+    /// Lock placeholder (no-op with current lock-free implementation).
+    /// Retained for API compatibility; does not provide synchronization.
     func lock() {
         mj_runtime_lock(handle)
     }
 
-    /// Unlock the simulation mutex
+    /// Unlock placeholder (no-op with current lock-free implementation).
     func unlock() {
         mj_runtime_unlock(handle)
     }
 
-    /// Update the visualization scene with current simulation state
-    /// Call this while holding the lock
+    /// Update the visualization scene with current simulation state.
     func updateScene() {
         mj_runtime_update_scene(handle)
     }
 
-    /// Get pointer to mjvScene for rendering (only valid while locked)
+    /// Get pointer to mjvScene for rendering.
+    /// WARNING: Not thread-safe while physics is running. Use latestFrame instead.
     var scenePointer: UnsafePointer<mjvScene>? {
         mj_runtime_get_scene(handle)
     }
 
-    /// Get pointer to mjvCamera (only valid while locked)
+    /// Get pointer to mjvCamera.
+    /// WARNING: Not thread-safe while physics is running.
     var cameraPointer: UnsafeMutablePointer<mjvCamera>? {
         mj_runtime_get_camera(handle)
     }
 
-    /// Get pointer to mjvOption (only valid while locked)
+    /// Get pointer to mjvOption.
+    /// WARNING: Not thread-safe while physics is running.
     var optionPointer: UnsafeMutablePointer<mjvOption>? {
         mj_runtime_get_option(handle)
     }
 
-    /// Execute a closure while holding the lock
+    /// Execute a closure (lock/unlock are no-ops with lock-free implementation).
+    /// NOTE: This does NOT provide thread synchronization. Use for API compatibility only.
     func withLock<T>(_ body: () throws -> T) rethrows -> T {
         lock()
         defer { unlock() }
@@ -283,9 +295,10 @@ final class MJRuntime: @unchecked Sendable {
         mj_runtime_get_latest_frame(handle)
     }
 
-    /// Wait for a new frame from the physics thread (blocking)
-    /// Use this when you want to synchronize render with physics
-    /// The stored lastFrameCount should be passed and will be updated
+    /// Wait for a new frame from the physics thread (blocking).
+    /// Use this when you want to synchronize rendering with physics.
+    /// The runtime internally tracks the last delivered frame, blocking
+    /// until a strictly newer frame is available.
     func waitForFrame() -> UnsafePointer<MJFrameData>? {
         mj_runtime_wait_for_frame(handle)
     }
