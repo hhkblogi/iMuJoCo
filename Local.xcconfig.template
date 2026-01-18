@@ -1,4 +1,0 @@
-// Local build settings - copy to Local.xcconfig and fill in your values
-// This file is gitignored
-
-DEVELOPMENT_TEAM = YOUR_TEAM_ID_HERE
