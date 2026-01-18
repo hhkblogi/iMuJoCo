@@ -27,5 +27,12 @@ FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*] = $(inherited) $(MUJOCO_XCFRAMEWORK
 FRAMEWORK_SEARCH_PATHS[sdk=appletvos*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/tvos-arm64
 FRAMEWORK_SEARCH_PATHS[sdk=appletvsimulator*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/tvos-arm64_x86_64-simulator
 
+// Runtime library search paths for tests (platform-specific paths inside xcframework)
+LD_RUNPATH_SEARCH_PATHS[sdk=macosx*] = $(inherited) @executable_path/../Frameworks @loader_path/../Frameworks $(MUJOCO_XCFRAMEWORK)/macos-arm64
+LD_RUNPATH_SEARCH_PATHS[sdk=iphoneos*] = $(inherited) @executable_path/Frameworks @loader_path/Frameworks $(MUJOCO_XCFRAMEWORK)/ios-arm64
+LD_RUNPATH_SEARCH_PATHS[sdk=iphonesimulator*] = $(inherited) @executable_path/Frameworks @loader_path/Frameworks $(MUJOCO_XCFRAMEWORK)/ios-arm64
+LD_RUNPATH_SEARCH_PATHS[sdk=appletvos*] = $(inherited) @executable_path/Frameworks @loader_path/Frameworks $(MUJOCO_XCFRAMEWORK)/tvos-arm64
+LD_RUNPATH_SEARCH_PATHS[sdk=appletvsimulator*] = $(inherited) @executable_path/Frameworks @loader_path/Frameworks $(MUJOCO_XCFRAMEWORK)/tvos-arm64
+
 // Link MuJoCo framework and C++ standard library
 OTHER_LDFLAGS = $(inherited) -framework mujoco -lc++
