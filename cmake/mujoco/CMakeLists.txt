@@ -13,6 +13,7 @@ set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 option(BUILD_IOS "Build for iOS" OFF)
 option(BUILD_TVOS "Build for tvOS" OFF)
 option(BUILD_MACOS "Build for macOS" OFF)
+option(BUILD_SHARED_MUJOCO "Build MuJoCo as shared library (dylib)" OFF)
 
 if(BUILD_IOS)
     set(CMAKE_SYSTEM_NAME iOS)
@@ -276,38 +277,91 @@ set(THREAD_SOURCES
 )
 
 # =============================================================================
-# MuJoCo Static Library
+# MuJoCo Library (Static or Shared)
 # =============================================================================
 
-add_library(mujoco STATIC
-    ${ENGINE_SOURCES}
-    ${USER_SOURCES}
-    ${XML_SOURCES}
-    ${THREAD_SOURCES}
-)
+if(BUILD_SHARED_MUJOCO)
+    add_library(mujoco SHARED
+        ${ENGINE_SOURCES}
+        ${USER_SOURCES}
+        ${XML_SOURCES}
+        ${THREAD_SOURCES}
+    )
+
+    # For shared library, link dependencies statically (they get embedded)
+    target_link_libraries(mujoco
+        PRIVATE
+        ccd
+        lodepng
+        qhullstatic_r
+        tinyobjloader
+        tinyxml2
+    )
+
+    # Shared library settings
+    set_target_properties(mujoco PROPERTIES
+        # Output location
+        LIBRARY_OUTPUT_DIRECTORY "${PROJECT_ROOT}/build/mujoco/${MUJOCO_PLATFORM}"
+        # macOS/iOS framework settings
+        FRAMEWORK TRUE
+        FRAMEWORK_VERSION A
+        MACOSX_FRAMEWORK_IDENTIFIER org.mujoco.mujoco
+        MACOSX_FRAMEWORK_BUNDLE_VERSION 3.4.0
+        MACOSX_FRAMEWORK_SHORT_VERSION_STRING 3.4.0
+        # Install name for proper linking
+        INSTALL_NAME_DIR "@rpath"
+        BUILD_WITH_INSTALL_RPATH TRUE
+        # Export all public symbols
+        C_VISIBILITY_PRESET default
+        CXX_VISIBILITY_PRESET default
+        VISIBILITY_INLINES_HIDDEN OFF
+    )
+
+    # Copy headers into framework
+    set_target_properties(mujoco PROPERTIES
+        PUBLIC_HEADER "${MUJOCO_INCLUDE}/mujoco/mujoco.h"
+    )
+
+    set(MUJOCO_OUTPUT_NAME "libmujoco.dylib")
+else()
+    add_library(mujoco STATIC
+        ${ENGINE_SOURCES}
+        ${USER_SOURCES}
+        ${XML_SOURCES}
+        ${THREAD_SOURCES}
+    )
+
+    target_link_libraries(mujoco
+        PRIVATE
+        ccd
+        lodepng
+        qhullstatic_r
+        tinyobjloader
+        tinyxml2
+    )
+
+    # Set output directory
+    set_target_properties(mujoco PROPERTIES
+        ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_ROOT}/build/mujoco/${MUJOCO_PLATFORM}"
+    )
+
+    set(MUJOCO_OUTPUT_NAME "libmujoco.a")
+endif()
 
 target_include_directories(mujoco PUBLIC
     ${MUJOCO_INCLUDE}
     ${MUJOCO_SRC}
 )
 
-target_link_libraries(mujoco
-    PRIVATE
-    ccd
-    lodepng
-    qhullstatic_r
-    tinyobjloader
-    tinyxml2
-)
-
-# Set output directory
-set_target_properties(mujoco PROPERTIES
-    ARCHIVE_OUTPUT_DIRECTORY "${PROJECT_ROOT}/build/mujoco/${MUJOCO_PLATFORM}"
-)
-
 # =============================================================================
 # Print Configuration
 # =============================================================================
+
+if(BUILD_SHARED_MUJOCO)
+    set(MUJOCO_LIBRARY_TYPE "SHARED")
+else()
+    set(MUJOCO_LIBRARY_TYPE "STATIC")
+endif()
 
 message(STATUS "")
 message(STATUS "MuJoCo ${MUJOCO_PLATFORM} Build Configuration:")
@@ -315,6 +369,7 @@ message(STATUS "  Platform: ${MUJOCO_PLATFORM}")
 message(STATUS "  System: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "  Deployment Target: ${CMAKE_OSX_DEPLOYMENT_TARGET}")
 message(STATUS "  Architecture: ${CMAKE_OSX_ARCHITECTURES}")
+message(STATUS "  Library Type: ${MUJOCO_LIBRARY_TYPE}")
 message(STATUS "  MuJoCo Root: ${MUJOCO_ROOT}")
-message(STATUS "  Output: ${PROJECT_ROOT}/build/mujoco/${MUJOCO_PLATFORM}/libmujoco.a")
+message(STATUS "  Output: ${PROJECT_ROOT}/build/mujoco/${MUJOCO_PLATFORM}/${MUJOCO_OUTPUT_NAME}")
 message(STATUS "")

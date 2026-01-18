@@ -1,0 +1,4 @@
+// Core framework build configuration
+
+// Include MuJoCo framework settings
+#include "../third_party/MuJoCoFramework.xcconfig"
