@@ -137,6 +137,12 @@ Build the project (Cmd+B). The `core` framework links against the MuJoCo XCFrame
 
 **Note:** For apps using the `core` framework, add `mujoco.xcframework` to "Frameworks, Libraries, and Embedded Content" with **Embed & Sign**.
 
+## Development Notes
+
+### Future Refinements
+
+- **Swift wrapper necessity**: `mjc_runtime.swift` wraps the C interface for Swift-idiomatic API (properties, throws, deinit). However, Swift can call C directly via the `MJCPhysicsRuntime` module. Consider whether the wrapper adds enough value or if direct C calls would be leaner.
+
 ## License
 
 Apache License 2.0 - see [LICENSE](LICENSE) for details.

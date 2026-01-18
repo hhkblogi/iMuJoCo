@@ -1,0 +1,4 @@
+module MJCPhysicsRuntime {
+    header "mjc_physics_runtime.h"
+    export *
+}

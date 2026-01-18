@@ -34,5 +34,5 @@ LD_RUNPATH_SEARCH_PATHS[sdk=iphonesimulator*] = $(inherited) @executable_path/Fr
 LD_RUNPATH_SEARCH_PATHS[sdk=appletvos*] = $(inherited) @executable_path/Frameworks @loader_path/Frameworks $(MUJOCO_XCFRAMEWORK)/tvos-arm64
 LD_RUNPATH_SEARCH_PATHS[sdk=appletvsimulator*] = $(inherited) @executable_path/Frameworks @loader_path/Frameworks $(MUJOCO_XCFRAMEWORK)/tvos-arm64
 
-// Link MuJoCo framework and C++ standard library
-OTHER_LDFLAGS = $(inherited) -framework mujoco -lc++
+// Link MuJoCo framework (libc++ is auto-linked for Objective-C++ sources)
+OTHER_LDFLAGS = $(inherited) -framework mujoco

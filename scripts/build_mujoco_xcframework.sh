@@ -157,8 +157,17 @@ create_dynamic_framework() {
         cp "${DYLIB_PATH}" "${FRAMEWORK_PATH}/mujoco"
     else
         # Fallback: look for libmujoco.dylib in alternative locations
-        cp "${BUILD_DIR}/${PLATFORM}/libmujoco.dylib" "${FRAMEWORK_PATH}/mujoco" 2>/dev/null || \
-        cp "${BUILD_DIR}/${PLATFORM}/mujoco.framework/Versions/A/mujoco" "${FRAMEWORK_PATH}/mujoco" 2>/dev/null || true
+        log_warn "Primary dylib not found at ${DYLIB_PATH}, trying fallback locations..."
+        local FALLBACK1="${BUILD_DIR}/${PLATFORM}/libmujoco.dylib"
+        local FALLBACK2="${BUILD_DIR}/${PLATFORM}/mujoco.framework/Versions/A/mujoco"
+
+        if [[ -f "${FALLBACK1}" ]]; then
+            log_info "Using fallback: ${FALLBACK1}"
+            cp "${FALLBACK1}" "${FRAMEWORK_PATH}/mujoco"
+        elif [[ -f "${FALLBACK2}" ]]; then
+            log_info "Using fallback: ${FALLBACK2}"
+            cp "${FALLBACK2}" "${FRAMEWORK_PATH}/mujoco"
+        fi
     fi
 
     # Verify dylib was copied successfully
