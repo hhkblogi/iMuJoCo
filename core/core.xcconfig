@@ -2,3 +2,9 @@
 
 // Include MuJoCo framework settings
 #include "../third_party/MuJoCoFramework.xcconfig"
+
+// Swift-C++ interop: import path for MJPhysicsRuntime module
+SWIFT_INCLUDE_PATHS = $(inherited) $(PROJECT_DIR)/core
+
+// Enable Clang modules for C/C++ headers
+CLANG_ENABLE_MODULES = YES
