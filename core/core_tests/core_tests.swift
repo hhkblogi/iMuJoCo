@@ -91,5 +91,69 @@ struct MJRuntimeTests {
         #expect(runtime.simulationTime < 0.1) // Should be near zero after reset
     }
 
+    @Test func test_runtime_ring_buffer_api() async throws {
+        // Test lock-free ring buffer access
+        let runtime = try MJRuntime(instanceIndex: 4)
+
+        let simpleModel = """
+        <mujoco>
+          <worldbody>
+            <body name="box">
+              <geom type="box" size="0.1 0.1 0.1"/>
+            </body>
+          </worldbody>
+        </mujoco>
+        """
+
+        try runtime.loadModel(fromXML: simpleModel)
+
+        // Before starting, latestFrame may be nil or have initial data
+        let initialFrameCount = runtime.frameCount
+
+        runtime.start()
+        // Wait for physics to produce frames
+        try await Task.sleep(for: .milliseconds(100))
+
+        // frameCount should have increased
+        #expect(runtime.frameCount > initialFrameCount)
+
+        // latestFrame should return valid data
+        let frame = runtime.latestFrame
+        #expect(frame != nil)
+
+        runtime.pause()
+    }
+
+    @Test func test_runtime_camera_control() async throws {
+        // Test camera control methods
+        let runtime = try MJRuntime(instanceIndex: 5)
+
+        let simpleModel = """
+        <mujoco>
+          <worldbody>
+            <body name="box">
+              <geom type="box" size="0.1 0.1 0.1"/>
+            </body>
+          </worldbody>
+        </mujoco>
+        """
+
+        try runtime.loadModel(fromXML: simpleModel)
+
+        // Test camera setters
+        runtime.cameraAzimuth = 45.0
+        runtime.cameraElevation = -30.0
+        runtime.cameraDistance = 5.0
+        runtime.setCameraLookat(x: 1.0, y: 2.0, z: 0.5)
+
+        // Verify values were set
+        #expect(abs(runtime.cameraAzimuth - 45.0) < 0.01)
+        #expect(abs(runtime.cameraElevation - (-30.0)) < 0.01)
+        #expect(abs(runtime.cameraDistance - 5.0) < 0.01)
+
+        // Test reset
+        runtime.resetCamera()
+    }
+
 }
 

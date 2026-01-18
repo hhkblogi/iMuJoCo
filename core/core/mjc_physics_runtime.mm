@@ -102,13 +102,14 @@ public:
 
     // Physics thread: publish written frame
     void EndWrite() {
-        int idx = write_index_.load(std::memory_order_acquire);
+        // Relaxed is fine here - physics thread owns write_index
+        int idx = write_index_.load(std::memory_order_relaxed);
 
         // Update read index to point to this buffer (latest complete frame)
         read_index_.store(idx, std::memory_order_release);
 
-        // Move write index to next buffer
-        write_index_.store((idx + 1) % kRingBufferSize, std::memory_order_release);
+        // Move write index to next buffer (relaxed - only physics thread writes)
+        write_index_.store((idx + 1) % kRingBufferSize, std::memory_order_relaxed);
 
         // Increment frame count and notify waiters
         frame_count_.fetch_add(1, std::memory_order_release);
@@ -116,9 +117,14 @@ public:
     }
 
     // Render thread: wait for new frame (blocking)
+    // Returns nullptr if exit was signaled (shutdown)
     const FrameData* WaitForFrame(uint64_t last_frame) {
         // Wait until frame_count changes
         frame_count_.wait(last_frame, std::memory_order_acquire);
+        // Check if we were woken due to exit signal
+        if (exit_signaled_.load(std::memory_order_acquire)) {
+            return nullptr;
+        }
         return &buffers_[read_index_.load(std::memory_order_acquire)];
     }
 
@@ -139,6 +145,11 @@ public:
             frame_count_.fetch_add(1, std::memory_order_release);
             frame_count_.notify_all();
         }
+    }
+
+    // Reset for restart (call before starting physics thread again)
+    void ResetForRestart() {
+        exit_signaled_.store(false, std::memory_order_release);
     }
 
 private:
@@ -286,9 +297,9 @@ public:
         // Packet with no controls is valid (just a "tick" request)
         if (nu <= 0) return 0;
 
-        // Validate nu is within reasonable range to prevent integer overflow
-        if (nu > kMaxActuators) {
-            printf("[UDPServer] Invalid nu=%d exceeds max %d\n", nu, kMaxActuators);
+        // Validate nu is within range (use max_ctrl from model, not fixed constant)
+        if (nu > max_ctrl) {
+            printf("[UDPServer] Invalid nu=%d exceeds model max_ctrl %d\n", nu, max_ctrl);
             return -1;
         }
 
@@ -405,8 +416,7 @@ public:
         , model_(nullptr)
         , data_(nullptr)
         , exit_requested_(false)
-        , speed_changed_(false)
-        , last_read_frame_(0) {
+        , speed_changed_(false) {
 
         printf("[MJRuntime] Creating instance %d (lock-free ring buffer, UDP port %d)\n",
                config.instanceIndex, udp_port_);
@@ -579,6 +589,7 @@ public:
         state_ = MJRuntimeStateRunning;
         exit_requested_ = false;
         speed_changed_ = true;
+        ring_buffer_.ResetForRestart();  // Allow waiters to receive frames again
 
         physics_thread_ = std::thread(&MJSimulationRuntime::physics_loop, this);
     }
@@ -643,10 +654,11 @@ public:
     // MARK: - Ring Buffer Access (for rendering)
 
     // Wait for new frame (blocks until physics produces one)
+    // Thread-safe: each thread tracks its own last-read frame
     const FrameData* WaitForFrame() {
-        uint64_t last = last_read_frame_;
-        const FrameData* frame = ring_buffer_.WaitForFrame(last);
-        last_read_frame_ = ring_buffer_.GetFrameCount();
+        thread_local uint64_t last_read_frame = 0;
+        const FrameData* frame = ring_buffer_.WaitForFrame(last_read_frame);
+        last_read_frame = ring_buffer_.GetFrameCount();
         return frame;
     }
 
@@ -823,7 +835,11 @@ private:
                         stepped = true;
                         step_count++;
 
-                        if (data_->time < prev_sim) break;
+                        if (data_->time < prev_sim) {
+                            printf("[MJRuntime] Warning: simulation time went backwards (reset detected), resyncing\n");
+                            speed_changed_ = true;  // Trigger resync
+                            break;
+                        }
                     }
                 }
 
@@ -907,13 +923,13 @@ private:
         frame->camera_lookat[1] = static_cast<float>(camera_.lookat[1]);
         frame->camera_lookat[2] = static_cast<float>(camera_.lookat[2]);
 
-        // Compute camera world position from spherical coordinates
-        float az_rad = static_cast<float>(camera_.azimuth * M_PI / 180.0);
-        float el_rad = static_cast<float>(camera_.elevation * M_PI / 180.0);
-        float dist = static_cast<float>(camera_.distance);
-        frame->camera_pos[0] = frame->camera_lookat[0] + dist * sinf(az_rad) * cosf(el_rad);
-        frame->camera_pos[1] = frame->camera_lookat[1] + dist * cosf(az_rad) * cosf(el_rad);
-        frame->camera_pos[2] = frame->camera_lookat[2] + dist * sinf(el_rad);
+        // Compute camera world position from spherical coordinates (double precision)
+        double az_rad = camera_.azimuth * M_PI / 180.0;
+        double el_rad = camera_.elevation * M_PI / 180.0;
+        double dist = camera_.distance;
+        frame->camera_pos[0] = static_cast<float>(camera_.lookat[0] + dist * sin(az_rad) * cos(el_rad));
+        frame->camera_pos[1] = static_cast<float>(camera_.lookat[1] + dist * cos(az_rad) * cos(el_rad));
+        frame->camera_pos[2] = static_cast<float>(camera_.lookat[2] + dist * sin(el_rad));
 
         // Timing
         frame->simulation_time = data_->time;
@@ -943,7 +959,6 @@ private:
 
     // Lock-free ring buffer for render data
     LockFreeRingBuffer ring_buffer_;
-    uint64_t last_read_frame_;
 
     // UDP server for network control
     UDPServer udp_server_;

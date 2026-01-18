@@ -63,12 +63,18 @@ enum MJRuntimeError: Error, LocalizedError {
 /// Swift wrapper for MuJoCo Physics Runtime.
 /// Provides simulation with proper CPU-simulation time synchronization.
 ///
-/// Thread Safety Notes:
-/// - The ring buffer API (latestFrame, waitForFrame, frameCount) is lock-free and thread-safe.
-/// - Control methods (start, pause, reset, step) should be called from a single thread.
-/// - Camera/option pointers are only valid during controlled access periods.
-/// - For safe reset: call pause(), then reset(), then start().
-final class MJRuntime: @unchecked Sendable {
+/// ## Thread Safety
+///
+/// **Thread-safe (can be called from any thread):**
+/// - `latestFrame`, `waitForFrame`, `frameCount` - lock-free ring buffer access
+///
+/// **Single-thread only (call from main thread or owner thread):**
+/// - `start()`, `pause()`, `reset()`, `step()` - control methods
+/// - Camera setters (`cameraAzimuth`, `cameraElevation`, etc.)
+/// - `loadModel()`, `unload()`
+///
+/// **Safe reset sequence:** `pause()` → `reset()` → `start()`
+final class MJRuntime {
     private let handle: MJRuntimeHandle
 
     // MARK: - Initialization

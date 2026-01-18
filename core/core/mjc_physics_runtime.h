@@ -128,7 +128,9 @@ void mj_runtime_start(MJRuntimeHandle handle);
 /// Pause the physics simulation
 void mj_runtime_pause(MJRuntimeHandle handle);
 
-/// Reset the simulation to initial state
+/// Reset the simulation to initial state.
+/// WARNING: Not thread-safe while simulation is running.
+/// Call mj_runtime_pause() first, then reset, then mj_runtime_start().
 void mj_runtime_reset(MJRuntimeHandle handle);
 
 /// Step the simulation manually (when paused)
@@ -191,6 +193,8 @@ const mjModel* mj_runtime_get_model(MJRuntimeHandle handle);
 const mjData* mj_runtime_get_data(MJRuntimeHandle handle);
 
 // MARK: - Camera Control
+// NOTE: Camera methods are not synchronized with physics thread.
+// For best results, call these when simulation is paused or from main thread only.
 
 void mj_runtime_set_camera_azimuth(MJRuntimeHandle handle, double azimuth);
 void mj_runtime_set_camera_elevation(MJRuntimeHandle handle, double elevation);
