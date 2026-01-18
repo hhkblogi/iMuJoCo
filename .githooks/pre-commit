@@ -1,0 +1,19 @@
+#!/bin/bash
+# Pre-commit hook: Strip DEVELOPMENT_TEAM from pbxproj files
+# This prevents accidental commits of personal team IDs
+
+# Use while read loop with null-terminated strings for safe filename handling
+while IFS= read -r -d '' pbxproj; do
+    if grep -q 'DEVELOPMENT_TEAM[[:space:]]*=' "$pbxproj"; then
+        echo "Stripping DEVELOPMENT_TEAM from $pbxproj"
+        # Cross-platform sed: use tmpfile instead of macOS-specific sed -i ''
+        tmpfile="$(mktemp)"
+        if sed '/DEVELOPMENT_TEAM[[:space:]]*=/d' "$pbxproj" > "$tmpfile" && mv "$tmpfile" "$pbxproj"; then
+            git add "$pbxproj"
+        else
+            echo "Error: failed to strip DEVELOPMENT_TEAM from $pbxproj" >&2
+            rm -f "$tmpfile"
+            exit 1
+        fi
+    fi
+done < <(git diff --cached --name-only -z -- '*.pbxproj')

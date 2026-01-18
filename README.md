@@ -106,6 +106,14 @@ git clone --recurse-submodules https://github.com/hhkblogi/iMuJoCo.git
 cd iMuJoCo
 ```
 
+### Setup Git Hooks
+
+Enable the pre-commit hook to prevent accidental commits of Apple Developer Team IDs:
+
+```bash
+git config core.hooksPath .githooks
+```
+
 ### Build
 
 **Option A: Via Xcode (recommended)**

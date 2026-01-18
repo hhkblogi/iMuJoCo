@@ -61,3 +61,6 @@ build/
 
 # debug information files
 *.dwo
+
+# Local settings (contains DEVELOPMENT_TEAM, etc.)
+Local.xcconfig
