@@ -973,7 +973,7 @@ private:
 
 extern "C" {
 
-MJRuntimeHandle mj_runtime_create(const MJRuntimeConfig* config) {
+MJRuntimeHandle mjc_runtime_create(const MJRuntimeConfig* config) {
     if (!config) return nullptr;
     try {
         return new MJSimulationRuntime(*config);
@@ -982,11 +982,11 @@ MJRuntimeHandle mj_runtime_create(const MJRuntimeConfig* config) {
     }
 }
 
-void mj_runtime_destroy(MJRuntimeHandle handle) {
+void mjc_runtime_destroy(MJRuntimeHandle handle) {
     delete static_cast<MJSimulationRuntime*>(handle);
 }
 
-bool mj_runtime_load_model(MJRuntimeHandle handle,
+bool mjc_runtime_load_model(MJRuntimeHandle handle,
                            const char* xmlPath,
                            char* errorBuffer,
                            int32_t errorBufferSize) {
@@ -994,7 +994,7 @@ bool mj_runtime_load_model(MJRuntimeHandle handle,
     return static_cast<MJSimulationRuntime*>(handle)->LoadModel(xmlPath, errorBuffer, errorBufferSize);
 }
 
-bool mj_runtime_load_model_xml(MJRuntimeHandle handle,
+bool mjc_runtime_load_model_xml(MJRuntimeHandle handle,
                                const char* xmlString,
                                char* errorBuffer,
                                int32_t errorBufferSize) {
@@ -1002,137 +1002,137 @@ bool mj_runtime_load_model_xml(MJRuntimeHandle handle,
     return static_cast<MJSimulationRuntime*>(handle)->LoadModelXML(xmlString, errorBuffer, errorBufferSize);
 }
 
-void mj_runtime_unload(MJRuntimeHandle handle) {
+void mjc_runtime_unload(MJRuntimeHandle handle) {
     if (handle) static_cast<MJSimulationRuntime*>(handle)->Unload();
 }
 
-void mj_runtime_start(MJRuntimeHandle handle) {
+void mjc_runtime_start(MJRuntimeHandle handle) {
     if (handle) static_cast<MJSimulationRuntime*>(handle)->Start();
 }
 
-void mj_runtime_pause(MJRuntimeHandle handle) {
+void mjc_runtime_pause(MJRuntimeHandle handle) {
     if (handle) static_cast<MJSimulationRuntime*>(handle)->Pause();
 }
 
-void mj_runtime_reset(MJRuntimeHandle handle) {
+void mjc_runtime_reset(MJRuntimeHandle handle) {
     if (handle) static_cast<MJSimulationRuntime*>(handle)->Reset();
 }
 
-void mj_runtime_step(MJRuntimeHandle handle) {
+void mjc_runtime_step(MJRuntimeHandle handle) {
     if (handle) static_cast<MJSimulationRuntime*>(handle)->Step();
 }
 
-MJRuntimeState mj_runtime_get_state(MJRuntimeHandle handle) {
+MJRuntimeState mjc_runtime_get_state(MJRuntimeHandle handle) {
     if (!handle) return MJRuntimeStateInactive;
     return static_cast<MJSimulationRuntime*>(handle)->GetState();
 }
 
-MJRuntimeStats mj_runtime_get_stats(MJRuntimeHandle handle) {
+MJRuntimeStats mjc_runtime_get_stats(MJRuntimeHandle handle) {
     if (!handle) return MJRuntimeStats{0, 1.0, 0.002, 0};
     return static_cast<MJSimulationRuntime*>(handle)->GetStats();
 }
 
 // Legacy scene access (for compatibility)
-void mj_runtime_lock(MJRuntimeHandle handle) {
+void mjc_runtime_lock(MJRuntimeHandle handle) {
     // No-op with ring buffer - kept for API compatibility
 }
 
-void mj_runtime_unlock(MJRuntimeHandle handle) {
+void mjc_runtime_unlock(MJRuntimeHandle handle) {
     // No-op with ring buffer - kept for API compatibility
 }
 
-void mj_runtime_update_scene(MJRuntimeHandle handle) {
+void mjc_runtime_update_scene(MJRuntimeHandle handle) {
     // No-op - scene is updated in ring buffer automatically
 }
 
-const mjvScene* mj_runtime_get_scene(MJRuntimeHandle handle) {
+const mjvScene* mjc_runtime_get_scene(MJRuntimeHandle handle) {
     if (!handle) return nullptr;
     return static_cast<MJSimulationRuntime*>(handle)->GetScene();
 }
 
-mjvCamera* mj_runtime_get_camera(MJRuntimeHandle handle) {
+mjvCamera* mjc_runtime_get_camera(MJRuntimeHandle handle) {
     if (!handle) return nullptr;
     return static_cast<MJSimulationRuntime*>(handle)->GetCamera();
 }
 
-mjvOption* mj_runtime_get_option(MJRuntimeHandle handle) {
+mjvOption* mjc_runtime_get_option(MJRuntimeHandle handle) {
     if (!handle) return nullptr;
     return static_cast<MJSimulationRuntime*>(handle)->GetOption();
 }
 
-const mjModel* mj_runtime_get_model(MJRuntimeHandle handle) {
+const mjModel* mjc_runtime_get_model(MJRuntimeHandle handle) {
     if (!handle) return nullptr;
     return static_cast<MJSimulationRuntime*>(handle)->GetModel();
 }
 
-const mjData* mj_runtime_get_data(MJRuntimeHandle handle) {
+const mjData* mjc_runtime_get_data(MJRuntimeHandle handle) {
     if (!handle) return nullptr;
     return static_cast<MJSimulationRuntime*>(handle)->GetData();
 }
 
 // New ring buffer API
-const MJFrameData* mj_runtime_wait_for_frame(MJRuntimeHandle handle) {
+const MJFrameData* mjc_runtime_wait_for_frame(MJRuntimeHandle handle) {
     if (!handle) return nullptr;
     // Cast internal FrameData to MJFrameData (same memory layout)
     return reinterpret_cast<const MJFrameData*>(
         static_cast<MJSimulationRuntime*>(handle)->WaitForFrame());
 }
 
-const MJFrameData* mj_runtime_get_latest_frame(MJRuntimeHandle handle) {
+const MJFrameData* mjc_runtime_get_latest_frame(MJRuntimeHandle handle) {
     if (!handle) return nullptr;
     // Cast internal FrameData to MJFrameData (same memory layout)
     return reinterpret_cast<const MJFrameData*>(
         static_cast<MJSimulationRuntime*>(handle)->GetLatestFrame());
 }
 
-uint64_t mj_runtime_get_frame_count(MJRuntimeHandle handle) {
+uint64_t mjc_runtime_get_frame_count(MJRuntimeHandle handle) {
     if (!handle) return 0;
     return static_cast<MJSimulationRuntime*>(handle)->GetFrameCount();
 }
 
 // Frame data accessors (for Swift interop with large fixed-size arrays)
-const MJGeomInstance* mj_frame_get_geoms(const MJFrameData* frame) {
+const MJGeomInstance* mjc_frame_get_geoms(const MJFrameData* frame) {
     if (!frame) return nullptr;
     // The geoms array in MJFrameData starts at offset 0
     return frame->geoms;
 }
 
-int32_t mj_frame_get_geom_count(const MJFrameData* frame) {
+int32_t mjc_frame_get_geom_count(const MJFrameData* frame) {
     if (!frame) return 0;
     return frame->geom_count;
 }
 
-const MJGeomInstance* mj_frame_get_geom(const MJFrameData* frame, int32_t index) {
+const MJGeomInstance* mjc_frame_get_geom(const MJFrameData* frame, int32_t index) {
     if (!frame || index < 0 || index >= frame->geom_count) return nullptr;
     return &frame->geoms[index];
 }
 
 // Camera control
-void mj_runtime_set_camera_azimuth(MJRuntimeHandle handle, double azimuth) {
+void mjc_runtime_set_camera_azimuth(MJRuntimeHandle handle, double azimuth) {
     if (handle) static_cast<MJSimulationRuntime*>(handle)->SetCameraAzimuth(azimuth);
 }
 
-void mj_runtime_set_camera_elevation(MJRuntimeHandle handle, double elevation) {
+void mjc_runtime_set_camera_elevation(MJRuntimeHandle handle, double elevation) {
     if (handle) static_cast<MJSimulationRuntime*>(handle)->SetCameraElevation(elevation);
 }
 
-void mj_runtime_set_camera_distance(MJRuntimeHandle handle, double distance) {
+void mjc_runtime_set_camera_distance(MJRuntimeHandle handle, double distance) {
     if (handle) static_cast<MJSimulationRuntime*>(handle)->SetCameraDistance(distance);
 }
 
-void mj_runtime_set_camera_lookat(MJRuntimeHandle handle, double x, double y, double z) {
+void mjc_runtime_set_camera_lookat(MJRuntimeHandle handle, double x, double y, double z) {
     if (handle) static_cast<MJSimulationRuntime*>(handle)->SetCameraLookat(x, y, z);
 }
 
-void mj_runtime_reset_camera(MJRuntimeHandle handle) {
+void mjc_runtime_reset_camera(MJRuntimeHandle handle) {
     if (handle) static_cast<MJSimulationRuntime*>(handle)->ResetCamera();
 }
 
-void mj_runtime_set_realtime_factor(MJRuntimeHandle handle, double factor) {
+void mjc_runtime_set_realtime_factor(MJRuntimeHandle handle, double factor) {
     if (handle) static_cast<MJSimulationRuntime*>(handle)->SetRealtimeFactor(factor);
 }
 
-double mj_runtime_get_realtime_factor(MJRuntimeHandle handle) {
+double mjc_runtime_get_realtime_factor(MJRuntimeHandle handle) {
     if (!handle) return 1.0;
     return static_cast<MJSimulationRuntime*>(handle)->GetRealtimeFactor();
 }

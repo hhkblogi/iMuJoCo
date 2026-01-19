@@ -7,6 +7,7 @@
 
 #include <mujoco/mujoco.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -98,114 +99,114 @@ typedef struct {
 
 /// Create a new runtime instance with the given configuration
 /// Returns NULL on failure
-MJRuntimeHandle mj_runtime_create(const MJRuntimeConfig* config);
+MJRuntimeHandle mjc_runtime_create(const MJRuntimeConfig* config);
 
 /// Destroy a runtime instance and free all resources
-void mj_runtime_destroy(MJRuntimeHandle handle);
+void mjc_runtime_destroy(MJRuntimeHandle handle);
 
 // MARK: - Model Loading
 
 /// Load a model from an XML file path
-bool mj_runtime_load_model(MJRuntimeHandle handle,
+bool mjc_runtime_load_model(MJRuntimeHandle handle,
                            const char* xmlPath,
                            char* errorBuffer,
                            int32_t errorBufferSize);
 
 /// Load a model from an XML string
-bool mj_runtime_load_model_xml(MJRuntimeHandle handle,
+bool mjc_runtime_load_model_xml(MJRuntimeHandle handle,
                                const char* xmlString,
                                char* errorBuffer,
                                int32_t errorBufferSize);
 
 /// Unload the current model
-void mj_runtime_unload(MJRuntimeHandle handle);
+void mjc_runtime_unload(MJRuntimeHandle handle);
 
 // MARK: - Simulation Control
 
 /// Start the physics simulation (runs on dedicated thread)
-void mj_runtime_start(MJRuntimeHandle handle);
+void mjc_runtime_start(MJRuntimeHandle handle);
 
 /// Pause the physics simulation
-void mj_runtime_pause(MJRuntimeHandle handle);
+void mjc_runtime_pause(MJRuntimeHandle handle);
 
 /// Reset the simulation to initial state.
 /// WARNING: Not thread-safe while simulation is running.
-/// Call mj_runtime_pause() first, then reset, then mj_runtime_start().
-void mj_runtime_reset(MJRuntimeHandle handle);
+/// Call mjc_runtime_pause() first, then reset, then mjc_runtime_start().
+void mjc_runtime_reset(MJRuntimeHandle handle);
 
 /// Step the simulation manually (when paused)
-void mj_runtime_step(MJRuntimeHandle handle);
+void mjc_runtime_step(MJRuntimeHandle handle);
 
 /// Get the current simulation state
-MJRuntimeState mj_runtime_get_state(MJRuntimeHandle handle);
+MJRuntimeState mjc_runtime_get_state(MJRuntimeHandle handle);
 
 /// Get simulation statistics
-MJRuntimeStats mj_runtime_get_stats(MJRuntimeHandle handle);
+MJRuntimeStats mjc_runtime_get_stats(MJRuntimeHandle handle);
 
 // MARK: - Ring Buffer API (Lock-Free Frame Access)
 
 /// Wait for a new frame from the physics thread (blocking)
 /// Returns pointer to the latest completed frame
 /// Use this when you want to synchronize render with physics
-const MJFrameData* mj_runtime_wait_for_frame(MJRuntimeHandle handle);
+const MJFrameData* mjc_runtime_wait_for_frame(MJRuntimeHandle handle);
 
 /// Get the latest available frame without waiting (non-blocking)
 /// May return the same frame multiple times if physics is slower than render
 /// Use this for non-blocking render loop
-const MJFrameData* mj_runtime_get_latest_frame(MJRuntimeHandle handle);
+const MJFrameData* mjc_runtime_get_latest_frame(MJRuntimeHandle handle);
 
 /// Get the current frame count (for tracking new frames)
-uint64_t mj_runtime_get_frame_count(MJRuntimeHandle handle);
+uint64_t mjc_runtime_get_frame_count(MJRuntimeHandle handle);
 
 // MARK: - Frame Data Accessors (for Swift interop)
 
 /// Get pointer to the geoms array in a frame
-const MJGeomInstance* mj_frame_get_geoms(const MJFrameData* frame);
+const MJGeomInstance* mjc_frame_get_geoms(const MJFrameData* frame);
 
 /// Get the geom count from a frame
-int32_t mj_frame_get_geom_count(const MJFrameData* frame);
+int32_t mjc_frame_get_geom_count(const MJFrameData* frame);
 
 /// Get a specific geom by index from a frame
-const MJGeomInstance* mj_frame_get_geom(const MJFrameData* frame, int32_t index);
+const MJGeomInstance* mjc_frame_get_geom(const MJFrameData* frame, int32_t index);
 
 // MARK: - Legacy Scene Access (for compatibility)
 
 /// Lock/unlock are no-ops with ring buffer, kept for API compatibility
-void mj_runtime_lock(MJRuntimeHandle handle);
-void mj_runtime_unlock(MJRuntimeHandle handle);
+void mjc_runtime_lock(MJRuntimeHandle handle);
+void mjc_runtime_unlock(MJRuntimeHandle handle);
 
 /// Update scene - no-op with ring buffer, scene is updated automatically
-void mj_runtime_update_scene(MJRuntimeHandle handle);
+void mjc_runtime_update_scene(MJRuntimeHandle handle);
 
 /// Get pointer to mjvScene (legacy, prefer ring buffer API)
-const mjvScene* mj_runtime_get_scene(MJRuntimeHandle handle);
+const mjvScene* mjc_runtime_get_scene(MJRuntimeHandle handle);
 
 /// Get pointer to mjvCamera
-mjvCamera* mj_runtime_get_camera(MJRuntimeHandle handle);
+mjvCamera* mjc_runtime_get_camera(MJRuntimeHandle handle);
 
 /// Get pointer to mjvOption
-mjvOption* mj_runtime_get_option(MJRuntimeHandle handle);
+mjvOption* mjc_runtime_get_option(MJRuntimeHandle handle);
 
 /// Get pointer to mjModel (read-only)
-const mjModel* mj_runtime_get_model(MJRuntimeHandle handle);
+const mjModel* mjc_runtime_get_model(MJRuntimeHandle handle);
 
 /// Get pointer to mjData (read-only)
-const mjData* mj_runtime_get_data(MJRuntimeHandle handle);
+const mjData* mjc_runtime_get_data(MJRuntimeHandle handle);
 
 // MARK: - Camera Control
 // NOTE: Camera methods are not synchronized with physics thread.
 // For best results, call these when simulation is paused or from main thread only.
 
-void mj_runtime_set_camera_azimuth(MJRuntimeHandle handle, double azimuth);
-void mj_runtime_set_camera_elevation(MJRuntimeHandle handle, double elevation);
-void mj_runtime_set_camera_distance(MJRuntimeHandle handle, double distance);
-void mj_runtime_set_camera_lookat(MJRuntimeHandle handle, double x, double y, double z);
-void mj_runtime_reset_camera(MJRuntimeHandle handle);
+void mjc_runtime_set_camera_azimuth(MJRuntimeHandle handle, double azimuth);
+void mjc_runtime_set_camera_elevation(MJRuntimeHandle handle, double elevation);
+void mjc_runtime_set_camera_distance(MJRuntimeHandle handle, double distance);
+void mjc_runtime_set_camera_lookat(MJRuntimeHandle handle, double x, double y, double z);
+void mjc_runtime_reset_camera(MJRuntimeHandle handle);
 
 // MARK: - Real-time Control
 
-void mj_runtime_set_realtime_factor(MJRuntimeHandle handle, double factor);
-double mj_runtime_get_realtime_factor(MJRuntimeHandle handle);
+void mjc_runtime_set_realtime_factor(MJRuntimeHandle handle, double factor);
+double mjc_runtime_get_realtime_factor(MJRuntimeHandle handle);
 
 #ifdef __cplusplus
 }
