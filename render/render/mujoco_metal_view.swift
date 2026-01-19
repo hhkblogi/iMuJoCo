@@ -1,0 +1,276 @@
+// mujoco_metal_view.swift
+// SwiftUI wrapper for Metal-based MuJoCo rendering
+
+import SwiftUI
+import MetalKit
+import MJCPhysicsRuntime
+
+// MARK: - Runtime Protocol
+
+/// Protocol for physics runtime that provides frame data for rendering.
+/// Implement this protocol to connect your runtime to the Metal view.
+public protocol MJRenderDataSource: AnyObject {
+    /// Get the latest frame data for rendering (non-blocking)
+    var latestFrame: UnsafePointer<MJFrameData>? { get }
+
+    /// Legacy scene pointer (optional fallback)
+    var scenePointer: UnsafePointer<mjvScene>? { get }
+
+    /// Legacy camera pointer (optional fallback)
+    var cameraPointer: UnsafeMutablePointer<mjvCamera>? { get }
+
+    /// Camera azimuth angle (degrees)
+    var cameraAzimuth: Double { get set }
+
+    /// Camera elevation angle (degrees)
+    var cameraElevation: Double { get set }
+
+    /// Camera distance from lookat point
+    var cameraDistance: Double { get set }
+
+    /// Reset camera to default position
+    func resetCamera()
+}
+
+// MARK: - Metal View Representable
+
+#if os(iOS) || os(tvOS)
+public struct MuJoCoMetalView: UIViewRepresentable {
+    public var dataSource: MJRenderDataSource
+
+    public init(dataSource: MJRenderDataSource) {
+        self.dataSource = dataSource
+    }
+
+    public func makeUIView(context: Context) -> MuJoCoMTKView {
+        let view = MuJoCoMTKView()
+        view.dataSource = dataSource
+        return view
+    }
+
+    public func updateUIView(_ uiView: MuJoCoMTKView, context: Context) {
+        uiView.dataSource = dataSource
+    }
+}
+#endif
+
+#if os(macOS)
+public struct MuJoCoMetalView: NSViewRepresentable {
+    public var dataSource: MJRenderDataSource
+
+    public init(dataSource: MJRenderDataSource) {
+        self.dataSource = dataSource
+    }
+
+    public func makeNSView(context: Context) -> MuJoCoMTKView {
+        let view = MuJoCoMTKView()
+        view.dataSource = dataSource
+        return view
+    }
+
+    public func updateNSView(_ nsView: MuJoCoMTKView, context: Context) {
+        nsView.dataSource = dataSource
+    }
+}
+#endif
+
+// MARK: - Custom MTKView
+
+public class MuJoCoMTKView: MTKView, MTKViewDelegate {
+    public var dataSource: MJRenderDataSource?
+
+    private var renderer: MJMetalRenderer?
+
+    // Performance metrics
+    private var frameCount: Int = 0
+    private var lastFPSUpdate: CFTimeInterval = 0
+    public private(set) var renderFPS: Double = 0
+    public private(set) var lastFrameTime: Double = 0  // ms
+    private var frameStartTime: CFTimeInterval = 0
+
+    // Touch tracking
+    #if os(iOS)
+    private var lastPanLocation: CGPoint = .zero
+    private var lastPinchScale: CGFloat = 1.0
+    #endif
+
+    public override init(frame: CGRect, device: MTLDevice?) {
+        super.init(frame: frame, device: device ?? MTLCreateSystemDefaultDevice())
+        commonInit()
+    }
+
+    public required init(coder: NSCoder) {
+        super.init(coder: coder)
+        commonInit()
+    }
+
+    private func commonInit() {
+        guard let device = self.device else {
+            print("Metal is not supported on this device")
+            return
+        }
+
+        self.delegate = self
+        self.colorPixelFormat = .bgra8Unorm
+        self.depthStencilPixelFormat = .depth32Float
+        self.preferredFramesPerSecond = 60
+        self.enableSetNeedsDisplay = false
+        self.isPaused = false
+
+        // Initialize Metal renderer
+        do {
+            renderer = try MJMetalRenderer(device: device)
+        } catch {
+            print("Failed to create Metal renderer: \(error)")
+        }
+
+        #if os(iOS)
+        setupGestures()
+        #endif
+
+        #if os(tvOS)
+        setupTVGestures()
+        #endif
+    }
+
+    #if os(iOS)
+    private func setupGestures() {
+        // Pan for camera rotation
+        let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        addGestureRecognizer(panGesture)
+
+        // Pinch for zoom
+        let pinchGesture = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
+        addGestureRecognizer(pinchGesture)
+
+        // Double tap to reset camera
+        let doubleTapGesture = UITapGestureRecognizer(target: self, action: #selector(handleDoubleTap(_:)))
+        doubleTapGesture.numberOfTapsRequired = 2
+        addGestureRecognizer(doubleTapGesture)
+    }
+
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        guard let dataSource = dataSource else { return }
+
+        let location = gesture.translation(in: self)
+
+        if gesture.state == .began {
+            lastPanLocation = .zero
+        }
+
+        let deltaX = location.x - lastPanLocation.x
+        let deltaY = location.y - lastPanLocation.y
+
+        // Update camera azimuth and elevation
+        dataSource.cameraAzimuth += Double(deltaX) * 0.5
+        dataSource.cameraElevation += Double(deltaY) * 0.5
+
+        lastPanLocation = location
+    }
+
+    @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+        guard let dataSource = dataSource else { return }
+
+        if gesture.state == .began {
+            lastPinchScale = 1.0
+        }
+
+        let scale = gesture.scale / lastPinchScale
+        dataSource.cameraDistance *= 1.0 / Double(scale)
+
+        lastPinchScale = gesture.scale
+    }
+
+    @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
+        dataSource?.resetCamera()
+    }
+    #endif
+
+    #if os(tvOS)
+    private var lastSwipeLocation: CGPoint = .zero
+
+    private func setupTVGestures() {
+        // Swipe/pan for camera rotation (works with Siri Remote touch surface)
+        let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handleTVPan(_:)))
+        panGesture.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.indirect.rawValue)]
+        addGestureRecognizer(panGesture)
+
+        // Tap to reset camera (using press gesture)
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTVTap(_:)))
+        tapGesture.allowedPressTypes = [NSNumber(value: UIPress.PressType.select.rawValue)]
+        addGestureRecognizer(tapGesture)
+    }
+
+    @objc private func handleTVPan(_ gesture: UIPanGestureRecognizer) {
+        guard let dataSource = dataSource else { return }
+
+        let velocity = gesture.velocity(in: self)
+
+        // Swipe sensitivity for tvOS remote
+        let sensitivity: CGFloat = 0.02
+
+        // Horizontal swipe = azimuth rotation, vertical swipe = elevation
+        dataSource.cameraAzimuth += Double(velocity.x) * sensitivity
+        dataSource.cameraElevation += Double(velocity.y) * sensitivity
+
+        // Use up/down for zoom when swiping near edges or with specific gesture
+        if abs(velocity.y) > 500 && abs(velocity.x) < 100 {
+            let zoomFactor = velocity.y > 0 ? 1.02 : 0.98
+            dataSource.cameraDistance *= zoomFactor
+        }
+    }
+
+    @objc private func handleTVTap(_ gesture: UITapGestureRecognizer) {
+        dataSource?.resetCamera()
+    }
+    #endif
+
+    // MARK: - MTKViewDelegate
+
+    public func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
+        // No action needed - renderer handles size changes dynamically
+    }
+
+    public func draw(in view: MTKView) {
+        let frameStart = CACurrentMediaTime()
+
+        guard let renderer = renderer,
+              let dataSource = dataSource else {
+            return
+        }
+
+        // Get current drawable
+        guard let drawable = currentDrawable else { return }
+
+        // Render using lock-free ring buffer API (preferred)
+        if let frameData = dataSource.latestFrame {
+            renderer.render(
+                frameData: frameData,
+                drawable: drawable,
+                renderPassDescriptor: currentRenderPassDescriptor
+            )
+        }
+        // Fallback to legacy scene API if ring buffer not available
+        else if let scene = dataSource.scenePointer,
+                let camera = dataSource.cameraPointer {
+            renderer.render(
+                scene: scene,
+                camera: camera,
+                drawable: drawable,
+                renderPassDescriptor: currentRenderPassDescriptor
+            )
+        }
+
+        // Update performance metrics
+        let frameEnd = CACurrentMediaTime()
+        lastFrameTime = (frameEnd - frameStart) * 1000.0  // Convert to ms
+
+        frameCount += 1
+        let elapsed = frameEnd - lastFPSUpdate
+        if elapsed >= 1.0 {
+            renderFPS = Double(frameCount) / elapsed
+            frameCount = 0
+            lastFPSUpdate = frameEnd
+        }
+    }
+}
