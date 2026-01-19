@@ -56,8 +56,9 @@ public final class MJMetalRenderer {
         }
         self.commandQueue = queue
 
-        // Load shaders from compiled Metal library
-        guard let library = device.makeDefaultLibrary() else {
+        // Load shaders from compiled Metal library in the framework bundle
+        let bundle = Bundle(for: MJMetalRenderer.self)
+        guard let library = try? device.makeDefaultLibrary(bundle: bundle) else {
             throw MJRendererError.shaderCompilationFailed
         }
 
