@@ -250,7 +250,7 @@ public final class MJMetalRenderer {
                 // Get material properties from geom
                 let emission = geom.emission
                 let specular = geom.specular
-                let shininess = max(geom.shininess, 1.0)
+                let shininess = min(max(geom.shininess, 1.0), 10.0)  // Clamp to reasonable range
 
                 var uniforms = MJMetalUniforms(
                     modelMatrix: modelMatrix,
@@ -403,7 +403,7 @@ public final class MJMetalRenderer {
 
                 let emission = geom.emission
                 let specular = geom.specular
-                let shininess = max(geom.shininess, 1.0)
+                let shininess = min(max(geom.shininess, 1.0), 10.0)  // Clamp to reasonable range
 
                 var uniforms = MJMetalUniforms(
                     modelMatrix: modelMatrix,

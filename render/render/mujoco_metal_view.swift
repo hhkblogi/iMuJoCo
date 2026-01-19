@@ -83,10 +83,9 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
 
     // Performance metrics
     private var frameCount: Int = 0
-    private var lastFPSUpdate: CFTimeInterval = 0
+    private var lastFPSUpdate: CFTimeInterval = CACurrentMediaTime()
     public private(set) var renderFPS: Double = 0
     public private(set) var lastFrameTime: Double = 0  // ms
-    private var frameStartTime: CFTimeInterval = 0
 
     // Touch tracking
     #if os(iOS)
@@ -176,7 +175,10 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         }
 
         let scale = gesture.scale / lastPinchScale
-        dataSource.cameraDistance *= 1.0 / Double(scale)
+        guard scale > 0 else { return }
+
+        let newDistance = dataSource.cameraDistance * (1.0 / Double(scale))
+        dataSource.cameraDistance = max(newDistance, 0.1)  // Clamp to minimum distance
 
         lastPinchScale = gesture.scale
     }
@@ -216,7 +218,8 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         // Use up/down for zoom when swiping near edges or with specific gesture
         if abs(velocity.y) > 500 && abs(velocity.x) < 100 {
             let zoomFactor = velocity.y > 0 ? 1.02 : 0.98
-            dataSource.cameraDistance *= zoomFactor
+            let newDistance = dataSource.cameraDistance * zoomFactor
+            dataSource.cameraDistance = max(newDistance, 0.1)  // Clamp to minimum distance
         }
     }
 
@@ -261,7 +264,8 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
 
         // Right drag for zoom
         let deltaY = event.deltaY
-        dataSource.cameraDistance *= 1.0 + Double(deltaY) * 0.01
+        let newDistance = dataSource.cameraDistance * (1.0 + Double(deltaY) * 0.01)
+        dataSource.cameraDistance = max(newDistance, 0.1)  // Clamp to minimum distance
     }
 
     public override func scrollWheel(with event: NSEvent) {
@@ -269,7 +273,8 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
 
         // Scroll wheel for zoom
         let deltaY = event.scrollingDeltaY
-        dataSource.cameraDistance *= 1.0 - Double(deltaY) * 0.01
+        let newDistance = dataSource.cameraDistance * (1.0 - Double(deltaY) * 0.01)
+        dataSource.cameraDistance = max(newDistance, 0.1)  // Clamp to minimum distance
     }
 
     public override func keyDown(with event: NSEvent) {

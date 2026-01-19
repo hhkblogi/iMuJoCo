@@ -81,6 +81,8 @@ fragment float4 fragmentMain(VertexOut in [[stage_in]],
         float NdotH = max(dot(N, H), 0.0);
         float phongExp = uniforms.shininess * 128.0;
         float spec = pow(NdotH, phongExp);
+        // Scale by 0.5 to keep highlights balanced with ambient/diffuse and avoid
+        // frequent saturation; overall specular intensity controlled via uniforms.specular
         specularColor = float3(0.5 * uniforms.specular * spec);
     }
 
