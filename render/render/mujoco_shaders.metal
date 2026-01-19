@@ -84,8 +84,8 @@ fragment float4 fragmentMain(VertexOut in [[stage_in]],
         specularColor = float3(0.5 * uniforms.specular * spec);
     }
 
-    // Emission component
-    float3 emissive = baseColor * uniforms.emission;
+    // Emission component (clamped to avoid excessive HDR overflow before final clamp)
+    float3 emissive = clamp(baseColor * uniforms.emission, 0.0, 1.0);
 
     // Final color
     float3 finalColor = ambient + diffuse1 + diffuse2 + specularColor + emissive;

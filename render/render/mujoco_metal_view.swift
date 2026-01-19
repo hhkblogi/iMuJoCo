@@ -225,6 +225,61 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
     }
     #endif
 
+    #if os(macOS)
+    // MARK: - macOS Mouse Handling
+
+    private var lastMouseLocation: CGPoint = .zero
+    private var isRotating = false
+
+    public override var acceptsFirstResponder: Bool { true }
+
+    public override func mouseDown(with event: NSEvent) {
+        lastMouseLocation = event.locationInWindow
+        isRotating = true
+    }
+
+    public override func mouseUp(with event: NSEvent) {
+        isRotating = false
+    }
+
+    public override func mouseDragged(with event: NSEvent) {
+        guard let dataSource = dataSource, isRotating else { return }
+
+        let location = event.locationInWindow
+        let deltaX = location.x - lastMouseLocation.x
+        let deltaY = location.y - lastMouseLocation.y
+
+        // Update camera azimuth and elevation
+        dataSource.cameraAzimuth += Double(deltaX) * 0.5
+        dataSource.cameraElevation -= Double(deltaY) * 0.5  // Inverted for natural feel
+
+        lastMouseLocation = location
+    }
+
+    public override func rightMouseDragged(with event: NSEvent) {
+        guard let dataSource = dataSource else { return }
+
+        // Right drag for zoom
+        let deltaY = event.deltaY
+        dataSource.cameraDistance *= 1.0 + Double(deltaY) * 0.01
+    }
+
+    public override func scrollWheel(with event: NSEvent) {
+        guard let dataSource = dataSource else { return }
+
+        // Scroll wheel for zoom
+        let deltaY = event.scrollingDeltaY
+        dataSource.cameraDistance *= 1.0 - Double(deltaY) * 0.01
+    }
+
+    public override func keyDown(with event: NSEvent) {
+        // 'R' key to reset camera
+        if event.charactersIgnoringModifiers == "r" {
+            dataSource?.resetCamera()
+        }
+    }
+    #endif
+
     // MARK: - MTKViewDelegate
 
     public func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {

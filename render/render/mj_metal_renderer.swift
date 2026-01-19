@@ -14,12 +14,14 @@ struct MJMetalUniforms {
     var projectionMatrix: simd_float4x4
     var normalMatrix: simd_float4x4
     var lightPosition: simd_float3
+    var _padding0: Float = 0  // Alignment padding after lightPosition (float3 aligns to 16 bytes in Metal)
     var cameraPosition: simd_float3
+    var _padding1: Float = 0  // Alignment padding after cameraPosition
     var color: simd_float4
     var emission: Float
     var specular: Float
     var shininess: Float
-    var padding: Float = 0  // Alignment padding
+    var _padding2: Float = 0  // Final alignment padding
 }
 
 struct MJMetalVertex {
@@ -211,8 +213,18 @@ public final class MJMetalRenderer {
             return
         }
 
+        // Maximum vertices/indices a single geometry can produce (conservative estimate)
+        let maxVerticesPerGeom = 1000
+        let maxIndicesPerGeom = 6000
+
         // Render each geometry from ring buffer frame data
         for i in 0..<Int(geomCount) {
+            // Buffer overflow protection: skip if not enough space remains
+            if totalVertices + maxVerticesPerGeom > maxVertices ||
+               totalIndices + maxIndicesPerGeom > maxIndices {
+                break
+            }
+
             guard let geomPtr = mjc_frame_get_geom(frameData, Int32(i)) else { continue }
             let geom = geomPtr.pointee
 
@@ -244,7 +256,7 @@ public final class MJMetalRenderer {
                     modelMatrix: modelMatrix,
                     viewMatrix: viewMatrix,
                     projectionMatrix: projMatrix,
-                    normalMatrix: modelMatrix,
+                    normalMatrix: Self.normalMatrix(from: modelMatrix),
                     lightPosition: simd_float3(0, 0, 10),
                     cameraPosition: eye,
                     color: simd_float4(1, 1, 1, 1),
@@ -357,7 +369,17 @@ public final class MJMetalRenderer {
 
         let geomsPtr = scn.geoms!
 
+        // Maximum vertices/indices a single geometry can produce (conservative estimate)
+        let maxVerticesPerGeom = 1000
+        let maxIndicesPerGeom = 6000
+
         for i in 0..<Int(scn.ngeom) {
+            // Buffer overflow protection: skip if not enough space remains
+            if totalVertices + maxVerticesPerGeom > maxVertices ||
+               totalIndices + maxIndicesPerGeom > maxIndices {
+                break
+            }
+
             let geom = geomsPtr[i]
 
             var vertexCount = 0
@@ -387,7 +409,7 @@ public final class MJMetalRenderer {
                     modelMatrix: modelMatrix,
                     viewMatrix: viewMatrix,
                     projectionMatrix: projMatrix,
-                    normalMatrix: modelMatrix,
+                    normalMatrix: Self.normalMatrix(from: modelMatrix),
                     lightPosition: simd_float3(0, 0, 10),
                     cameraPosition: eye,
                     color: simd_float4(1, 1, 1, 1),
@@ -443,6 +465,28 @@ public final class MJMetalRenderer {
             simd_float4(s.y, u.y, -f.y, 0),
             simd_float4(s.z, u.z, -f.z, 0),
             simd_float4(-simd_dot(s, eye), -simd_dot(u, eye), simd_dot(f, eye), 1)
+        ))
+    }
+
+    /// Compute normal matrix (inverse transpose of upper-left 3x3) for correct lighting
+    /// with non-uniform scaling. Returns identity-based 4x4 matrix with 3x3 normal transform.
+    private static func normalMatrix(from modelMatrix: simd_float4x4) -> simd_float4x4 {
+        // Extract upper-left 3x3
+        let m = simd_float3x3(
+            simd_float3(modelMatrix.columns.0.x, modelMatrix.columns.0.y, modelMatrix.columns.0.z),
+            simd_float3(modelMatrix.columns.1.x, modelMatrix.columns.1.y, modelMatrix.columns.1.z),
+            simd_float3(modelMatrix.columns.2.x, modelMatrix.columns.2.y, modelMatrix.columns.2.z)
+        )
+
+        // Compute inverse transpose (handles non-uniform scaling correctly)
+        let invTranspose = m.inverse.transpose
+
+        // Pack back into 4x4 matrix
+        return simd_float4x4(columns: (
+            simd_float4(invTranspose.columns.0.x, invTranspose.columns.0.y, invTranspose.columns.0.z, 0),
+            simd_float4(invTranspose.columns.1.x, invTranspose.columns.1.y, invTranspose.columns.1.z, 0),
+            simd_float4(invTranspose.columns.2.x, invTranspose.columns.2.y, invTranspose.columns.2.z, 0),
+            simd_float4(0, 0, 0, 1)
         ))
     }
 

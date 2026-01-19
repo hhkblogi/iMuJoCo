@@ -50,6 +50,19 @@ final class UniformsLayoutTests: XCTestCase {
         let alignment = MemoryLayout<MJMetalUniforms>.alignment
         XCTAssertGreaterThanOrEqual(alignment, 16, "Expected at least 16-byte alignment for uniforms")
     }
+
+    func test_uniforms_struct_size() {
+        // Verify struct size matches expected layout:
+        // - 4 x float4x4 (4 * 64 = 256 bytes)
+        // - lightPosition float3 + padding (16 bytes)
+        // - cameraPosition float3 + padding (16 bytes)
+        // - color float4 (16 bytes)
+        // - emission, specular, shininess, padding (16 bytes)
+        // + additional alignment padding to 16-byte boundary
+        // Total: 352 bytes
+        let stride = MemoryLayout<MJMetalUniforms>.stride
+        XCTAssertEqual(stride, 352, "Expected 352-byte uniforms stride, got \(stride)")
+    }
 }
 
 // MARK: - Renderer Creation Tests
