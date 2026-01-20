@@ -159,15 +159,27 @@ const MJFrameData* mjc_runtime_get_latest_frame(MJRuntimeHandle handle);
 uint64_t mjc_runtime_get_frame_count(MJRuntimeHandle handle);
 
 // MARK: - Frame Data Accessors (for Swift interop)
+// These are static inline (header-only) so they don't require symbol resolution at link time.
+// Callers only need to include this header; no library linkage is needed for these functions.
+// Note: Uses NULL instead of nullptr for C compatibility (required for Swift ClangImporter).
 
 /// Get pointer to the geoms array in a frame
-const MJGeomInstance* mjc_frame_get_geoms(const MJFrameData* frame);
+static inline const MJGeomInstance* mjc_frame_get_geoms(const MJFrameData* frame) {
+    return frame ? frame->geoms : NULL;
+}
 
 /// Get the geom count from a frame
-int32_t mjc_frame_get_geom_count(const MJFrameData* frame);
+static inline int32_t mjc_frame_get_geom_count(const MJFrameData* frame) {
+    return frame ? frame->geom_count : 0;
+}
 
 /// Get a specific geom by index from a frame
-const MJGeomInstance* mjc_frame_get_geom(const MJFrameData* frame, int32_t index);
+static inline const MJGeomInstance* mjc_frame_get_geom(const MJFrameData* frame, int32_t index) {
+    if (!frame || index < 0 || index >= frame->geom_count) {
+        return NULL;
+    }
+    return &frame->geoms[index];
+}
 
 // MARK: - Legacy Scene Access (for compatibility)
 

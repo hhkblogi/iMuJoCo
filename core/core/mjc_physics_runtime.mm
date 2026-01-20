@@ -1090,22 +1090,9 @@ uint64_t mjc_runtime_get_frame_count(MJRuntimeHandle handle) {
     return static_cast<MJSimulationRuntime*>(handle)->GetFrameCount();
 }
 
-// Frame data accessors (for Swift interop with large fixed-size arrays)
-const MJGeomInstance* mjc_frame_get_geoms(const MJFrameData* frame) {
-    if (!frame) return nullptr;
-    // The geoms array in MJFrameData starts at offset 0
-    return frame->geoms;
-}
-
-int32_t mjc_frame_get_geom_count(const MJFrameData* frame) {
-    if (!frame) return 0;
-    return frame->geom_count;
-}
-
-const MJGeomInstance* mjc_frame_get_geom(const MJFrameData* frame, int32_t index) {
-    if (!frame || index < 0 || index >= frame->geom_count) return nullptr;
-    return &frame->geoms[index];
-}
+// Note: mjc_frame_get_geoms, mjc_frame_get_geom_count, mjc_frame_get_geom
+// are provided as static inline functions in the header for header-only access.
+// No library symbol is needed; callers just include the header.
 
 // Camera control
 void mjc_runtime_set_camera_azimuth(MJRuntimeHandle handle, double azimuth) {
