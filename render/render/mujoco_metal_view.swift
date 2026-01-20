@@ -3,7 +3,10 @@
 
 import SwiftUI
 import MetalKit
+import os.log
 import MJCPhysicsRuntime
+
+private let logger = Logger(subsystem: "com.mujoco.render", category: "MuJoCoMTKView")
 
 // MARK: - Runtime Protocol
 
@@ -169,7 +172,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
 
     private func commonInit() {
         guard let device = self.device else {
-            print("Metal is not supported on this device")
+            logger.error("Metal is not supported on this device")
             return
         }
 
@@ -184,7 +187,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         do {
             renderer = try MJMetalRenderer(device: device)
         } catch {
-            print("[MuJoCoMTKView] Failed to create Metal renderer: \(error)")
+            logger.error("Failed to create Metal renderer: \(error)")
         }
 
         #if os(iOS)

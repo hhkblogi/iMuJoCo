@@ -4,7 +4,10 @@
 import Metal
 import MetalKit
 import simd
+import os.log
 import MJCPhysicsRuntime
+
+private let logger = Logger(subsystem: "com.mujoco.render", category: "MJMetalRenderer")
 
 // MARK: - Shader Types
 
@@ -14,23 +17,32 @@ struct MJMetalUniforms {
     var projectionMatrix: simd_float4x4
     var normalMatrix: simd_float4x4
     var lightPosition: simd_float3
-    var _padding0: Float = 0  // Alignment padding after lightPosition (float3 aligns to 16 bytes in Metal)
+    var _padding0: Float  // Alignment padding after lightPosition (float3 aligns to 16 bytes in Metal)
     var cameraPosition: simd_float3
-    var _padding1: Float = 0  // Alignment padding after cameraPosition
+    var _padding1: Float  // Alignment padding after cameraPosition
     var color: simd_float4
     var emission: Float
     var specular: Float
     var shininess: Float
-    var _padding2: Float = 0  // Final alignment padding
+    var _padding2: Float  // Final alignment padding
 }
 
 struct MJMetalVertex {
     var position: simd_float3      // offset 0, size 12, padded to 16
     var normal: simd_float3        // offset 16, size 12, padded to 16
     var texCoord: simd_float2      // offset 32, size 8
-    var _padding: simd_float2 = .zero  // offset 40, size 8 - pad to 16-byte boundary
+    var _padding: simd_float2      // offset 40, size 8 - pad to 16-byte boundary
     var color: simd_float4         // offset 48, size 16
     // Total: 64 bytes
+
+    /// Convenience initializer that defaults padding to zero.
+    init(position: simd_float3, normal: simd_float3, texCoord: simd_float2, color: simd_float4) {
+        self.position = position
+        self.normal = normal
+        self.texCoord = texCoord
+        self._padding = .zero
+        self.color = color
+    }
 }
 
 // MARK: - Metal Renderer
@@ -64,13 +76,19 @@ public final class MJMetalRenderer {
     // Strategy: Allocate large fixed buffers (~64MB vertex + ~4MB index) upfront.
     // This trades memory for consistent frame times by eliminating allocation stalls.
     // Values are sufficient for typical MuJoCo scenes with thousands of geometries.
-    // For scenes exceeding capacity, geometries are skipped with a warning.
+    // For scenes that would exceed these capacities, additional geometries are skipped
+    // due to buffer capacity limits and a warning is emitted.
     private let maxVertices = 1024 * 1024  // ~64MB at 64 bytes/vertex
     private let maxIndices = 1024 * 1024   // ~4MB at 4 bytes/index
 
-    /// Upper bounds on vertices/indices a single geometry can produce.
-    /// Used for buffer overflow protection. Values are conservative estimates
-    /// covering all supported MuJoCo geom types at expected tessellation levels.
+    /// Upper bounds on vertices/indices a single geometry can contribute to a frame.
+    /// Used as a buffer capacity guard so we can detect when adding a geom would exceed
+    /// the pre-allocated vertex/index buffers and skip it instead of writing past buffer bounds.
+    ///
+    /// The values are conservative and sized to cover the most tessellated supported MuJoCo
+    /// geom types (spheres, cylinders, capsules, ellipsoids at 16 segments × 12 rings = ~192 quads
+    /// = ~384 triangles = ~1152 indices per curved surface) with additional headroom.
+    /// Simpler geoms (boxes, planes, segments) use substantially fewer vertices and indices.
     private static let maxVerticesPerGeom = 1000
     private static let maxIndicesPerGeom = 6000
 
@@ -296,11 +314,14 @@ public final class MJMetalRenderer {
                     projectionMatrix: projMatrix,
                     normalMatrix: Self.normalMatrix(from: modelMatrix),
                     lightPosition: simd_float3(0, 0, 10),
+                    _padding0: 0,
                     cameraPosition: eye,
+                    _padding1: 0,
                     color: simd_float4(1, 1, 1, 1),
                     emission: emission,
                     specular: specular,
-                    shininess: shininess
+                    shininess: shininess,
+                    _padding2: 0
                 )
 
                 encoder.setVertexBuffer(vertexBuffer, offset: totalVertices * MemoryLayout<MJMetalVertex>.stride, index: 0)
@@ -323,7 +344,7 @@ public final class MJMetalRenderer {
         // Warn if geometries were skipped due to buffer overflow
         if skippedGeoms > 0 {
             let rendered = Int(geomCount) - skippedGeoms
-            print("[MJMetalRenderer] Warning: Skipped \(skippedGeoms)/\(geomCount) geometries due to buffer capacity (rendered \(rendered), vertices: \(totalVertices)/\(maxVertices), indices: \(totalIndices)/\(maxIndices))")
+            logger.warning("Skipped \(skippedGeoms)/\(geomCount) geometries due to buffer capacity (rendered \(rendered), vertices: \(totalVertices)/\(self.maxVertices), indices: \(totalIndices)/\(self.maxIndices))")
         }
 
         encoder.endEncoding()
@@ -465,11 +486,14 @@ public final class MJMetalRenderer {
                     projectionMatrix: projMatrix,
                     normalMatrix: Self.normalMatrix(from: modelMatrix),
                     lightPosition: simd_float3(0, 0, 10),
+                    _padding0: 0,
                     cameraPosition: eye,
+                    _padding1: 0,
                     color: simd_float4(1, 1, 1, 1),
                     emission: emission,
                     specular: specular,
-                    shininess: shininess
+                    shininess: shininess,
+                    _padding2: 0
                 )
 
                 encoder.setVertexBuffer(vertexBuffer, offset: totalVertices * MemoryLayout<MJMetalVertex>.stride, index: 0)
@@ -492,7 +516,7 @@ public final class MJMetalRenderer {
         // Warn if geometries were skipped due to buffer overflow
         if skippedGeoms > 0 {
             let rendered = Int(scn.ngeom) - skippedGeoms
-            print("[MJMetalRenderer] Warning: Skipped \(skippedGeoms)/\(scn.ngeom) geometries due to buffer capacity (rendered \(rendered), vertices: \(totalVertices)/\(maxVertices), indices: \(totalIndices)/\(maxIndices))")
+            logger.warning("Skipped \(skippedGeoms)/\(scn.ngeom) geometries due to buffer capacity (rendered \(rendered), vertices: \(totalVertices)/\(self.maxVertices), indices: \(totalIndices)/\(self.maxIndices))")
         }
 
         encoder.endEncoding()
@@ -631,10 +655,13 @@ public final class MJMetalRenderer {
 
     // MARK: - Geometry Generators
 
+    /// Generate a plane quad with the given size and color.
+    /// If size components are zero or negative, defaults to 10.0 units for visibility.
     private static func generatePlane(size: (Float, Float, Float), color: simd_float4,
                                       vertices: UnsafeMutablePointer<MJMetalVertex>,
                                       indices: UnsafeMutablePointer<UInt32>,
                                       vertexCount: inout Int, indexCount: inout Int) {
+        // Use fallback size if dimensions are invalid (ensures plane is always visible)
         let sx = size.0 > 0 ? size.0 : 10.0
         let sy = size.1 > 0 ? size.1 : 10.0
         let normal = simd_float3(0, 0, 1)
@@ -651,12 +678,15 @@ public final class MJMetalRenderer {
         indexCount = 6
     }
 
+    /// Generate a UV sphere with the given radius and color.
+    /// Tessellation: 16 segments × 12 rings provides smooth silhouettes while keeping
+    /// vertex count reasonable for real-time rendering of typical MuJoCo scenes.
     private static func generateSphere(radius: Float, color: simd_float4,
                                        vertices: UnsafeMutablePointer<MJMetalVertex>,
                                        indices: UnsafeMutablePointer<UInt32>,
                                        vertexCount: inout Int, indexCount: inout Int) {
-        let segments = 16
-        let rings = 12
+        let segments = 16  // Horizontal divisions (longitude)
+        let rings = 12     // Vertical divisions (latitude)
         var vCount = 0
         var iCount = 0
 
@@ -747,11 +777,13 @@ public final class MJMetalRenderer {
         indexCount = iCount
     }
 
+    /// Generate a cylinder with the given radius, half-length, and color.
+    /// Tessellation: 16 segments around the circumference for smooth appearance.
     private static func generateCylinder(radius: Float, halfLength: Float, color: simd_float4,
                                          vertices: UnsafeMutablePointer<MJMetalVertex>,
                                          indices: UnsafeMutablePointer<UInt32>,
                                          vertexCount: inout Int, indexCount: inout Int) {
-        let segments = 16
+        let segments = 16  // Circumference divisions
         var vCount = 0
         var iCount = 0
 
@@ -794,6 +826,8 @@ public final class MJMetalRenderer {
         indexCount = iCount
     }
 
+    /// Generate a capsule (cylinder with hemisphere caps) with the given radius, half-length, and color.
+    /// Tessellation: 16 segments × 8 rings per hemisphere for smooth caps.
     private static func generateCapsule(radius: Float, halfLength: Float, color: simd_float4,
                                         vertices: UnsafeMutablePointer<MJMetalVertex>,
                                         indices: UnsafeMutablePointer<UInt32>,
@@ -804,8 +838,8 @@ public final class MJMetalRenderer {
                         vertexCount: &vertexCount, indexCount: &indexCount)
 
         // Add hemisphere caps
-        let segments = 16
-        let rings = 8
+        let segments = 16  // Circumference divisions (matches cylinder)
+        let rings = 8      // Latitude divisions per hemisphere
 
         // Bottom hemisphere
         var capBaseVertex = vertexCount
