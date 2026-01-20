@@ -7,8 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		56C22C6F2F1E10E50083660B /* mj_metal_renderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C22C6A2F1E10E50083660B /* mj_metal_renderer.swift */; };
-		56C22C702F1E10E50083660B /* mujoco_metal_view.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C22C6B2F1E10E50083660B /* mujoco_metal_view.swift */; };
+		56C22C6F2F1E10E50083660B /* mjc_metal_render.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C22C6A2F1E10E50083660B /* mjc_metal_render.swift */; };
+		56C22C702F1E10E50083660B /* mjc_metal_view.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C22C6B2F1E10E50083660B /* mjc_metal_view.swift */; };
 		56C22C712F1E10E50083660B /* mujoco_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = 56C22C6C2F1E10E50083660B /* mujoco_shaders.metal */; };
 		56C22C722F1E10E50083660B /* render.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C22C6D2F1E10E50083660B /* render.swift */; };
 		56C22C802F1E20000083660B /* render_tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C22C672F1E10130083660B /* render_tests.swift */; };
@@ -28,8 +28,8 @@
 /* Begin PBXFileReference section */
 		56C22C552F1E0F240083660B /* render.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = render.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		56C22C672F1E10130083660B /* render_tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = render_tests.swift; sourceTree = "<group>"; };
-		56C22C6A2F1E10E50083660B /* mj_metal_renderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = mj_metal_renderer.swift; sourceTree = "<group>"; };
-		56C22C6B2F1E10E50083660B /* mujoco_metal_view.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = mujoco_metal_view.swift; sourceTree = "<group>"; };
+		56C22C6A2F1E10E50083660B /* mjc_metal_render.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = mjc_metal_render.swift; sourceTree = "<group>"; };
+		56C22C6B2F1E10E50083660B /* mjc_metal_view.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = mjc_metal_view.swift; sourceTree = "<group>"; };
 		56C22C6C2F1E10E50083660B /* mujoco_shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = mujoco_shaders.metal; sourceTree = "<group>"; };
 		56C22C6D2F1E10E50083660B /* render.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = render.swift; sourceTree = "<group>"; };
 		56C22C732F1E20000083660B /* render.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = render.xcconfig; sourceTree = "<group>"; };
@@ -85,8 +85,8 @@
 		56C22C6E2F1E10E50083660B /* render */ = {
 			isa = PBXGroup;
 			children = (
-				56C22C6A2F1E10E50083660B /* mj_metal_renderer.swift */,
-				56C22C6B2F1E10E50083660B /* mujoco_metal_view.swift */,
+				56C22C6A2F1E10E50083660B /* mjc_metal_render.swift */,
+				56C22C6B2F1E10E50083660B /* mjc_metal_view.swift */,
 				56C22C6C2F1E10E50083660B /* mujoco_shaders.metal */,
 				56C22C6D2F1E10E50083660B /* render.swift */,
 			);
@@ -207,8 +207,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				56C22C6F2F1E10E50083660B /* mj_metal_renderer.swift in Sources */,
-				56C22C702F1E10E50083660B /* mujoco_metal_view.swift in Sources */,
+				56C22C6F2F1E10E50083660B /* mjc_metal_render.swift in Sources */,
+				56C22C702F1E10E50083660B /* mjc_metal_view.swift in Sources */,
 				56C22C712F1E10E50083660B /* mujoco_shaders.metal in Sources */,
 				56C22C722F1E10E50083660B /* render.swift in Sources */,
 			);

@@ -1,5 +1,5 @@
-// mj_metal_renderer.swift
-// Pure Swift Metal renderer for MuJoCo scenes
+// mjc_metal_render.swift
+// Pure Swift Metal render for MuJoCo scenes
 
 import Metal
 import MetalKit
@@ -7,15 +7,15 @@ import simd
 import os.log
 import MJCPhysicsRuntime
 
-private let logger = Logger(subsystem: "com.mujoco.render", category: "MJMetalRenderer")
+private let logger = Logger(subsystem: "com.mujoco.render", category: "MJCMetalRender")
 
 // MARK: - Shader Types
 
-struct MJMetalUniforms {
+struct MJCMetalUniforms {
     var modelMatrix: simd_float4x4
     var viewMatrix: simd_float4x4
     var projectionMatrix: simd_float4x4
-    var normalMatrix: simd_float4x4
+    var normal_matrix: simd_float4x4
     var lightPosition: simd_float3
     var _padding0: Float  // Alignment padding after lightPosition (float3 aligns to 16 bytes in Metal)
     var cameraPosition: simd_float3
@@ -27,7 +27,7 @@ struct MJMetalUniforms {
     var _padding2: Float  // Final alignment padding
 }
 
-struct MJMetalVertex {
+struct MJCMetalVertex {
     var position: simd_float3      // offset 0, size 12, padded to 16
     var normal: simd_float3        // offset 16, size 12, padded to 16
     var texCoord: simd_float2      // offset 32, size 8
@@ -45,32 +45,32 @@ struct MJMetalVertex {
     }
 }
 
-// MARK: - Metal Renderer
+// MARK: - Metal Render
 
-/// Metal-based renderer for MuJoCo physics visualization.
+/// Metal-based render for MuJoCo physics visualization.
 ///
-/// `MJMetalRenderer` converts MuJoCo geometry data into Metal vertex buffers and renders
+/// `MJCMetalRender` converts MuJoCo geometry data into Metal vertex buffers and renders
 /// using custom shaders with Blinn-Phong lighting. It supports both the lock-free
 /// `MJFrameData` ring buffer API and legacy `mjvScene` for backwards compatibility.
 ///
 /// ## Usage
 /// ```swift
-/// let renderer = try MJMetalRenderer(device: MTLCreateSystemDefaultDevice()!)
-/// renderer.render(frameData: frame, drawable: drawable, renderPassDescriptor: descriptor)
+/// let render = try MJCMetalRender(device: MTLCreateSystemDefaultDevice()!)
+/// render.Render(frameData: frame, drawable: drawable, renderPassDescriptor: descriptor)
 /// ```
 ///
 /// ## Thread Safety
-/// The renderer is designed for single-threaded use from the main/render thread.
+/// The render is designed for single-threaded use from the main/render thread.
 /// Frame data can be produced on a separate physics thread using the ring buffer API.
-public final class MJMetalRenderer {
+public final class MJCMetalRender {
     private let device: MTLDevice
-    private let commandQueue: MTLCommandQueue
-    private let pipelineState: MTLRenderPipelineState
-    private let depthState: MTLDepthStencilState
+    private let command_queue: MTLCommandQueue
+    private let pipeline_state: MTLRenderPipelineState
+    private let depth_state: MTLDepthStencilState
 
-    private var vertexBuffer: MTLBuffer
-    private var indexBuffer: MTLBuffer
-    private var depthTexture: MTLTexture?
+    private var vertex_buffer: MTLBuffer
+    private var index_buffer: MTLBuffer
+    private var depth_texture: MTLTexture?
 
     // Buffer capacity - pre-allocated at init to avoid runtime allocation during rendering.
     // Strategy: Allocate large fixed buffers (~64MB vertex + ~4MB index) upfront.
@@ -78,8 +78,8 @@ public final class MJMetalRenderer {
     // Values are sufficient for typical MuJoCo scenes with thousands of geometries.
     // For scenes that would exceed these capacities, additional geometries are skipped
     // due to buffer capacity limits and a warning is emitted.
-    private let maxVertices = 1024 * 1024  // ~64MB at 64 bytes/vertex
-    private let maxIndices = 1024 * 1024   // ~4MB at 4 bytes/index
+    private let max_vertices = 1024 * 1024  // ~64MB at 64 bytes/vertex
+    private let max_indices = 1024 * 1024   // ~4MB at 4 bytes/index
 
     /// Upper bounds on vertices/indices a single geometry can contribute to a frame.
     /// Used as a buffer capacity guard so we can detect when adding a geom would exceed
@@ -89,35 +89,35 @@ public final class MJMetalRenderer {
     /// geom types (spheres, cylinders, capsules, ellipsoids at 16 segments × 12 rings = ~192 quads
     /// = ~384 triangles = ~1152 indices per curved surface) with additional headroom.
     /// Simpler geoms (boxes, planes, segments) use substantially fewer vertices and indices.
-    private static let maxVerticesPerGeom = 1000
-    private static let maxIndicesPerGeom = 6000
+    private static let max_vertices_per_geom = 1000
+    private static let max_indices_per_geom = 6000
 
     // MARK: - Initialization
 
-    /// Creates a new Metal renderer with the specified device.
+    /// Creates a new Metal render with the specified device.
     ///
     /// - Parameter device: The Metal device to use for rendering.
-    /// - Throws: `MJRendererError` if initialization fails (command queue, shaders, or buffers).
+    /// - Throws: `MJCRenderError` if initialization fails (command queue, shaders, or buffers).
     public init(device: MTLDevice) throws {
         self.device = device
 
         guard let queue = device.makeCommandQueue() else {
-            throw MJRendererError.commandQueueCreationFailed
+            throw MJCRenderError.command_queueCreationFailed
         }
-        self.commandQueue = queue
+        self.command_queue = queue
 
         // Load shaders from compiled Metal library in the framework bundle
-        let bundle = Bundle(for: MJMetalRenderer.self)
+        let bundle = Bundle(for: MJCMetalRender.self)
         guard let library = try? device.makeDefaultLibrary(bundle: bundle) else {
-            throw MJRendererError.shaderCompilationFailed
+            throw MJCRenderError.shaderCompilationFailed
         }
 
         guard let vertexFunc = library.makeFunction(name: "vertexMain"),
               let fragmentFunc = library.makeFunction(name: "fragmentMain") else {
-            throw MJRendererError.shaderFunctionNotFound
+            throw MJCRenderError.shaderFunctionNotFound
         }
 
-        // Create vertex descriptor - offsets must match MJMetalVertex struct layout
+        // Create vertex descriptor - offsets must match MJCMetalVertex struct layout
         let vertexDescriptor = MTLVertexDescriptor()
 
         // Position
@@ -140,7 +140,7 @@ public final class MJMetalRenderer {
         vertexDescriptor.attributes[3].offset = 48
         vertexDescriptor.attributes[3].bufferIndex = 0
 
-        vertexDescriptor.layouts[0].stride = MemoryLayout<MJMetalVertex>.stride
+        vertexDescriptor.layouts[0].stride = MemoryLayout<MJCMetalVertex>.stride
         vertexDescriptor.layouts[0].stepFunction = .perVertex
 
         // Create pipeline
@@ -158,27 +158,27 @@ public final class MJMetalRenderer {
         pipelineDescriptor.colorAttachments[0].sourceAlphaBlendFactor = .one
         pipelineDescriptor.colorAttachments[0].destinationAlphaBlendFactor = .oneMinusSourceAlpha
 
-        self.pipelineState = try device.makeRenderPipelineState(descriptor: pipelineDescriptor)
+        self.pipeline_state = try device.makeRenderPipelineState(descriptor: pipelineDescriptor)
 
         // Create depth state
         let depthDescriptor = MTLDepthStencilDescriptor()
         depthDescriptor.depthCompareFunction = .less
         depthDescriptor.isDepthWriteEnabled = true
 
-        guard let depthState = device.makeDepthStencilState(descriptor: depthDescriptor) else {
-            throw MJRendererError.depthStateCreationFailed
+        guard let depth_state = device.makeDepthStencilState(descriptor: depthDescriptor) else {
+            throw MJCRenderError.depth_stateCreationFailed
         }
-        self.depthState = depthState
+        self.depth_state = depth_state
 
         // Allocate buffers
-        guard let vBuffer = device.makeBuffer(length: maxVertices * MemoryLayout<MJMetalVertex>.stride,
+        guard let vBuffer = device.makeBuffer(length: max_vertices * MemoryLayout<MJCMetalVertex>.stride,
                                                options: .storageModeShared),
-              let iBuffer = device.makeBuffer(length: maxIndices * MemoryLayout<UInt32>.stride,
+              let iBuffer = device.makeBuffer(length: max_indices * MemoryLayout<UInt32>.stride,
                                                options: .storageModeShared) else {
-            throw MJRendererError.bufferAllocationFailed
+            throw MJCRenderError.bufferAllocationFailed
         }
-        self.vertexBuffer = vBuffer
-        self.indexBuffer = iBuffer
+        self.vertex_buffer = vBuffer
+        self.index_buffer = iBuffer
     }
 
     // MARK: - Rendering (Lock-Free Ring Buffer API)
@@ -193,11 +193,11 @@ public final class MJMetalRenderer {
     ///   - frameData: Pointer to the frame data containing geometry instances.
     ///   - drawable: The Metal drawable to render into.
     ///   - renderPassDescriptor: Optional render pass descriptor. If nil, a default is created.
-    public func render(frameData: UnsafePointer<MJFrameData>,
+    public func Render(frameData: UnsafePointer<MJFrameData>,
                        drawable: CAMetalDrawable,
                        renderPassDescriptor: MTLRenderPassDescriptor?) {
 
-        guard let commandBuffer = commandQueue.makeCommandBuffer() else { return }
+        guard let commandBuffer = command_queue.makeCommandBuffer() else { return }
 
         let passDescriptor = renderPassDescriptor ?? MTLRenderPassDescriptor()
         passDescriptor.colorAttachments[0].texture = drawable.texture
@@ -210,7 +210,7 @@ public final class MJMetalRenderer {
         let width = drawable.texture.width
         let height = drawable.texture.height
 
-        if depthTexture == nil || depthTexture!.width != width || depthTexture!.height != height {
+        if depth_texture == nil || depth_texture!.width != width || depth_texture!.height != height {
             let depthDesc = MTLTextureDescriptor.texture2DDescriptor(
                 pixelFormat: .depth32Float,
                 width: width,
@@ -219,18 +219,18 @@ public final class MJMetalRenderer {
             )
             depthDesc.usage = .renderTarget
             depthDesc.storageMode = .private
-            depthTexture = device.makeTexture(descriptor: depthDesc)
+            depth_texture = device.makeTexture(descriptor: depthDesc)
         }
 
-        passDescriptor.depthAttachment.texture = depthTexture
+        passDescriptor.depthAttachment.texture = depth_texture
         passDescriptor.depthAttachment.loadAction = .clear
         passDescriptor.depthAttachment.storeAction = .dontCare
         passDescriptor.depthAttachment.clearDepth = 1.0
 
         guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: passDescriptor) else { return }
 
-        encoder.setRenderPipelineState(pipelineState)
-        encoder.setDepthStencilState(depthState)
+        encoder.setRenderPipelineState(pipeline_state)
+        encoder.setDepthStencilState(depth_state)
         encoder.setCullMode(.none)
 
         // Setup camera matrices from frame data
@@ -250,12 +250,12 @@ public final class MJMetalRenderer {
         let center = simd_float3(frame.camera_lookat.0, frame.camera_lookat.1, frame.camera_lookat.2)
         let up = simd_float3(0, 0, 1)
 
-        let viewMatrix = Self.lookAt(eye: eye, center: center, up: up)
+        let viewMatrix = Self.look_at(eye: eye, center: center, up: up)
         let projMatrix = Self.perspective(fovy: fovy, aspect: aspect, near: 0.01, far: 100.0)
 
         // Get buffer pointers
-        let vertexData = vertexBuffer.contents().bindMemory(to: MJMetalVertex.self, capacity: maxVertices)
-        let indexData = indexBuffer.contents().bindMemory(to: UInt32.self, capacity: maxIndices)
+        let vertexData = vertex_buffer.contents().bindMemory(to: MJCMetalVertex.self, capacity: max_vertices)
+        let indexData = index_buffer.contents().bindMemory(to: UInt32.self, capacity: max_indices)
 
         var totalVertices = 0
         var totalIndices = 0
@@ -275,8 +275,8 @@ public final class MJMetalRenderer {
         var skippedGeoms = 0
         for i in 0..<Int(geomCount) {
             // Buffer overflow protection: skip remaining geometries if buffers are full
-            if totalVertices + Self.maxVerticesPerGeom > maxVertices ||
-               totalIndices + Self.maxIndicesPerGeom > maxIndices {
+            if totalVertices + Self.max_vertices_per_geom > max_vertices ||
+               totalIndices + Self.max_indices_per_geom > max_indices {
                 skippedGeoms = Int(geomCount) - i
                 break
             }
@@ -287,7 +287,7 @@ public final class MJMetalRenderer {
             var vertexCount = 0
             var indexCount = 0
 
-            Self.convertGeomInstance(
+            Self.convert_geom_instance(
                 geom: geom,
                 vertices: vertexData.advanced(by: totalVertices),
                 indices: indexData.advanced(by: totalIndices),
@@ -308,11 +308,11 @@ public final class MJMetalRenderer {
                 let specular = geom.specular
                 let shininess = min(max(geom.shininess, 1.0), 10.0)  // Clamp to reasonable range
 
-                var uniforms = MJMetalUniforms(
+                var uniforms = MJCMetalUniforms(
                     modelMatrix: modelMatrix,
                     viewMatrix: viewMatrix,
                     projectionMatrix: projMatrix,
-                    normalMatrix: Self.normalMatrix(from: modelMatrix),
+                    normal_matrix: Self.normal_matrix(from: modelMatrix),
                     lightPosition: simd_float3(0, 0, 10),
                     _padding0: 0,
                     cameraPosition: eye,
@@ -324,15 +324,15 @@ public final class MJMetalRenderer {
                     _padding2: 0
                 )
 
-                encoder.setVertexBuffer(vertexBuffer, offset: totalVertices * MemoryLayout<MJMetalVertex>.stride, index: 0)
-                encoder.setVertexBytes(&uniforms, length: MemoryLayout<MJMetalUniforms>.stride, index: 1)
-                encoder.setFragmentBytes(&uniforms, length: MemoryLayout<MJMetalUniforms>.stride, index: 1)
+                encoder.setVertexBuffer(vertex_buffer, offset: totalVertices * MemoryLayout<MJCMetalVertex>.stride, index: 0)
+                encoder.setVertexBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
+                encoder.setFragmentBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
 
                 encoder.drawIndexedPrimitives(
                     type: .triangle,
                     indexCount: indexCount,
                     indexType: .uint32,
-                    indexBuffer: indexBuffer,
+                    indexBuffer: index_buffer,
                     indexBufferOffset: totalIndices * MemoryLayout<UInt32>.stride
                 )
 
@@ -344,7 +344,7 @@ public final class MJMetalRenderer {
         // Warn if geometries were skipped due to buffer overflow
         if skippedGeoms > 0 {
             let rendered = Int(geomCount) - skippedGeoms
-            logger.warning("Skipped \(skippedGeoms)/\(geomCount) geometries due to buffer capacity (rendered \(rendered), vertices: \(totalVertices)/\(self.maxVertices), indices: \(totalIndices)/\(self.maxIndices))")
+            logger.warning("Skipped \(skippedGeoms)/\(geomCount) geometries due to buffer capacity (rendered \(rendered), vertices: \(totalVertices)/\(self.max_vertices), indices: \(totalIndices)/\(self.max_indices))")
         }
 
         encoder.endEncoding()
@@ -357,7 +357,7 @@ public final class MJMetalRenderer {
     /// Renders a scene using the legacy mjvScene API (for backwards compatibility).
     ///
     /// This method renders geometry from MuJoCo's native `mjvScene` structure.
-    /// Prefer the `render(frameData:drawable:renderPassDescriptor:)` method for
+    /// Prefer the `Render(frameData:drawable:renderPassDescriptor:)` method for
     /// new code as it provides better thread safety through the ring buffer API.
     ///
     /// - Parameters:
@@ -365,12 +365,12 @@ public final class MJMetalRenderer {
     ///   - camera: Pointer to the MuJoCo camera settings.
     ///   - drawable: The Metal drawable to render into.
     ///   - renderPassDescriptor: Optional render pass descriptor. If nil, a default is created.
-    public func render(scene: UnsafePointer<mjvScene>,
+    public func Render(scene: UnsafePointer<mjvScene>,
                        camera: UnsafePointer<mjvCamera>,
                        drawable: CAMetalDrawable,
                        renderPassDescriptor: MTLRenderPassDescriptor?) {
 
-        guard let commandBuffer = commandQueue.makeCommandBuffer() else { return }
+        guard let commandBuffer = command_queue.makeCommandBuffer() else { return }
 
         let passDescriptor = renderPassDescriptor ?? MTLRenderPassDescriptor()
         passDescriptor.colorAttachments[0].texture = drawable.texture
@@ -382,7 +382,7 @@ public final class MJMetalRenderer {
         let width = drawable.texture.width
         let height = drawable.texture.height
 
-        if depthTexture == nil || depthTexture!.width != width || depthTexture!.height != height {
+        if depth_texture == nil || depth_texture!.width != width || depth_texture!.height != height {
             let depthDesc = MTLTextureDescriptor.texture2DDescriptor(
                 pixelFormat: .depth32Float,
                 width: width,
@@ -391,18 +391,18 @@ public final class MJMetalRenderer {
             )
             depthDesc.usage = .renderTarget
             depthDesc.storageMode = .private
-            depthTexture = device.makeTexture(descriptor: depthDesc)
+            depth_texture = device.makeTexture(descriptor: depthDesc)
         }
 
-        passDescriptor.depthAttachment.texture = depthTexture
+        passDescriptor.depthAttachment.texture = depth_texture
         passDescriptor.depthAttachment.loadAction = .clear
         passDescriptor.depthAttachment.storeAction = .dontCare
         passDescriptor.depthAttachment.clearDepth = 1.0
 
         guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: passDescriptor) else { return }
 
-        encoder.setRenderPipelineState(pipelineState)
-        encoder.setDepthStencilState(depthState)
+        encoder.setRenderPipelineState(pipeline_state)
+        encoder.setDepthStencilState(depth_state)
         encoder.setCullMode(.none)
 
         // Setup camera matrices
@@ -422,12 +422,12 @@ public final class MJMetalRenderer {
         let center = simd_float3(Float(cam.lookat.0), Float(cam.lookat.1), Float(cam.lookat.2))
         let up = simd_float3(0, 0, 1)
 
-        let viewMatrix = Self.lookAt(eye: eye, center: center, up: up)
+        let viewMatrix = Self.look_at(eye: eye, center: center, up: up)
         let projMatrix = Self.perspective(fovy: fovy, aspect: aspect, near: 0.01, far: 100.0)
 
         // Get buffer pointers
-        let vertexData = vertexBuffer.contents().bindMemory(to: MJMetalVertex.self, capacity: maxVertices)
-        let indexData = indexBuffer.contents().bindMemory(to: UInt32.self, capacity: maxIndices)
+        let vertexData = vertex_buffer.contents().bindMemory(to: MJCMetalVertex.self, capacity: max_vertices)
+        let indexData = index_buffer.contents().bindMemory(to: UInt32.self, capacity: max_indices)
 
         var totalVertices = 0
         var totalIndices = 0
@@ -449,8 +449,8 @@ public final class MJMetalRenderer {
         var skippedGeoms = 0
         for i in 0..<Int(scn.ngeom) {
             // Buffer overflow protection: skip remaining geometries if buffers are full
-            if totalVertices + Self.maxVerticesPerGeom > maxVertices ||
-               totalIndices + Self.maxIndicesPerGeom > maxIndices {
+            if totalVertices + Self.max_vertices_per_geom > max_vertices ||
+               totalIndices + Self.max_indices_per_geom > max_indices {
                 skippedGeoms = Int(scn.ngeom) - i
                 break
             }
@@ -460,7 +460,7 @@ public final class MJMetalRenderer {
             var vertexCount = 0
             var indexCount = 0
 
-            Self.convertGeom(
+            Self.convert_geom(
                 geom: geom,
                 vertices: vertexData.advanced(by: totalVertices),
                 indices: indexData.advanced(by: totalIndices),
@@ -480,11 +480,11 @@ public final class MJMetalRenderer {
                 let specular = geom.specular
                 let shininess = min(max(geom.shininess, 1.0), 10.0)  // Clamp to reasonable range
 
-                var uniforms = MJMetalUniforms(
+                var uniforms = MJCMetalUniforms(
                     modelMatrix: modelMatrix,
                     viewMatrix: viewMatrix,
                     projectionMatrix: projMatrix,
-                    normalMatrix: Self.normalMatrix(from: modelMatrix),
+                    normal_matrix: Self.normal_matrix(from: modelMatrix),
                     lightPosition: simd_float3(0, 0, 10),
                     _padding0: 0,
                     cameraPosition: eye,
@@ -496,15 +496,15 @@ public final class MJMetalRenderer {
                     _padding2: 0
                 )
 
-                encoder.setVertexBuffer(vertexBuffer, offset: totalVertices * MemoryLayout<MJMetalVertex>.stride, index: 0)
-                encoder.setVertexBytes(&uniforms, length: MemoryLayout<MJMetalUniforms>.stride, index: 1)
-                encoder.setFragmentBytes(&uniforms, length: MemoryLayout<MJMetalUniforms>.stride, index: 1)
+                encoder.setVertexBuffer(vertex_buffer, offset: totalVertices * MemoryLayout<MJCMetalVertex>.stride, index: 0)
+                encoder.setVertexBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
+                encoder.setFragmentBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
 
                 encoder.drawIndexedPrimitives(
                     type: .triangle,
                     indexCount: indexCount,
                     indexType: .uint32,
-                    indexBuffer: indexBuffer,
+                    indexBuffer: index_buffer,
                     indexBufferOffset: totalIndices * MemoryLayout<UInt32>.stride
                 )
 
@@ -516,7 +516,7 @@ public final class MJMetalRenderer {
         // Warn if geometries were skipped due to buffer overflow
         if skippedGeoms > 0 {
             let rendered = Int(scn.ngeom) - skippedGeoms
-            logger.warning("Skipped \(skippedGeoms)/\(scn.ngeom) geometries due to buffer capacity (rendered \(rendered), vertices: \(totalVertices)/\(self.maxVertices), indices: \(totalIndices)/\(self.maxIndices))")
+            logger.warning("Skipped \(skippedGeoms)/\(scn.ngeom) geometries due to buffer capacity (rendered \(rendered), vertices: \(totalVertices)/\(self.max_vertices), indices: \(totalIndices)/\(self.max_indices))")
         }
 
         encoder.endEncoding()
@@ -539,7 +539,7 @@ public final class MJMetalRenderer {
         ))
     }
 
-    private static func lookAt(eye: simd_float3, center: simd_float3, up: simd_float3) -> simd_float4x4 {
+    private static func look_at(eye: simd_float3, center: simd_float3, up: simd_float3) -> simd_float4x4 {
         let f = simd_normalize(center - eye)
         let s = simd_normalize(simd_cross(f, up))
         let u = simd_cross(s, f)
@@ -554,7 +554,7 @@ public final class MJMetalRenderer {
 
     /// Compute normal matrix (inverse transpose of upper-left 3x3) for correct lighting
     /// with non-uniform scaling. Returns identity-based 4x4 matrix with 3x3 normal transform.
-    private static func normalMatrix(from modelMatrix: simd_float4x4) -> simd_float4x4 {
+    private static func normal_matrix(from modelMatrix: simd_float4x4) -> simd_float4x4 {
         // Extract upper-left 3x3
         let m = simd_float3x3(
             simd_float3(modelMatrix.columns.0.x, modelMatrix.columns.0.y, modelMatrix.columns.0.z),
@@ -577,8 +577,8 @@ public final class MJMetalRenderer {
     // MARK: - Geometry Conversion
 
     /// Convert MJGeomInstance (from ring buffer) to mesh vertices
-    private static func convertGeomInstance(geom: MJGeomInstance,
-                                            vertices: UnsafeMutablePointer<MJMetalVertex>,
+    private static func convert_geom_instance(geom: MJGeomInstance,
+                                            vertices: UnsafeMutablePointer<MJCMetalVertex>,
                                             indices: UnsafeMutablePointer<UInt32>,
                                             vertexCount: inout Int,
                                             indexCount: inout Int) {
@@ -587,37 +587,37 @@ public final class MJMetalRenderer {
 
         switch geom.type {
         case 0: // mjGEOM_PLANE
-            generatePlane(size: size, color: color, vertices: vertices, indices: indices,
+            generate_plane(size: size, color: color, vertices: vertices, indices: indices,
                          vertexCount: &vertexCount, indexCount: &indexCount)
 
         case 2: // mjGEOM_SPHERE
-            generateSphere(radius: geom.size.0, color: color, vertices: vertices, indices: indices,
+            generate_sphere(radius: geom.size.0, color: color, vertices: vertices, indices: indices,
                           vertexCount: &vertexCount, indexCount: &indexCount)
 
         case 3: // mjGEOM_CAPSULE
-            generateCapsule(radius: geom.size.0, halfLength: geom.size.2, color: color,
+            generate_capsule(radius: geom.size.0, halfLength: geom.size.2, color: color,
                            vertices: vertices, indices: indices,
                            vertexCount: &vertexCount, indexCount: &indexCount)
 
         case 5: // mjGEOM_CYLINDER
-            generateCylinder(radius: geom.size.0, halfLength: geom.size.2, color: color,
+            generate_cylinder(radius: geom.size.0, halfLength: geom.size.2, color: color,
                             vertices: vertices, indices: indices,
                             vertexCount: &vertexCount, indexCount: &indexCount)
 
         case 6: // mjGEOM_BOX
-            generateBox(size: size, color: color, vertices: vertices, indices: indices,
+            generate_box(size: size, color: color, vertices: vertices, indices: indices,
                        vertexCount: &vertexCount, indexCount: &indexCount)
 
         default:
             // Placeholder cube for unsupported types
-            generateBox(size: (0.02, 0.02, 0.02), color: color, vertices: vertices, indices: indices,
+            generate_box(size: (0.02, 0.02, 0.02), color: color, vertices: vertices, indices: indices,
                        vertexCount: &vertexCount, indexCount: &indexCount)
         }
     }
 
     /// Convert mjvGeom (legacy API) to mesh vertices
-    private static func convertGeom(geom: mjvGeom,
-                                    vertices: UnsafeMutablePointer<MJMetalVertex>,
+    private static func convert_geom(geom: mjvGeom,
+                                    vertices: UnsafeMutablePointer<MJCMetalVertex>,
                                     indices: UnsafeMutablePointer<UInt32>,
                                     vertexCount: inout Int,
                                     indexCount: inout Int) {
@@ -625,30 +625,30 @@ public final class MJMetalRenderer {
 
         switch geom.type {
         case 0: // mjGEOM_PLANE
-            generatePlane(size: geom.size, color: color, vertices: vertices, indices: indices,
+            generate_plane(size: geom.size, color: color, vertices: vertices, indices: indices,
                          vertexCount: &vertexCount, indexCount: &indexCount)
 
         case 2: // mjGEOM_SPHERE
-            generateSphere(radius: geom.size.0, color: color, vertices: vertices, indices: indices,
+            generate_sphere(radius: geom.size.0, color: color, vertices: vertices, indices: indices,
                           vertexCount: &vertexCount, indexCount: &indexCount)
 
         case 3: // mjGEOM_CAPSULE
-            generateCapsule(radius: geom.size.0, halfLength: geom.size.2, color: color,
+            generate_capsule(radius: geom.size.0, halfLength: geom.size.2, color: color,
                            vertices: vertices, indices: indices,
                            vertexCount: &vertexCount, indexCount: &indexCount)
 
         case 5: // mjGEOM_CYLINDER
-            generateCylinder(radius: geom.size.0, halfLength: geom.size.2, color: color,
+            generate_cylinder(radius: geom.size.0, halfLength: geom.size.2, color: color,
                             vertices: vertices, indices: indices,
                             vertexCount: &vertexCount, indexCount: &indexCount)
 
         case 6: // mjGEOM_BOX
-            generateBox(size: geom.size, color: color, vertices: vertices, indices: indices,
+            generate_box(size: geom.size, color: color, vertices: vertices, indices: indices,
                        vertexCount: &vertexCount, indexCount: &indexCount)
 
         default:
             // Placeholder cube for unsupported types
-            generateBox(size: (0.02, 0.02, 0.02), color: color, vertices: vertices, indices: indices,
+            generate_box(size: (0.02, 0.02, 0.02), color: color, vertices: vertices, indices: indices,
                        vertexCount: &vertexCount, indexCount: &indexCount)
         }
     }
@@ -657,8 +657,8 @@ public final class MJMetalRenderer {
 
     /// Generate a plane quad with the given size and color.
     /// If size components are zero or negative, defaults to 10.0 units for visibility.
-    private static func generatePlane(size: (Float, Float, Float), color: simd_float4,
-                                      vertices: UnsafeMutablePointer<MJMetalVertex>,
+    private static func generate_plane(size: (Float, Float, Float), color: simd_float4,
+                                      vertices: UnsafeMutablePointer<MJCMetalVertex>,
                                       indices: UnsafeMutablePointer<UInt32>,
                                       vertexCount: inout Int, indexCount: inout Int) {
         // Use fallback size if dimensions are invalid (ensures plane is always visible)
@@ -666,10 +666,10 @@ public final class MJMetalRenderer {
         let sy = size.1 > 0 ? size.1 : 10.0
         let normal = simd_float3(0, 0, 1)
 
-        vertices[0] = MJMetalVertex(position: simd_float3(-sx, -sy, 0), normal: normal, texCoord: simd_float2(0, 0), color: color)
-        vertices[1] = MJMetalVertex(position: simd_float3(sx, -sy, 0), normal: normal, texCoord: simd_float2(1, 0), color: color)
-        vertices[2] = MJMetalVertex(position: simd_float3(sx, sy, 0), normal: normal, texCoord: simd_float2(1, 1), color: color)
-        vertices[3] = MJMetalVertex(position: simd_float3(-sx, sy, 0), normal: normal, texCoord: simd_float2(0, 1), color: color)
+        vertices[0] = MJCMetalVertex(position: simd_float3(-sx, -sy, 0), normal: normal, texCoord: simd_float2(0, 0), color: color)
+        vertices[1] = MJCMetalVertex(position: simd_float3(sx, -sy, 0), normal: normal, texCoord: simd_float2(1, 0), color: color)
+        vertices[2] = MJCMetalVertex(position: simd_float3(sx, sy, 0), normal: normal, texCoord: simd_float2(1, 1), color: color)
+        vertices[3] = MJCMetalVertex(position: simd_float3(-sx, sy, 0), normal: normal, texCoord: simd_float2(0, 1), color: color)
 
         indices[0] = 0; indices[1] = 1; indices[2] = 2
         indices[3] = 0; indices[4] = 2; indices[5] = 3
@@ -681,8 +681,8 @@ public final class MJMetalRenderer {
     /// Generate a UV sphere with the given radius and color.
     /// Tessellation: 16 segments × 12 rings provides smooth silhouettes while keeping
     /// vertex count reasonable for real-time rendering of typical MuJoCo scenes.
-    private static func generateSphere(radius: Float, color: simd_float4,
-                                       vertices: UnsafeMutablePointer<MJMetalVertex>,
+    private static func generate_sphere(radius: Float, color: simd_float4,
+                                       vertices: UnsafeMutablePointer<MJCMetalVertex>,
                                        indices: UnsafeMutablePointer<UInt32>,
                                        vertexCount: inout Int, indexCount: inout Int) {
         let segments = 16  // Horizontal divisions (longitude)
@@ -703,7 +703,7 @@ public final class MJMetalRenderer {
                 let normal = simd_normalize(pos)
                 let texCoord = simd_float2(Float(s) / Float(segments), Float(r) / Float(rings))
 
-                vertices[vCount] = MJMetalVertex(position: pos, normal: normal, texCoord: texCoord, color: color)
+                vertices[vCount] = MJCMetalVertex(position: pos, normal: normal, texCoord: texCoord, color: color)
                 vCount += 1
             }
         }
@@ -727,8 +727,8 @@ public final class MJMetalRenderer {
         indexCount = iCount
     }
 
-    private static func generateBox(size: (Float, Float, Float), color: simd_float4,
-                                    vertices: UnsafeMutablePointer<MJMetalVertex>,
+    private static func generate_box(size: (Float, Float, Float), color: simd_float4,
+                                    vertices: UnsafeMutablePointer<MJCMetalVertex>,
                                     indices: UnsafeMutablePointer<UInt32>,
                                     vertexCount: inout Int, indexCount: inout Int) {
         let sx = size.0, sy = size.1, sz = size.2
@@ -757,7 +757,7 @@ public final class MJMetalRenderer {
         for f in 0..<6 {
             let baseVertex = vCount
             for v in 0..<4 {
-                vertices[vCount] = MJMetalVertex(
+                vertices[vCount] = MJCMetalVertex(
                     position: corners[faceIndices[f][v]],
                     normal: faceNormals[f],
                     texCoord: simd_float2(Float(v % 2), Float(v / 2)),
@@ -779,8 +779,8 @@ public final class MJMetalRenderer {
 
     /// Generate a cylinder with the given radius, half-length, and color.
     /// Tessellation: 16 segments around the circumference for smooth appearance.
-    private static func generateCylinder(radius: Float, halfLength: Float, color: simd_float4,
-                                         vertices: UnsafeMutablePointer<MJMetalVertex>,
+    private static func generate_cylinder(radius: Float, halfLength: Float, color: simd_float4,
+                                         vertices: UnsafeMutablePointer<MJCMetalVertex>,
                                          indices: UnsafeMutablePointer<UInt32>,
                                          vertexCount: inout Int, indexCount: inout Int) {
         let segments = 16  // Circumference divisions
@@ -794,7 +794,7 @@ public final class MJMetalRenderer {
             let normal = simd_float3(cos(theta), sin(theta), 0)
 
             // Bottom vertex
-            vertices[vCount] = MJMetalVertex(
+            vertices[vCount] = MJCMetalVertex(
                 position: simd_float3(x, y, -halfLength),
                 normal: normal,
                 texCoord: simd_float2(Float(s) / Float(segments), 0),
@@ -803,7 +803,7 @@ public final class MJMetalRenderer {
             vCount += 1
 
             // Top vertex
-            vertices[vCount] = MJMetalVertex(
+            vertices[vCount] = MJCMetalVertex(
                 position: simd_float3(x, y, halfLength),
                 normal: normal,
                 texCoord: simd_float2(Float(s) / Float(segments), 1),
@@ -828,12 +828,12 @@ public final class MJMetalRenderer {
 
     /// Generate a capsule (cylinder with hemisphere caps) with the given radius, half-length, and color.
     /// Tessellation: 16 segments × 8 rings per hemisphere for smooth caps.
-    private static func generateCapsule(radius: Float, halfLength: Float, color: simd_float4,
-                                        vertices: UnsafeMutablePointer<MJMetalVertex>,
+    private static func generate_capsule(radius: Float, halfLength: Float, color: simd_float4,
+                                        vertices: UnsafeMutablePointer<MJCMetalVertex>,
                                         indices: UnsafeMutablePointer<UInt32>,
                                         vertexCount: inout Int, indexCount: inout Int) {
         // Start with cylinder
-        generateCylinder(radius: radius, halfLength: halfLength, color: color,
+        generate_cylinder(radius: radius, halfLength: halfLength, color: color,
                         vertices: vertices, indices: indices,
                         vertexCount: &vertexCount, indexCount: &indexCount)
 
@@ -854,7 +854,7 @@ public final class MJMetalRenderer {
                 let pos = simd_float3(x, y, z)
                 let normal = simd_normalize(simd_float3(x, y, z + halfLength))
 
-                vertices[vertexCount] = MJMetalVertex(
+                vertices[vertexCount] = MJCMetalVertex(
                     position: pos, normal: normal,
                     texCoord: simd_float2(Float(s) / Float(segments), Float(r) / Float(rings)),
                     color: color
@@ -889,7 +889,7 @@ public final class MJMetalRenderer {
                 let pos = simd_float3(x, y, z)
                 let normal = simd_normalize(simd_float3(x, y, z - halfLength))
 
-                vertices[vertexCount] = MJMetalVertex(
+                vertices[vertexCount] = MJCMetalVertex(
                     position: pos, normal: normal,
                     texCoord: simd_float2(Float(s) / Float(segments), Float(r) / Float(rings)),
                     color: color
@@ -915,11 +915,11 @@ public final class MJMetalRenderer {
 
 // MARK: - Errors
 
-public enum MJRendererError: Error {
-    case commandQueueCreationFailed
+public enum MJCRenderError: Error {
+    case command_queueCreationFailed
     case shaderCompilationFailed
     case shaderFunctionNotFound
     case pipelineCreationFailed
-    case depthStateCreationFailed
+    case depth_stateCreationFailed
     case bufferAllocationFailed
 }
