@@ -840,7 +840,7 @@ private:
                         step_count++;
 
                         if (data_->time < prev_sim) {
-                            os_log(OS_LOG_DEFAULT, "Warning: simulation time went backwards (reset detected), resyncing");
+                            os_log_info(OS_LOG_DEFAULT, "Warning: simulation time went backwards (reset detected), resyncing");
                             speed_changed_ = true;  // Trigger resync
                             break;
                         }
