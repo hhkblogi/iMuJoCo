@@ -55,6 +55,19 @@ public protocol MJRenderDataSource: AnyObject {
 /// Minimum camera distance to prevent rendering issues from zero/negative distances.
 private let minCameraDistance: Double = 0.1
 
+/// Camera rotation sensitivity (degrees per point of drag/pan movement).
+private let cameraRotationSensitivity: Double = 0.5
+
+/// Zoom sensitivity for macOS scroll/drag (percentage change per point).
+private let zoomSensitivity: Double = 0.01
+
+/// tvOS zoom factor per high-velocity vertical swipe (2% change).
+private let tvOSZoomFactor: Double = 0.02
+
+/// tvOS velocity thresholds for zoom detection (points per second).
+private let tvOSZoomVelocityThreshold: CGFloat = 500
+private let tvOSZoomHorizontalLimit: CGFloat = 100
+
 // MARK: - Metal View Representable
 
 #if os(iOS) || os(tvOS)
@@ -171,7 +184,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         do {
             renderer = try MJMetalRenderer(device: device)
         } catch {
-            print("Failed to create Metal renderer: \(error)")
+            print("[MuJoCoMTKView] Failed to create Metal renderer: \(error)")
         }
 
         #if os(iOS)
@@ -205,15 +218,16 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         let location = gesture.translation(in: self)
 
         if gesture.state == .began {
-            lastPanLocation = .zero
+            // Store initial translation to avoid jump on first movement
+            lastPanLocation = location
         }
 
         let deltaX = location.x - lastPanLocation.x
         let deltaY = location.y - lastPanLocation.y
 
         // Update camera azimuth and elevation
-        dataSource.cameraAzimuth += Double(deltaX) * 0.5
-        dataSource.cameraElevation += Double(deltaY) * 0.5
+        dataSource.cameraAzimuth += Double(deltaX) * cameraRotationSensitivity
+        dataSource.cameraElevation += Double(deltaY) * cameraRotationSensitivity
 
         lastPanLocation = location
     }
@@ -221,17 +235,37 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
     @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
         guard let dataSource = dataSource else { return }
 
-        if gesture.state == .began {
+        switch gesture.state {
+        case .began:
+            // Initialize reference scale for this gesture sequence
+            lastPinchScale = gesture.scale
+
+        case .changed:
+            // Compute scale delta relative to previous reading
+            guard lastPinchScale > 0 else {
+                lastPinchScale = gesture.scale
+                return
+            }
+
+            let scaleDelta = gesture.scale / lastPinchScale
+            guard scaleDelta > 0 else {
+                lastPinchScale = gesture.scale
+                return
+            }
+
+            let newDistance = dataSource.cameraDistance * (1.0 / Double(scaleDelta))
+            dataSource.cameraDistance = max(newDistance, minCameraDistance)
+
+            // Store current scale for next delta computation
+            lastPinchScale = gesture.scale
+
+        case .ended, .cancelled, .failed:
+            // Reset between gesture sequences to avoid cross-gesture error accumulation
             lastPinchScale = 1.0
+
+        default:
+            break
         }
-
-        let scale = gesture.scale / lastPinchScale
-        guard scale > 0 else { return }
-
-        let newDistance = dataSource.cameraDistance * (1.0 / Double(scale))
-        dataSource.cameraDistance = max(newDistance, minCameraDistance)
-
-        lastPinchScale = gesture.scale
     }
 
     @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
@@ -259,16 +293,16 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
 
         let velocity = gesture.velocity(in: self)
 
-        // Swipe sensitivity for tvOS remote
+        // Swipe sensitivity for tvOS remote (velocity is in points per second)
         let sensitivity: CGFloat = 0.02
 
         // Horizontal swipe = azimuth rotation, vertical swipe = elevation
         dataSource.cameraAzimuth += Double(velocity.x) * sensitivity
         dataSource.cameraElevation += Double(velocity.y) * sensitivity
 
-        // Use up/down for zoom when swiping near edges or with specific gesture
-        if abs(velocity.y) > 500 && abs(velocity.x) < 100 {
-            let zoomFactor = velocity.y > 0 ? 1.02 : 0.98
+        // Detect high-velocity vertical swipe for zoom (primarily vertical movement)
+        if abs(velocity.y) > tvOSZoomVelocityThreshold && abs(velocity.x) < tvOSZoomHorizontalLimit {
+            let zoomFactor = 1.0 + (velocity.y > 0 ? tvOSZoomFactor : -tvOSZoomFactor)
             let newDistance = dataSource.cameraDistance * zoomFactor
             dataSource.cameraDistance = max(newDistance, minCameraDistance)
         }
@@ -304,8 +338,8 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         let deltaY = location.y - lastMouseLocation.y
 
         // Update camera azimuth and elevation
-        dataSource.cameraAzimuth += Double(deltaX) * 0.5
-        dataSource.cameraElevation -= Double(deltaY) * 0.5  // Inverted for natural feel
+        dataSource.cameraAzimuth += Double(deltaX) * cameraRotationSensitivity
+        dataSource.cameraElevation -= Double(deltaY) * cameraRotationSensitivity  // Inverted for natural feel
 
         lastMouseLocation = location
     }
@@ -315,7 +349,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
 
         // Right drag for zoom
         let deltaY = event.deltaY
-        let newDistance = dataSource.cameraDistance * (1.0 + Double(deltaY) * 0.01)
+        let newDistance = dataSource.cameraDistance * (1.0 + Double(deltaY) * zoomSensitivity)
         dataSource.cameraDistance = max(newDistance, minCameraDistance)
     }
 
@@ -324,7 +358,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
 
         // Scroll wheel for zoom
         let deltaY = event.scrollingDeltaY
-        let newDistance = dataSource.cameraDistance * (1.0 - Double(deltaY) * 0.01)
+        let newDistance = dataSource.cameraDistance * (1.0 - Double(deltaY) * zoomSensitivity)
         dataSource.cameraDistance = max(newDistance, minCameraDistance)
     }
 

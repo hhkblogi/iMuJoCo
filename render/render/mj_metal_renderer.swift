@@ -322,7 +322,8 @@ public final class MJMetalRenderer {
 
         // Warn if geometries were skipped due to buffer overflow
         if skippedGeoms > 0 {
-            print("[MJMetalRenderer] Warning: Skipped \(skippedGeoms) geometries due to buffer capacity limits")
+            let rendered = Int(geomCount) - skippedGeoms
+            print("[MJMetalRenderer] Warning: Skipped \(skippedGeoms)/\(geomCount) geometries due to buffer capacity (rendered \(rendered), vertices: \(totalVertices)/\(maxVertices), indices: \(totalIndices)/\(maxIndices))")
         }
 
         encoder.endEncoding()
@@ -490,7 +491,8 @@ public final class MJMetalRenderer {
 
         // Warn if geometries were skipped due to buffer overflow
         if skippedGeoms > 0 {
-            print("[MJMetalRenderer] Warning: Skipped \(skippedGeoms) geometries due to buffer capacity limits")
+            let rendered = Int(scn.ngeom) - skippedGeoms
+            print("[MJMetalRenderer] Warning: Skipped \(skippedGeoms)/\(scn.ngeom) geometries due to buffer capacity (rendered \(rendered), vertices: \(totalVertices)/\(maxVertices), indices: \(totalIndices)/\(maxIndices))")
         }
 
         encoder.endEncoding()

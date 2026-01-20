@@ -1091,7 +1091,8 @@ uint64_t mjc_runtime_get_frame_count(MJRuntimeHandle handle) {
 }
 
 // Note: mjc_frame_get_geoms, mjc_frame_get_geom_count, mjc_frame_get_geom
-// are now static inline in the header for use without linking
+// are provided as static inline functions in the header for header-only access.
+// No library symbol is needed; callers just include the header.
 
 // Camera control
 void mjc_runtime_set_camera_azimuth(MJRuntimeHandle handle, double azimuth) {
