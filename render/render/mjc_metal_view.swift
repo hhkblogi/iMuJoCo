@@ -146,7 +146,7 @@ public struct MuJoCoMetalView: NSViewRepresentable {
 public class MuJoCoMTKView: MTKView, MTKViewDelegate {
     public var dataSource: MJCRenderDataSource?
 
-    private var renderer: MJCMetalRenderer?
+    private var renderer: MJCMetalRender?
 
     // Performance metrics
     private var frame_count: Int = 0
@@ -185,7 +185,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
 
         // Initialize Metal renderer
         do {
-            renderer = try MJCMetalRenderer(device: device)
+            renderer = try MJCMetalRender(device: device)
         } catch {
             logger.error("Failed to create Metal renderer: \(error)")
         }

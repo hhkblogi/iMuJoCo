@@ -7,7 +7,7 @@ import simd
 import os.log
 import MJCPhysicsRuntime
 
-private let logger = Logger(subsystem: "com.mujoco.render", category: "MJCMetalRenderer")
+private let logger = Logger(subsystem: "com.mujoco.render", category: "MJCMetalRender")
 
 // MARK: - Shader Types
 
@@ -49,20 +49,20 @@ struct MJCMetalVertex {
 
 /// Metal-based renderer for MuJoCo physics visualization.
 ///
-/// `MJCMetalRenderer` converts MuJoCo geometry data into Metal vertex buffers and renders
+/// `MJCMetalRender` converts MuJoCo geometry data into Metal vertex buffers and renders
 /// using custom shaders with Blinn-Phong lighting. It supports both the lock-free
 /// `MJFrameData` ring buffer API and legacy `mjvScene` for backwards compatibility.
 ///
 /// ## Usage
 /// ```swift
-/// let renderer = try MJCMetalRenderer(device: MTLCreateSystemDefaultDevice()!)
+/// let renderer = try MJCMetalRender(device: MTLCreateSystemDefaultDevice()!)
 /// renderer.Render(frameData: frame, drawable: drawable, renderPassDescriptor: descriptor)
 /// ```
 ///
 /// ## Thread Safety
 /// The renderer is designed for single-threaded use from the main/render thread.
 /// Frame data can be produced on a separate physics thread using the ring buffer API.
-public final class MJCMetalRenderer {
+public final class MJCMetalRender {
     private let device: MTLDevice
     private let command_queue: MTLCommandQueue
     private let pipeline_state: MTLRenderPipelineState
@@ -107,7 +107,7 @@ public final class MJCMetalRenderer {
         self.command_queue = queue
 
         // Load shaders from compiled Metal library in the framework bundle
-        let bundle = Bundle(for: MJCMetalRenderer.self)
+        let bundle = Bundle(for: MJCMetalRender.self)
         guard let library = try? device.makeDefaultLibrary(bundle: bundle) else {
             throw MJCRendererError.shaderCompilationFailed
         }

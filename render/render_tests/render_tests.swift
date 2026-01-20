@@ -81,7 +81,7 @@ final class RendererCreationTests: XCTestCase {
         }
 
         do {
-            let renderer = try MJCMetalRenderer(device: device)
+            let renderer = try MJCMetalRender(device: device)
             XCTAssertNotNil(renderer)
         } catch {
             XCTFail("Failed to create renderer: \(error)")
