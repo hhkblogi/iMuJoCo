@@ -143,6 +143,8 @@ Build the project (Cmd+B). The `core` framework links against the MuJoCo XCFrame
 
 - **Swift wrapper necessity**: `mjc_runtime.swift` wraps the C interface for Swift-idiomatic API (properties, throws, deinit). However, Swift can call C directly via the `MJCPhysicsRuntime` module. Consider whether the wrapper adds enough value or if direct C calls would be leaner.
 
+- **Custom logging subsystem**: Currently using `OS_LOG_DEFAULT` for simplicity. For production, consider using `os_log_create()` with custom subsystem/category (e.g., `"com.mujoco.core"`, `"UDPServer"`) to enable filtering in Console.app and per-component log retention policies.
+
 ## License
 
 Apache License 2.0 - see [LICENSE](LICENSE) for details.

@@ -20,6 +20,9 @@
 #include <ifaddrs.h>
 #include <errno.h>
 
+// Apple unified logging
+#include <os/log.h>
+
 // MARK: - Constants
 
 namespace {
@@ -203,7 +206,7 @@ public:
 
         socket_fd_ = socket(AF_INET, SOCK_DGRAM, 0);
         if (socket_fd_ < 0) {
-            printf("[UDPServer] Failed to create socket\n");
+            os_log_error(OS_LOG_DEFAULT, "Failed to create socket");
             return false;
         }
 
@@ -223,14 +226,14 @@ public:
         addr.sin_port = htons(port);
 
         if (bind(socket_fd_, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-            printf("[UDPServer] Failed to bind to port %d\n", port);
+            os_log_error(OS_LOG_DEFAULT, "Failed to bind to port %u", port);
             close(socket_fd_);
             socket_fd_ = -1;
             return false;
         }
 
         port_ = port;
-        printf("[UDPServer] Listening on port %d\n", port);
+        os_log_info(OS_LOG_DEFAULT, "Listening on port %u", port);
         return true;
     }
 
@@ -238,7 +241,7 @@ public:
         if (socket_fd_ >= 0) {
             close(socket_fd_);
             socket_fd_ = -1;
-            printf("[UDPServer] Closed port %d\n", port_);
+            os_log_info(OS_LOG_DEFAULT, "Closed port %u", port_);
         }
         port_ = 0;
         has_client_ = false;
@@ -266,13 +269,18 @@ public:
             return -1;  // No packet available
         }
 
-        printf("[UDPServer] Received %zd bytes from %s:%d\n",
-               recv_len, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+        char addr_str[INET_ADDRSTRLEN];
+        if (!inet_ntop(AF_INET, &client_addr.sin_addr, addr_str, sizeof(addr_str))) {
+            strncpy(addr_str, "<invalid>", sizeof(addr_str));
+            addr_str[sizeof(addr_str) - 1] = '\0';
+        }
+        os_log_debug(OS_LOG_DEFAULT, "Received %zd bytes from %{public}s:%u",
+                     recv_len, addr_str, ntohs(client_addr.sin_port));
 
         // Validate minimum header size
         if (recv_len < (ssize_t)sizeof(ControlPacket)) {
-            printf("[UDPServer] Packet too small: expected at least %zu bytes for header, got %zd\n",
-                   sizeof(ControlPacket), recv_len);
+            os_log_error(OS_LOG_DEFAULT, "Packet too small: expected at least %zu bytes for header, got %zd",
+                         sizeof(ControlPacket), recv_len);
             return -1;
         }
 
@@ -280,8 +288,8 @@ public:
 
         // Validate magic number
         if (packet->magic != MJ_PACKET_MAGIC_CTRL) {
-            printf("[UDPServer] Invalid magic: 0x%08X (expected 0x%08X)\n",
-                   packet->magic, MJ_PACKET_MAGIC_CTRL);
+            os_log_error(OS_LOG_DEFAULT, "Invalid magic: 0x%08X (expected 0x%08X)",
+                         packet->magic, MJ_PACKET_MAGIC_CTRL);
             return -1;
         }
 
@@ -292,22 +300,22 @@ public:
 
         // Extract control values
         int nu = packet->nu;
-        printf("[UDPServer] Control packet: seq=%u, nu=%d\n", packet->sequence, nu);
+        os_log_debug(OS_LOG_DEFAULT, "Control packet: seq=%u, nu=%d", packet->sequence, nu);
 
         // Packet with no controls is valid (just a "tick" request)
         if (nu <= 0) return 0;
 
         // Validate nu is within range (use max_ctrl from model, not fixed constant)
         if (nu > max_ctrl) {
-            printf("[UDPServer] Invalid nu=%d exceeds model max_ctrl %d\n", nu, max_ctrl);
+            os_log_error(OS_LOG_DEFAULT, "Invalid nu=%d exceeds model max_ctrl %d", nu, max_ctrl);
             return -1;
         }
 
         // Validate packet size
         size_t expected_size = sizeof(ControlPacket) + nu * sizeof(double);
         if ((size_t)recv_len < expected_size) {
-            printf("[UDPServer] Packet too small for %d controls: received %zd bytes, expected %zu bytes\n",
-                   nu, recv_len, expected_size);
+            os_log_error(OS_LOG_DEFAULT, "Packet too small for %d controls: received %zd bytes, expected %zu bytes",
+                         nu, recv_len, expected_size);
             return -1;
         }
 
@@ -324,8 +332,8 @@ public:
     // Send state packet to last known client
     bool SendState(const mjModel* model, const mjData* data) {
         if (socket_fd_ < 0 || !has_client_ || !model || !data) {
-            if (socket_fd_ < 0) printf("[UDPServer] SendState: socket not open\n");
-            else if (!has_client_) printf("[UDPServer] SendState: no client\n");
+            if (socket_fd_ < 0) os_log_debug(OS_LOG_DEFAULT, "SendState: socket not open");
+            else if (!has_client_) os_log_debug(OS_LOG_DEFAULT, "SendState: no client");
             return false;
         }
 
@@ -380,14 +388,19 @@ public:
         if (sent == (ssize_t)packet_size) {
             packets_sent_++;
             if (packets_sent_ <= 5 || packets_sent_ % 100 == 0) {  // Log first 5 and every 100
-                printf("[UDPServer] Sent state packet #%u (%zu bytes) to %s:%d\n",
-                       packets_sent_, packet_size,
-                       inet_ntoa(client_addr_.sin_addr), ntohs(client_addr_.sin_port));
+                char ip_str[INET_ADDRSTRLEN];
+                if (!inet_ntop(AF_INET, &client_addr_.sin_addr, ip_str, sizeof(ip_str))) {
+                    strncpy(ip_str, "<invalid>", sizeof(ip_str));
+                    ip_str[sizeof(ip_str) - 1] = '\0';
+                }
+                os_log_debug(OS_LOG_DEFAULT, "Sent state packet #%u (%zu bytes) to %{public}s:%u",
+                             packets_sent_, packet_size,
+                             ip_str, ntohs(client_addr_.sin_port));
             }
             return true;
         } else {
-            printf("[UDPServer] sendto failed: sent %zd of %zu bytes, errno=%d\n",
-                   sent, packet_size, errno);
+            os_log_error(OS_LOG_DEFAULT, "sendto failed: sent %zd of %zu bytes, errno=%d",
+                         sent, packet_size, errno);
         }
         return false;
     }
@@ -418,8 +431,8 @@ public:
         , exit_requested_(false)
         , speed_changed_(false) {
 
-        printf("[MJRuntime] Creating instance %d (lock-free ring buffer, UDP port %d)\n",
-               config.instanceIndex, udp_port_);
+        os_log_info(OS_LOG_DEFAULT, "Creating instance %d (lock-free ring buffer, UDP port %u)",
+                    config.instanceIndex, udp_port_);
 
         // Initialize visualization structures (still needed for mjv_updateScene)
         mjv_defaultCamera(&camera_);
@@ -437,23 +450,23 @@ public:
         camera_.lookat[1] = 0;
         camera_.lookat[2] = 0.5;
 
-        printf("[MJRuntime] Instance %d ready\n", config.instanceIndex);
+        os_log_info(OS_LOG_DEFAULT, "Instance %d ready", config.instanceIndex);
     }
 
     ~MJSimulationRuntime() {
-        printf("[MJRuntime] Destroying instance %d\n", instance_index_);
+        os_log_info(OS_LOG_DEFAULT, "Destroying instance %d", instance_index_);
         Stop();
         Unload();
         if (scene_.maxgeom > 0) {
             mjv_freeScene(&scene_);
         }
-        printf("[MJRuntime] Instance %d destroyed\n", instance_index_);
+        os_log_info(OS_LOG_DEFAULT, "Instance %d destroyed", instance_index_);
     }
 
     // MARK: - Public Methods (PascalCase)
 
     bool LoadModel(const char* xml_path, char* error_buffer, int32_t error_buffer_size) {
-        printf("[MJRuntime] LoadModel: %s\n", xml_path ? xml_path : "(null)");
+        os_log_info(OS_LOG_DEFAULT, "LoadModel: %{public}s", xml_path ? xml_path : "(null)");
         Stop();
 
         // No mutex needed - physics thread is stopped
@@ -726,8 +739,8 @@ private:
     // MARK: - Private Methods (snake_case)
 
     void physics_loop() {
-        printf("[MJRuntime] Physics loop started, instance %d, UDP port %d, server active: %s\n",
-               instance_index_, udp_port_, udp_server_.IsActive() ? "YES" : "NO");
+        os_log_info(OS_LOG_DEFAULT, "Physics loop started, instance %d, UDP port %u, server active: %s",
+                    instance_index_, udp_port_, udp_server_.IsActive() ? "YES" : "NO");
 
         Clock::time_point sync_cpu;
         mjtNum sync_sim = 0;
@@ -789,8 +802,8 @@ private:
                     // Send state back after each step
                     bool sent = udp_server_.SendState(model_, data_);
                     if (packets_processed <= 3) {
-                        printf("[MJRuntime] UDP packet processed: received=%d, model_nu=%d, sent=%s\n",
-                               received, nu, sent ? "YES" : "NO");
+                        os_log_debug(OS_LOG_DEFAULT, "UDP packet processed: received=%d, model_nu=%d, sent=%s",
+                                     received, nu, sent ? "YES" : "NO");
                     }
                 }
 
@@ -836,7 +849,7 @@ private:
                         step_count++;
 
                         if (data_->time < prev_sim) {
-                            printf("[MJRuntime] Warning: simulation time went backwards (reset detected), resyncing\n");
+                            os_log_info(OS_LOG_DEFAULT, "Warning: simulation time went backwards (reset detected), resyncing");
                             speed_changed_ = true;  // Trigger resync
                             break;
                         }
