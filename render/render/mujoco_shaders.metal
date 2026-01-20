@@ -64,7 +64,10 @@ fragment float4 fragmentMain(VertexOut in [[stage_in]],
     float NdotL1 = max(dot(N, L1), 0.0);
 
     // Light 2: Top-down fill light to illuminate horizontal surfaces (floors)
-    float3 L2 = normalize(float3(0.2, 0.3, 1.0));  // Slightly angled from above
+    // Direction vector (0.2, 0.3, 1.0) points mostly upward (+Z) with slight
+    // forward (+Y) and right (+X) offset to create soft shadows and avoid
+    // perfectly flat lighting on horizontal planes.
+    float3 L2 = normalize(float3(0.2, 0.3, 1.0));
     float NdotL2 = max(dot(N, L2), 0.0);
 
     // Ambient component (slightly higher for better visibility)

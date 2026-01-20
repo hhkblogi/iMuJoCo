@@ -35,6 +35,21 @@ struct MJMetalVertex {
 
 // MARK: - Metal Renderer
 
+/// Metal-based renderer for MuJoCo physics visualization.
+///
+/// `MJMetalRenderer` converts MuJoCo geometry data into Metal vertex buffers and renders
+/// using custom shaders with Blinn-Phong lighting. It supports both the lock-free
+/// `MJFrameData` ring buffer API and legacy `mjvScene` for backwards compatibility.
+///
+/// ## Usage
+/// ```swift
+/// let renderer = try MJMetalRenderer(device: MTLCreateSystemDefaultDevice()!)
+/// renderer.render(frameData: frame, drawable: drawable, renderPassDescriptor: descriptor)
+/// ```
+///
+/// ## Thread Safety
+/// The renderer is designed for single-threaded use from the main/render thread.
+/// Frame data can be produced on a separate physics thread using the ring buffer API.
 public final class MJMetalRenderer {
     private let device: MTLDevice
     private let commandQueue: MTLCommandQueue
@@ -45,11 +60,26 @@ public final class MJMetalRenderer {
     private var indexBuffer: MTLBuffer
     private var depthTexture: MTLTexture?
 
-    private let maxVertices = 1024 * 1024
-    private let maxIndices = 1024 * 1024
+    // Buffer capacity - pre-allocated at init to avoid runtime allocation during rendering.
+    // Strategy: Allocate large fixed buffers (~64MB vertex + ~4MB index) upfront.
+    // This trades memory for consistent frame times by eliminating allocation stalls.
+    // Values are sufficient for typical MuJoCo scenes with thousands of geometries.
+    // For scenes exceeding capacity, geometries are skipped with a warning.
+    private let maxVertices = 1024 * 1024  // ~64MB at 64 bytes/vertex
+    private let maxIndices = 1024 * 1024   // ~4MB at 4 bytes/index
+
+    /// Upper bounds on vertices/indices a single geometry can produce.
+    /// Used for buffer overflow protection. Values are conservative estimates
+    /// covering all supported MuJoCo geom types at expected tessellation levels.
+    private static let maxVerticesPerGeom = 1000
+    private static let maxIndicesPerGeom = 6000
 
     // MARK: - Initialization
 
+    /// Creates a new Metal renderer with the specified device.
+    ///
+    /// - Parameter device: The Metal device to use for rendering.
+    /// - Throws: `MJRendererError` if initialization fails (command queue, shaders, or buffers).
     public init(device: MTLDevice) throws {
         self.device = device
 
@@ -135,6 +165,16 @@ public final class MJMetalRenderer {
 
     // MARK: - Rendering (Lock-Free Ring Buffer API)
 
+    /// Renders a frame using the lock-free ring buffer API (preferred).
+    ///
+    /// This method renders geometry from an `MJFrameData` structure, which is typically
+    /// obtained from the physics runtime's ring buffer. This is the recommended rendering
+    /// path for optimal performance and thread safety.
+    ///
+    /// - Parameters:
+    ///   - frameData: Pointer to the frame data containing geometry instances.
+    ///   - drawable: The Metal drawable to render into.
+    ///   - renderPassDescriptor: Optional render pass descriptor. If nil, a default is created.
     public func render(frameData: UnsafePointer<MJFrameData>,
                        drawable: CAMetalDrawable,
                        renderPassDescriptor: MTLRenderPassDescriptor?) {
@@ -213,15 +253,13 @@ public final class MJMetalRenderer {
             return
         }
 
-        // Maximum vertices/indices a single geometry can produce (conservative estimate)
-        let maxVerticesPerGeom = 1000
-        let maxIndicesPerGeom = 6000
-
         // Render each geometry from ring buffer frame data
+        var skippedGeoms = 0
         for i in 0..<Int(geomCount) {
-            // Buffer overflow protection: skip if not enough space remains
-            if totalVertices + maxVerticesPerGeom > maxVertices ||
-               totalIndices + maxIndicesPerGeom > maxIndices {
+            // Buffer overflow protection: skip remaining geometries if buffers are full
+            if totalVertices + Self.maxVerticesPerGeom > maxVertices ||
+               totalIndices + Self.maxIndicesPerGeom > maxIndices {
+                skippedGeoms = Int(geomCount) - i
                 break
             }
 
@@ -282,6 +320,11 @@ public final class MJMetalRenderer {
             }
         }
 
+        // Warn if geometries were skipped due to buffer overflow
+        if skippedGeoms > 0 {
+            print("[MJMetalRenderer] Warning: Skipped \(skippedGeoms) geometries due to buffer capacity limits")
+        }
+
         encoder.endEncoding()
         commandBuffer.present(drawable)
         commandBuffer.commit()
@@ -289,6 +332,17 @@ public final class MJMetalRenderer {
 
     // MARK: - Rendering (Legacy mjvScene API)
 
+    /// Renders a scene using the legacy mjvScene API (for backwards compatibility).
+    ///
+    /// This method renders geometry from MuJoCo's native `mjvScene` structure.
+    /// Prefer the `render(frameData:drawable:renderPassDescriptor:)` method for
+    /// new code as it provides better thread safety through the ring buffer API.
+    ///
+    /// - Parameters:
+    ///   - scene: Pointer to the MuJoCo visualization scene.
+    ///   - camera: Pointer to the MuJoCo camera settings.
+    ///   - drawable: The Metal drawable to render into.
+    ///   - renderPassDescriptor: Optional render pass descriptor. If nil, a default is created.
     public func render(scene: UnsafePointer<mjvScene>,
                        camera: UnsafePointer<mjvCamera>,
                        drawable: CAMetalDrawable,
@@ -369,14 +423,13 @@ public final class MJMetalRenderer {
 
         let geomsPtr = scn.geoms!
 
-        // Maximum vertices/indices a single geometry can produce (conservative estimate)
-        let maxVerticesPerGeom = 1000
-        let maxIndicesPerGeom = 6000
-
+        // Render each geometry
+        var skippedGeoms = 0
         for i in 0..<Int(scn.ngeom) {
-            // Buffer overflow protection: skip if not enough space remains
-            if totalVertices + maxVerticesPerGeom > maxVertices ||
-               totalIndices + maxIndicesPerGeom > maxIndices {
+            // Buffer overflow protection: skip remaining geometries if buffers are full
+            if totalVertices + Self.maxVerticesPerGeom > maxVertices ||
+               totalIndices + Self.maxIndicesPerGeom > maxIndices {
+                skippedGeoms = Int(scn.ngeom) - i
                 break
             }
 
@@ -433,6 +486,11 @@ public final class MJMetalRenderer {
                 totalVertices += vertexCount
                 totalIndices += indexCount
             }
+        }
+
+        // Warn if geometries were skipped due to buffer overflow
+        if skippedGeoms > 0 {
+            print("[MJMetalRenderer] Warning: Skipped \(skippedGeoms) geometries due to buffer capacity limits")
         }
 
         encoder.endEncoding()

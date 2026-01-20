@@ -8,36 +8,78 @@ import MJCPhysicsRuntime
 // MARK: - Runtime Protocol
 
 /// Protocol for physics runtime that provides frame data for rendering.
-/// Implement this protocol to connect your runtime to the Metal view.
+///
+/// Implement this protocol to connect your physics runtime to the Metal view.
+/// The renderer will call `latestFrame` each frame to get geometry data for rendering.
+/// If `latestFrame` returns nil, the renderer falls back to the legacy `scenePointer` API.
+///
+/// ## Camera Control
+/// The protocol includes camera properties that gesture handlers will update.
+/// Your implementation should apply these values to the underlying camera system.
+///
+/// ## Example Implementation
+/// ```swift
+/// class MyRuntime: MJRenderDataSource {
+///     var latestFrame: UnsafePointer<MJFrameData>? {
+///         return mjc_runtime_get_latest_frame(handle)
+///     }
+///     // ... implement other requirements
+/// }
+/// ```
 public protocol MJRenderDataSource: AnyObject {
-    /// Get the latest frame data for rendering (non-blocking)
+    /// Get the latest frame data for rendering (non-blocking).
+    /// Returns nil if no frame is available yet.
     var latestFrame: UnsafePointer<MJFrameData>? { get }
 
-    /// Legacy scene pointer (optional fallback)
+    /// Legacy scene pointer for backwards compatibility.
+    /// Used as fallback when `latestFrame` returns nil.
     var scenePointer: UnsafePointer<mjvScene>? { get }
 
-    /// Legacy camera pointer (optional fallback)
+    /// Legacy camera pointer for backwards compatibility.
     var cameraPointer: UnsafeMutablePointer<mjvCamera>? { get }
 
-    /// Camera azimuth angle (degrees)
+    /// Camera azimuth angle in degrees (horizontal rotation).
     var cameraAzimuth: Double { get set }
 
-    /// Camera elevation angle (degrees)
+    /// Camera elevation angle in degrees (vertical rotation).
     var cameraElevation: Double { get set }
 
-    /// Camera distance from lookat point
+    /// Camera distance from the lookat point.
+    /// Must remain positive; gesture handlers clamp to `minCameraDistance`.
     var cameraDistance: Double { get set }
 
-    /// Reset camera to default position
+    /// Reset camera to default position.
     func resetCamera()
 }
+
+/// Minimum camera distance to prevent rendering issues from zero/negative distances.
+private let minCameraDistance: Double = 0.1
 
 // MARK: - Metal View Representable
 
 #if os(iOS) || os(tvOS)
+/// SwiftUI wrapper for MuJoCo Metal rendering on iOS and tvOS.
+///
+/// Use this view in your SwiftUI hierarchy to display MuJoCo physics simulations.
+/// The view automatically handles gestures for camera control:
+/// - **iOS**: Pan to rotate, pinch to zoom, double-tap to reset
+/// - **tvOS**: Swipe to rotate, vertical swipe to zoom, tap to reset
+///
+/// ## Usage
+/// ```swift
+/// struct ContentView: View {
+///     @StateObject var runtime = MyMuJoCoRuntime()
+///
+///     var body: some View {
+///         MuJoCoMetalView(dataSource: runtime)
+///     }
+/// }
+/// ```
 public struct MuJoCoMetalView: UIViewRepresentable {
+    /// The data source providing frame data and camera control.
     public var dataSource: MJRenderDataSource
 
+    /// Creates a new MuJoCo Metal view with the specified data source.
     public init(dataSource: MJRenderDataSource) {
         self.dataSource = dataSource
     }
@@ -55,9 +97,18 @@ public struct MuJoCoMetalView: UIViewRepresentable {
 #endif
 
 #if os(macOS)
+/// SwiftUI wrapper for MuJoCo Metal rendering on macOS.
+///
+/// Use this view in your SwiftUI hierarchy to display MuJoCo physics simulations.
+/// The view automatically handles mouse/keyboard for camera control:
+/// - **Drag**: Rotate camera
+/// - **Right-drag/Scroll**: Zoom
+/// - **Press 'R'**: Reset camera
 public struct MuJoCoMetalView: NSViewRepresentable {
+    /// The data source providing frame data and camera control.
     public var dataSource: MJRenderDataSource
 
+    /// Creates a new MuJoCo Metal view with the specified data source.
     public init(dataSource: MJRenderDataSource) {
         self.dataSource = dataSource
     }
@@ -178,7 +229,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         guard scale > 0 else { return }
 
         let newDistance = dataSource.cameraDistance * (1.0 / Double(scale))
-        dataSource.cameraDistance = max(newDistance, 0.1)  // Clamp to minimum distance
+        dataSource.cameraDistance = max(newDistance, minCameraDistance)
 
         lastPinchScale = gesture.scale
     }
@@ -219,7 +270,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         if abs(velocity.y) > 500 && abs(velocity.x) < 100 {
             let zoomFactor = velocity.y > 0 ? 1.02 : 0.98
             let newDistance = dataSource.cameraDistance * zoomFactor
-            dataSource.cameraDistance = max(newDistance, 0.1)  // Clamp to minimum distance
+            dataSource.cameraDistance = max(newDistance, minCameraDistance)
         }
     }
 
@@ -265,7 +316,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         // Right drag for zoom
         let deltaY = event.deltaY
         let newDistance = dataSource.cameraDistance * (1.0 + Double(deltaY) * 0.01)
-        dataSource.cameraDistance = max(newDistance, 0.1)  // Clamp to minimum distance
+        dataSource.cameraDistance = max(newDistance, minCameraDistance)
     }
 
     public override func scrollWheel(with event: NSEvent) {
@@ -274,7 +325,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         // Scroll wheel for zoom
         let deltaY = event.scrollingDeltaY
         let newDistance = dataSource.cameraDistance * (1.0 - Double(deltaY) * 0.01)
-        dataSource.cameraDistance = max(newDistance, 0.1)  // Clamp to minimum distance
+        dataSource.cameraDistance = max(newDistance, minCameraDistance)
     }
 
     public override func keyDown(with event: NSEvent) {
