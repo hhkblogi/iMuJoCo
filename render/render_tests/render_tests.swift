@@ -69,22 +69,22 @@ final class UniformsLayoutTests: XCTestCase {
     }
 }
 
-// MARK: - Renderer Creation Tests
+// MARK: - Render Creation Tests
 
-final class RendererCreationTests: XCTestCase {
+final class RenderCreationTests: XCTestCase {
 
-    func test_renderer_creation_with_device() {
-        // Creating a renderer requires a valid Metal device
+    func test_render_creation_with_device() {
+        // Creating a render requires a valid Metal device
         guard let device = MTLCreateSystemDefaultDevice() else {
             // Metal not available (e.g., in CI without GPU)
             return
         }
 
         do {
-            let renderer = try MJCMetalRender(device: device)
-            XCTAssertNotNil(renderer)
+            let render = try MJCMetalRender(device: device)
+            XCTAssertNotNil(render)
         } catch {
-            XCTFail("Failed to create renderer: \(error)")
+            XCTFail("Failed to create render: \(error)")
         }
     }
 }

@@ -1,5 +1,5 @@
-// mjc_metal_renderer.swift
-// Pure Swift Metal renderer for MuJoCo scenes
+// mjc_metal_render.swift
+// Pure Swift Metal render for MuJoCo scenes
 
 import Metal
 import MetalKit
@@ -45,9 +45,9 @@ struct MJCMetalVertex {
     }
 }
 
-// MARK: - Metal Renderer
+// MARK: - Metal Render
 
-/// Metal-based renderer for MuJoCo physics visualization.
+/// Metal-based render for MuJoCo physics visualization.
 ///
 /// `MJCMetalRender` converts MuJoCo geometry data into Metal vertex buffers and renders
 /// using custom shaders with Blinn-Phong lighting. It supports both the lock-free
@@ -55,12 +55,12 @@ struct MJCMetalVertex {
 ///
 /// ## Usage
 /// ```swift
-/// let renderer = try MJCMetalRender(device: MTLCreateSystemDefaultDevice()!)
-/// renderer.Render(frameData: frame, drawable: drawable, renderPassDescriptor: descriptor)
+/// let render = try MJCMetalRender(device: MTLCreateSystemDefaultDevice()!)
+/// render.Render(frameData: frame, drawable: drawable, renderPassDescriptor: descriptor)
 /// ```
 ///
 /// ## Thread Safety
-/// The renderer is designed for single-threaded use from the main/render thread.
+/// The render is designed for single-threaded use from the main/render thread.
 /// Frame data can be produced on a separate physics thread using the ring buffer API.
 public final class MJCMetalRender {
     private let device: MTLDevice
@@ -94,27 +94,27 @@ public final class MJCMetalRender {
 
     // MARK: - Initialization
 
-    /// Creates a new Metal renderer with the specified device.
+    /// Creates a new Metal render with the specified device.
     ///
     /// - Parameter device: The Metal device to use for rendering.
-    /// - Throws: `MJCRendererError` if initialization fails (command queue, shaders, or buffers).
+    /// - Throws: `MJCRenderError` if initialization fails (command queue, shaders, or buffers).
     public init(device: MTLDevice) throws {
         self.device = device
 
         guard let queue = device.makeCommandQueue() else {
-            throw MJCRendererError.command_queueCreationFailed
+            throw MJCRenderError.command_queueCreationFailed
         }
         self.command_queue = queue
 
         // Load shaders from compiled Metal library in the framework bundle
         let bundle = Bundle(for: MJCMetalRender.self)
         guard let library = try? device.makeDefaultLibrary(bundle: bundle) else {
-            throw MJCRendererError.shaderCompilationFailed
+            throw MJCRenderError.shaderCompilationFailed
         }
 
         guard let vertexFunc = library.makeFunction(name: "vertexMain"),
               let fragmentFunc = library.makeFunction(name: "fragmentMain") else {
-            throw MJCRendererError.shaderFunctionNotFound
+            throw MJCRenderError.shaderFunctionNotFound
         }
 
         // Create vertex descriptor - offsets must match MJCMetalVertex struct layout
@@ -166,7 +166,7 @@ public final class MJCMetalRender {
         depthDescriptor.isDepthWriteEnabled = true
 
         guard let depth_state = device.makeDepthStencilState(descriptor: depthDescriptor) else {
-            throw MJCRendererError.depth_stateCreationFailed
+            throw MJCRenderError.depth_stateCreationFailed
         }
         self.depth_state = depth_state
 
@@ -175,7 +175,7 @@ public final class MJCMetalRender {
                                                options: .storageModeShared),
               let iBuffer = device.makeBuffer(length: max_indices * MemoryLayout<UInt32>.stride,
                                                options: .storageModeShared) else {
-            throw MJCRendererError.bufferAllocationFailed
+            throw MJCRenderError.bufferAllocationFailed
         }
         self.vertex_buffer = vBuffer
         self.index_buffer = iBuffer
@@ -915,7 +915,7 @@ public final class MJCMetalRender {
 
 // MARK: - Errors
 
-public enum MJCRendererError: Error {
+public enum MJCRenderError: Error {
     case command_queueCreationFailed
     case shaderCompilationFailed
     case shaderFunctionNotFound

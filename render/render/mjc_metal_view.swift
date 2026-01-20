@@ -13,8 +13,8 @@ private let logger = Logger(subsystem: "com.mujoco.render", category: "MuJoCoMTK
 /// Protocol for physics runtime that provides frame data for rendering.
 ///
 /// Implement this protocol to connect your physics runtime to the Metal view.
-/// The renderer will call `latestFrame` each frame to get geometry data for rendering.
-/// If `latestFrame` returns nil, the renderer falls back to the legacy `scenePointer` API.
+/// The render will call `latestFrame` each frame to get geometry data for rendering.
+/// If `latestFrame` returns nil, the render falls back to the legacy `scenePointer` API.
 ///
 /// ## Camera Control
 /// The protocol includes camera properties that gesture handlers will update.
@@ -146,7 +146,7 @@ public struct MuJoCoMetalView: NSViewRepresentable {
 public class MuJoCoMTKView: MTKView, MTKViewDelegate {
     public var dataSource: MJCRenderDataSource?
 
-    private var renderer: MJCMetalRender?
+    private var render: MJCMetalRender?
 
     // Performance metrics
     private var frame_count: Int = 0
@@ -183,11 +183,11 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         self.enableSetNeedsDisplay = false
         self.isPaused = false
 
-        // Initialize Metal renderer
+        // Initialize Metal render
         do {
-            renderer = try MJCMetalRender(device: device)
+            render = try MJCMetalRender(device: device)
         } catch {
-            logger.error("Failed to create Metal renderer: \(error)")
+            logger.error("Failed to create Metal render: \(error)")
         }
 
         #if os(iOS)
@@ -374,13 +374,13 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
     // MARK: - MTKViewDelegate
 
     public func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
-        // No action needed - renderer handles size changes dynamically
+        // No action needed - render handles size changes dynamically
     }
 
     public func draw(in view: MTKView) {
         let frameStart = CACurrentMediaTime()
 
-        guard let renderer = renderer,
+        guard let render = render,
               let dataSource = dataSource else {
             return
         }
@@ -390,7 +390,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
 
         // Render using lock-free ring buffer API (preferred)
         if let frameData = dataSource.latestFrame {
-            renderer.Render(
+            render.Render(
                 frameData: frameData,
                 drawable: drawable,
                 renderPassDescriptor: currentRenderPassDescriptor
@@ -399,7 +399,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         // Fallback to legacy scene API if ring buffer not available
         else if let scene = dataSource.scenePointer,
                 let camera = dataSource.cameraPointer {
-            renderer.Render(
+            render.Render(
                 scene: scene,
                 camera: camera,
                 drawable: drawable,
