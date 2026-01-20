@@ -12,12 +12,14 @@ struct Uniforms {
     float4x4 projectionMatrix;
     float4x4 normalMatrix;
     float3 lightPosition;
+    float _padding0;  // Explicit padding to match Swift struct (float3 aligns to 16 bytes)
     float3 cameraPosition;
+    float _padding1;  // Explicit padding to match Swift struct
     float4 color;
     float emission;
     float specular;
     float shininess;
-    float padding;
+    float _padding2;  // Final alignment padding
 };
 
 struct VertexIn {

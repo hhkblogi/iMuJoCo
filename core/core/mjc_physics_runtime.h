@@ -161,6 +161,7 @@ uint64_t mjc_runtime_get_frame_count(MJRuntimeHandle handle);
 // MARK: - Frame Data Accessors (for Swift interop)
 // These are static inline (header-only) so they don't require symbol resolution at link time.
 // Callers only need to include this header; no library linkage is needed for these functions.
+// Note: Uses NULL instead of nullptr for C compatibility (required for Swift ClangImporter).
 
 /// Get pointer to the geoms array in a frame
 static inline const MJGeomInstance* mjc_frame_get_geoms(const MJFrameData* frame) {

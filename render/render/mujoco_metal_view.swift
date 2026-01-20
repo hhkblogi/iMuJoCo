@@ -277,8 +277,6 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
     #endif
 
     #if os(tvOS)
-    private var lastSwipeLocation: CGPoint = .zero
-
     private func setupTVGestures() {
         // Swipe/pan for camera rotation (works with Siri Remote touch surface)
         let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handleTVPan(_:)))
