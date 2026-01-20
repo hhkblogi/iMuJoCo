@@ -41,7 +41,6 @@ constexpr double kSimRefreshFraction = 0.7;   // Fraction of timestep to refresh
 using Clock = std::chrono::steady_clock;
 using Seconds = std::chrono::duration<double>;
 
-
 }  // namespace
 
 // MARK: - GeomInstance (Data for instanced rendering)
@@ -227,14 +226,14 @@ public:
         addr.sin_port = htons(port);
 
         if (bind(socket_fd_, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-            os_log_error(OS_LOG_DEFAULT, "Failed to bind to port %d", port);
+            os_log_error(OS_LOG_DEFAULT, "Failed to bind to port %u", port);
             close(socket_fd_);
             socket_fd_ = -1;
             return false;
         }
 
         port_ = port;
-        os_log_info(OS_LOG_DEFAULT, "Listening on port %d", port);
+        os_log_info(OS_LOG_DEFAULT, "Listening on port %u", port);
         return true;
     }
 
@@ -242,7 +241,7 @@ public:
         if (socket_fd_ >= 0) {
             close(socket_fd_);
             socket_fd_ = -1;
-            os_log_info(OS_LOG_DEFAULT, "Closed port %d", port_);
+            os_log_info(OS_LOG_DEFAULT, "Closed port %u", port_);
         }
         port_ = 0;
         has_client_ = false;
@@ -432,7 +431,7 @@ public:
         , exit_requested_(false)
         , speed_changed_(false) {
 
-        os_log_info(OS_LOG_DEFAULT, "Creating instance %d (lock-free ring buffer, UDP port %d)",
+        os_log_info(OS_LOG_DEFAULT, "Creating instance %d (lock-free ring buffer, UDP port %u)",
                     config.instanceIndex, udp_port_);
 
         // Initialize visualization structures (still needed for mjv_updateScene)
@@ -740,7 +739,7 @@ private:
     // MARK: - Private Methods (snake_case)
 
     void physics_loop() {
-        os_log_info(OS_LOG_DEFAULT, "Physics loop started, instance %d, UDP port %d, server active: %s",
+        os_log_info(OS_LOG_DEFAULT, "Physics loop started, instance %d, UDP port %u, server active: %s",
                     instance_index_, udp_port_, udp_server_.IsActive() ? "YES" : "NO");
 
         Clock::time_point sync_cpu;
