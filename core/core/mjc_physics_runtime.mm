@@ -274,7 +274,7 @@ public:
             strncpy(addr_str, "<invalid>", sizeof(addr_str));
             addr_str[sizeof(addr_str) - 1] = '\0';
         }
-        os_log_debug(OS_LOG_DEFAULT, "Received %zd bytes from %{public}s:%d",
+        os_log_debug(OS_LOG_DEFAULT, "Received %zd bytes from %{public}s:%u",
                      recv_len, addr_str, ntohs(client_addr.sin_port));
 
         // Validate minimum header size
@@ -393,7 +393,7 @@ public:
                     strncpy(ip_str, "<invalid>", sizeof(ip_str));
                     ip_str[sizeof(ip_str) - 1] = '\0';
                 }
-                os_log_debug(OS_LOG_DEFAULT, "Sent state packet #%u (%zu bytes) to %{public}s:%d",
+                os_log_debug(OS_LOG_DEFAULT, "Sent state packet #%u (%zu bytes) to %{public}s:%u",
                              packets_sent_, packet_size,
                              ip_str, ntohs(client_addr_.sin_port));
             }
