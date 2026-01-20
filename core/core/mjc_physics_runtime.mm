@@ -270,8 +270,13 @@ public:
             return -1;  // No packet available
         }
 
+        char addr_str[INET_ADDRSTRLEN];
+        if (!inet_ntop(AF_INET, &client_addr.sin_addr, addr_str, sizeof(addr_str))) {
+            strncpy(addr_str, "<invalid>", sizeof(addr_str));
+            addr_str[sizeof(addr_str) - 1] = '\0';
+        }
         os_log_debug(OS_LOG_DEFAULT, "Received %zd bytes from %{public}s:%d",
-                     recv_len, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+                     recv_len, addr_str, ntohs(client_addr.sin_port));
 
         // Validate minimum header size
         if (recv_len < (ssize_t)sizeof(ControlPacket)) {
@@ -384,9 +389,14 @@ public:
         if (sent == (ssize_t)packet_size) {
             packets_sent_++;
             if (packets_sent_ <= 5 || packets_sent_ % 100 == 0) {  // Log first 5 and every 100
+                char ip_str[INET_ADDRSTRLEN];
+                if (!inet_ntop(AF_INET, &client_addr_.sin_addr, ip_str, sizeof(ip_str))) {
+                    strncpy(ip_str, "<invalid>", sizeof(ip_str));
+                    ip_str[sizeof(ip_str) - 1] = '\0';
+                }
                 os_log_debug(OS_LOG_DEFAULT, "Sent state packet #%u (%zu bytes) to %{public}s:%d",
                              packets_sent_, packet_size,
-                             inet_ntoa(client_addr_.sin_addr), ntohs(client_addr_.sin_port));
+                             ip_str, ntohs(client_addr_.sin_port));
             }
             return true;
         } else {
@@ -730,7 +740,7 @@ private:
     // MARK: - Private Methods (snake_case)
 
     void physics_loop() {
-        os_log_info(OS_LOG_DEFAULT, "Physics loop started, instance %d, UDP port %d, server active: %{public}s",
+        os_log_info(OS_LOG_DEFAULT, "Physics loop started, instance %d, UDP port %d, server active: %s",
                     instance_index_, udp_port_, udp_server_.IsActive() ? "YES" : "NO");
 
         Clock::time_point sync_cpu;
@@ -793,7 +803,7 @@ private:
                     // Send state back after each step
                     bool sent = udp_server_.SendState(model_, data_);
                     if (packets_processed <= 3) {
-                        os_log_debug(OS_LOG_DEFAULT, "UDP packet processed: received=%d, model_nu=%d, sent=%{public}s",
+                        os_log_debug(OS_LOG_DEFAULT, "UDP packet processed: received=%d, model_nu=%d, sent=%s",
                                      received, nu, sent ? "YES" : "NO");
                     }
                 }
