@@ -133,7 +133,8 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
         displayTime = runtime.simulationTime
     }
 
-    @MainActor
+    /// Stops simulation polling and pauses runtime. Not @MainActor since it's
+    /// called from deinit and async contexts. Only performs thread-safe operations.
     func stop() {
         stopStatePolling()
         runtime?.pause()
