@@ -149,14 +149,6 @@ struct FullscreenSimulationView: View {
                         .foregroundColor(.white.opacity(0.6))
                 }
 
-                HStack(spacing: 4) {
-                    Text("FPS")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.white.opacity(0.6))
-                    Text("60")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(.green)
-                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

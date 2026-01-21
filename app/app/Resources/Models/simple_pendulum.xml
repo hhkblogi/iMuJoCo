@@ -15,6 +15,6 @@
   </worldbody>
 
   <keyframe>
-    <key name="start" qpos="1.0"/>  <!-- Start at ~57 degrees -->
+    <key name="start" qpos="1.0"/>  <!-- Start at 1.0 rad (~57.3 degrees) -->
   </keyframe>
 </mujoco>

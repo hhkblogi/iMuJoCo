@@ -43,8 +43,8 @@ enum MuJoCoError: Error, LocalizedError {
 /// Simulation instance wrapping MJRuntime for physics and rendering.
 /// Note: Uses @unchecked Sendable because MJCRenderDataSource protocol is accessed from both
 /// main thread (SwiftUI/gestures) and render thread (Metal draw). The underlying C++ runtime
-/// is thread-safe for these operations. Observable state (displayTime, modelName) is only
-/// modified on MainActor.
+/// is thread-safe for these operations. Observable state (displayTime, modelName) is modified
+/// via @MainActor-isolated methods to ensure thread-safe UI updates.
 @Observable
 final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Sendable {
     let id: Int
@@ -100,6 +100,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
         }
     }
 
+    @MainActor
     func unload() {
         stop()
         runtime?.unload()
@@ -121,6 +122,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
         startStatePolling()
     }
 
+    @MainActor
     func pause() {
         guard let runtime = runtime else { return }
         runtime.pause()
@@ -135,12 +137,14 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
         runtime?.pause()
     }
 
+    @MainActor
     func step() {
         guard let runtime = runtime, runtime.state != .running else { return }
         runtime.step()
         displayTime = runtime.simulationTime
     }
 
+    @MainActor
     func reset() {
         guard let runtime = runtime else { return }
         runtime.reset()

@@ -164,16 +164,6 @@ struct SimulationCellView: View {
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundColor(.white.opacity(0.8))
             }
-
-            // Frame rate indicator (from ring buffer)
-            HStack(spacing: 4) {
-                Text("FPS")
-                    .font(.system(size: 8, weight: .medium))
-                    .foregroundColor(.white.opacity(0.6))
-                Text("60")  // Display is locked to 60Hz
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundColor(.green)
-            }
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 4)
