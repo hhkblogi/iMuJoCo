@@ -1,6 +1,7 @@
 // simulation_grid_view.swift
 // 2x2 grid view for multiple simulations
 
+import Darwin
 import SwiftUI
 
 // MARK: - Device IP Helper
@@ -17,7 +18,10 @@ func getDeviceIPAddress() -> String? {
 
     for ptr in sequence(first: firstAddr, next: { $0.pointee.ifa_next }) {
         let interface = ptr.pointee
-        let addrFamily = interface.ifa_addr.pointee.sa_family
+
+        // Skip interfaces with nil address
+        guard let ifaAddr = interface.ifa_addr else { continue }
+        let addrFamily = ifaAddr.pointee.sa_family
 
         // Check for IPv4 (AF_INET)
         if addrFamily == UInt8(AF_INET) {
@@ -27,8 +31,8 @@ func getDeviceIPAddress() -> String? {
             if name == "en0" || name.hasPrefix("pdp_ip") {
                 var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
                 if getnameinfo(
-                    interface.ifa_addr,
-                    socklen_t(interface.ifa_addr.pointee.sa_len),
+                    ifaAddr,
+                    socklen_t(ifaAddr.pointee.sa_len),
                     &hostname,
                     socklen_t(hostname.count),
                     nil,
@@ -55,6 +59,8 @@ struct SimulationGridView: View {
     @State private var showingModelPicker = false
     @State private var selectedCellIndex: Int = 0
     @State private var deviceIP: String = "..."
+    @State private var showingErrorAlert = false
+    @State private var errorMessage: String = ""
 
     let columns = [
         GridItem(.flexible(), spacing: 8),
@@ -97,10 +103,7 @@ struct SimulationGridView: View {
             ModelPickerView(
                 modelNames: gridManager.bundledModelNames,
                 onSelectModel: { modelName in
-                    Task {
-                        try? await gridManager.loadBundledModel(at: selectedCellIndex, name: modelName)
-                    }
-                    showingModelPicker = false
+                    loadModel(name: modelName)
                 },
                 onDismiss: {
                     showingModelPicker = false
@@ -113,10 +116,7 @@ struct SimulationGridView: View {
             TVModelPickerView(
                 modelNames: gridManager.bundledModelNames,
                 onSelectModel: { modelName in
-                    Task {
-                        try? await gridManager.loadBundledModel(at: selectedCellIndex, name: modelName)
-                    }
-                    showingModelPicker = false
+                    loadModel(name: modelName)
                 },
                 onDismiss: {
                     showingModelPicker = false
@@ -129,10 +129,7 @@ struct SimulationGridView: View {
             ModelPickerView(
                 modelNames: gridManager.bundledModelNames,
                 onSelectModel: { modelName in
-                    Task {
-                        try? await gridManager.loadBundledModel(at: selectedCellIndex, name: modelName)
-                    }
-                    showingModelPicker = false
+                    loadModel(name: modelName)
                 },
                 onDismiss: {
                     showingModelPicker = false
@@ -140,6 +137,27 @@ struct SimulationGridView: View {
             )
         }
         #endif
+        .alert("Failed to Load Model", isPresented: $showingErrorAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage)
+        }
+    }
+
+    // MARK: - Model Loading
+
+    private func loadModel(name: String) {
+        showingModelPicker = false
+        Task {
+            do {
+                try await gridManager.loadBundledModel(at: selectedCellIndex, name: name)
+            } catch {
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showingErrorAlert = true
+                }
+            }
+        }
     }
 
     // MARK: - Menu Bar

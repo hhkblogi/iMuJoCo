@@ -40,6 +40,11 @@ enum MuJoCoError: Error, LocalizedError {
 
 // MARK: - Simulation Instance
 
+/// Simulation instance wrapping MJRuntime for physics and rendering.
+/// Note: Uses @unchecked Sendable because MJCRenderDataSource protocol is accessed from both
+/// main thread (SwiftUI/gestures) and render thread (Metal draw). The underlying C++ runtime
+/// is thread-safe for these operations. Observable state (displayTime, modelName) is only
+/// modified on MainActor.
 @Observable
 final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Sendable {
     let id: Int
@@ -250,13 +255,17 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
         set { runtime?.cameraDistance = newValue }
     }
 
-    public func ResetCamera() {
+    public func resetCamera() {
         runtime?.resetCamera()
     }
 }
 
 // MARK: - Grid Manager
 
+/// Manages 2x2 grid of simulation instances.
+/// Note: Uses @unchecked Sendable to allow passing to async contexts. All mutable state
+/// is accessed from MainActor (SwiftUI views). The instances array contains SimulationInstance
+/// objects which handle their own thread-safety for Metal rendering.
 @Observable
 final class SimulationGridManager: @unchecked Sendable {
     static let gridSize = 4  // 2x2 grid

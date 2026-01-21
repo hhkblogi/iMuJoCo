@@ -45,6 +45,10 @@ struct FullscreenSimulationView: View {
         .onAppear {
             scheduleHideControls()
         }
+        .onDisappear {
+            hideControlsTask?.cancel()
+            hideControlsTask = nil
+        }
     }
 
     // MARK: - Controls Overlay
