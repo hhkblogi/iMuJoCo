@@ -52,7 +52,7 @@ public protocol MJCRenderDataSource: AnyObject {
     var cameraDistance: Double { get set }
 
     /// Reset camera to default position.
-    func ResetCamera()
+    func resetCamera()
 }
 
 /// Minimum camera distance to prevent rendering issues from zero/negative distances.
@@ -272,7 +272,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
     }
 
     @objc private func handle_double_tap(_ gesture: UITapGestureRecognizer) {
-        dataSource?.ResetCamera()
+        dataSource?.resetCamera()
     }
     #endif
 
@@ -310,7 +310,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
     }
 
     @objc private func handle_tv_tap(_ gesture: UITapGestureRecognizer) {
-        dataSource?.ResetCamera()
+        dataSource?.resetCamera()
     }
     #endif
 
@@ -366,7 +366,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
     public override func keyDown(with event: NSEvent) {
         // 'R' key to reset camera
         if event.charactersIgnoringModifiers == "r" {
-            dataSource?.ResetCamera()
+            dataSource?.resetCamera()
         }
     }
     #endif

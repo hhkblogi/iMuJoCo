@@ -140,6 +140,7 @@ EOF
 }
 
 # Create dynamic framework (dylib with deps linked inside)
+# macOS uses versioned bundles, iOS/tvOS use shallow bundles
 create_dynamic_framework() {
     local PLATFORM=$1
     local FRAMEWORK_PATH="${FRAMEWORK_DIR}/${PLATFORM}/mujoco.framework"
@@ -147,35 +148,30 @@ create_dynamic_framework() {
 
     log_info "Creating dynamic framework for ${PLATFORM}..."
 
-    # Clean and create directory structure
+    # Clean framework directory
     rm -rf "${FRAMEWORK_PATH}"
+
+    # macOS requires versioned bundle structure
+    if [[ "${PLATFORM}" == "macOS" ]]; then
+        create_versioned_framework "${PLATFORM}" "${FRAMEWORK_PATH}" "${DYLIB_PATH}"
+    else
+        create_shallow_framework "${PLATFORM}" "${FRAMEWORK_PATH}" "${DYLIB_PATH}"
+    fi
+
+    log_info "Dynamic framework created at ${FRAMEWORK_PATH}"
+}
+
+# Create shallow bundle (iOS/tvOS style)
+create_shallow_framework() {
+    local PLATFORM=$1
+    local FRAMEWORK_PATH=$2
+    local DYLIB_PATH=$3
+
     mkdir -p "${FRAMEWORK_PATH}/Headers"
     mkdir -p "${FRAMEWORK_PATH}/Modules"
 
     # Copy the dylib from CMake build
-    if [[ -f "${DYLIB_PATH}" ]]; then
-        cp "${DYLIB_PATH}" "${FRAMEWORK_PATH}/mujoco"
-    else
-        # Fallback: look for libmujoco.dylib in alternative locations
-        log_warn "Primary dylib not found at ${DYLIB_PATH}, trying fallback locations..."
-        local FALLBACK1="${BUILD_DIR}/${PLATFORM}/libmujoco.dylib"
-        local FALLBACK2="${BUILD_DIR}/${PLATFORM}/mujoco.framework/Versions/A/mujoco"
-
-        if [[ -f "${FALLBACK1}" ]]; then
-            log_info "Using fallback: ${FALLBACK1}"
-            cp "${FALLBACK1}" "${FRAMEWORK_PATH}/mujoco"
-        elif [[ -f "${FALLBACK2}" ]]; then
-            log_info "Using fallback: ${FALLBACK2}"
-            cp "${FALLBACK2}" "${FRAMEWORK_PATH}/mujoco"
-        fi
-    fi
-
-    # Verify dylib was copied successfully
-    if [[ ! -f "${FRAMEWORK_PATH}/mujoco" ]]; then
-        log_error "Failed to locate MuJoCo dylib for ${PLATFORM}"
-        log_error "Expected at: ${DYLIB_PATH}"
-        exit 1
-    fi
+    copy_dylib "${PLATFORM}" "${DYLIB_PATH}" "${FRAMEWORK_PATH}/mujoco"
 
     # Fix install name
     install_name_tool -id "@rpath/mujoco.framework/mujoco" "${FRAMEWORK_PATH}/mujoco"
@@ -193,7 +189,90 @@ framework module mujoco {
 EOF
 
     # Create Info.plist
-    cat > "${FRAMEWORK_PATH}/Info.plist" << EOF
+    create_info_plist "${FRAMEWORK_PATH}/Info.plist"
+
+    # Sign the framework (ad-hoc for local dev)
+    codesign --force --sign - "${FRAMEWORK_PATH}/mujoco"
+}
+
+# Create versioned bundle (macOS style)
+create_versioned_framework() {
+    local PLATFORM=$1
+    local FRAMEWORK_PATH=$2
+    local DYLIB_PATH=$3
+
+    # Create versioned directory structure
+    mkdir -p "${FRAMEWORK_PATH}/Versions/A/Headers"
+    mkdir -p "${FRAMEWORK_PATH}/Versions/A/Modules"
+    mkdir -p "${FRAMEWORK_PATH}/Versions/A/Resources"
+
+    # Copy the dylib from CMake build
+    copy_dylib "${PLATFORM}" "${DYLIB_PATH}" "${FRAMEWORK_PATH}/Versions/A/mujoco"
+
+    # Fix install name for versioned bundle
+    install_name_tool -id "@rpath/mujoco.framework/Versions/A/mujoco" "${FRAMEWORK_PATH}/Versions/A/mujoco"
+
+    # Copy headers
+    cp -R "${MUJOCO_INCLUDE}/mujoco" "${FRAMEWORK_PATH}/Versions/A/Headers/"
+
+    # Create module map
+    cat > "${FRAMEWORK_PATH}/Versions/A/Modules/module.modulemap" << 'EOF'
+framework module mujoco {
+    header "mujoco/mujoco.h"
+    link "mujoco"
+    export *
+}
+EOF
+
+    # Create Info.plist in Resources
+    create_info_plist "${FRAMEWORK_PATH}/Versions/A/Resources/Info.plist"
+
+    # Create symlinks
+    ln -sfh A "${FRAMEWORK_PATH}/Versions/Current"
+    ln -sfh Versions/Current/mujoco "${FRAMEWORK_PATH}/mujoco"
+    ln -sfh Versions/Current/Headers "${FRAMEWORK_PATH}/Headers"
+    ln -sfh Versions/Current/Modules "${FRAMEWORK_PATH}/Modules"
+    ln -sfh Versions/Current/Resources "${FRAMEWORK_PATH}/Resources"
+
+    # Sign the framework (ad-hoc for local dev)
+    codesign --force --sign - "${FRAMEWORK_PATH}/Versions/A/mujoco"
+}
+
+# Helper: Copy dylib with fallback locations
+copy_dylib() {
+    local PLATFORM=$1
+    local DYLIB_PATH=$2
+    local DEST=$3
+
+    if [[ -f "${DYLIB_PATH}" ]]; then
+        cp "${DYLIB_PATH}" "${DEST}"
+    else
+        # Fallback: look for libmujoco.dylib in alternative locations
+        log_warn "Primary dylib not found at ${DYLIB_PATH}, trying fallback locations..."
+        local FALLBACK1="${BUILD_DIR}/${PLATFORM}/libmujoco.dylib"
+        local FALLBACK2="${BUILD_DIR}/${PLATFORM}/mujoco.framework/Versions/A/mujoco"
+
+        if [[ -f "${FALLBACK1}" ]]; then
+            log_info "Using fallback: ${FALLBACK1}"
+            cp "${FALLBACK1}" "${DEST}"
+        elif [[ -f "${FALLBACK2}" ]]; then
+            log_info "Using fallback: ${FALLBACK2}"
+            cp "${FALLBACK2}" "${DEST}"
+        fi
+    fi
+
+    # Verify dylib was copied successfully
+    if [[ ! -f "${DEST}" ]]; then
+        log_error "Failed to locate MuJoCo dylib for ${PLATFORM}"
+        log_error "Expected at: ${DYLIB_PATH}"
+        exit 1
+    fi
+}
+
+# Helper: Create Info.plist
+create_info_plist() {
+    local PLIST_PATH=$1
+    cat > "${PLIST_PATH}" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -213,11 +292,6 @@ EOF
 </dict>
 </plist>
 EOF
-
-    # Sign the framework (ad-hoc for local dev)
-    codesign --force --sign - "${FRAMEWORK_PATH}/mujoco"
-
-    log_info "Dynamic framework created at ${FRAMEWORK_PATH}"
 }
 
 # Main
