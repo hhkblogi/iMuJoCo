@@ -151,6 +151,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
         displayTime = 0.0
     }
 
+    @MainActor
     func togglePlayPause() {
         guard let runtime = runtime else { return }
 
