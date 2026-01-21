@@ -111,6 +111,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
 
     // MARK: - Simulation Control
 
+    @MainActor
     func start() {
         guard let runtime = runtime else { return }
         guard runtime.state != .running else { return }
@@ -132,6 +133,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
         displayTime = runtime.simulationTime
     }
 
+    @MainActor
     func stop() {
         stopStatePolling()
         runtime?.pause()
@@ -312,6 +314,7 @@ final class SimulationGridManager: @unchecked Sendable {
         instance.start()
     }
 
+    @MainActor
     func loadBundledModel(at index: Int, name: String) async throws {
         guard let instance = instance(at: index) else { return }
         guard let path = Bundle.main.path(forResource: name, ofType: "xml") else {
@@ -321,16 +324,19 @@ final class SimulationGridManager: @unchecked Sendable {
         instance.start()
     }
 
+    @MainActor
     func unload(at index: Int) {
         instance(at: index)?.unload()
     }
 
     // MARK: - Fullscreen
 
+    @MainActor
     func enterFullscreen(index: Int) {
         fullscreenInstanceId = index
     }
 
+    @MainActor
     func exitFullscreen() {
         fullscreenInstanceId = nil
     }
