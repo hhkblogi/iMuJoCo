@@ -3,7 +3,8 @@
 // Add mujoco.xcframework to "Embed & Sign" in Xcode
 
 // Framework search path
-MUJOCO_XCFRAMEWORK = $(PROJECT_DIR)/../build/frameworks/mujoco.xcframework
+// Projects are in iMuJoCo/{app,core,render}/, so ../../build/ goes to root build/
+MUJOCO_XCFRAMEWORK = $(PROJECT_DIR)/../../build/frameworks/mujoco.xcframework
 
 // Header search paths - add framework Headers dir to resolve internal includes
 // The mujoco headers use #include <mujoco/mjdata.h> which needs Headers/ in search path
