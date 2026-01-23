@@ -22,6 +22,7 @@
 
 /* Begin PBXBuildFile section */
 		56C2293F2F1B87760083660B /* core.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 56C229352F1B87760083660B /* core.framework */; };
+		56C2B7E72F241E1F0055C34D /* FlatBuffers.xcconfig in Resources */ = {isa = PBXBuildFile; fileRef = 56C2B7E62F241E1F0055C34D /* FlatBuffers.xcconfig */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -46,6 +47,7 @@
 		56C2293E2F1B87760083660B /* core_tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = core_tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		56C229F12F1C50000083660B /* MuJoCoFramework.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = MuJoCoFramework.xcconfig; path = ../../third_party/MuJoCoFramework.xcconfig; sourceTree = "<group>"; };
 		56C22B012F1C61000083660B /* core.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = core.xcconfig; sourceTree = "<group>"; };
+		56C2B7E62F241E1F0055C34D /* FlatBuffers.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = FlatBuffers.xcconfig; path = ../../third_party/FlatBuffers.xcconfig; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -83,8 +85,8 @@
 		56C2292B2F1B87760083660B = {
 			isa = PBXGroup;
 			children = (
+				56C2B7E82F241E550055C34D /* third_party */,
 				56C22B012F1C61000083660B /* core.xcconfig */,
-				56C229F12F1C50000083660B /* MuJoCoFramework.xcconfig */,
 				56C229372F1B87760083660B /* core */,
 				56C229422F1B87760083660B /* core_tests */,
 				56C229362F1B87760083660B /* Products */,
@@ -98,6 +100,15 @@
 				56C2293E2F1B87760083660B /* core_tests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		56C2B7E82F241E550055C34D /* third_party */ = {
+			isa = PBXGroup;
+			children = (
+				56C2B7E62F241E1F0055C34D /* FlatBuffers.xcconfig */,
+				56C229F12F1C50000083660B /* MuJoCoFramework.xcconfig */,
+			);
+			path = third_party;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -210,6 +221,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				56C2B7E72F241E1F0055C34D /* FlatBuffers.xcconfig in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
