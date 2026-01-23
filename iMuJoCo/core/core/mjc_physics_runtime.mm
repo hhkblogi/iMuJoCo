@@ -23,6 +23,9 @@
 // Apple unified logging
 #include <os/log.h>
 
+// FlatBuffers serialization
+#include <flatbuffers/flatbuffers.h>
+
 // MARK: - Constants
 
 namespace {

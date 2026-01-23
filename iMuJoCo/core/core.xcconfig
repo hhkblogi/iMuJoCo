@@ -1,6 +1,7 @@
 // Core framework build configuration
 
 // Include MuJoCo framework settings
+#include "../../third_party/FlatBuffers.xcconfig"
 #include "../../third_party/MuJoCoFramework.xcconfig"
 
 // Swift-C++ interop: import path for MJPhysicsRuntime module
