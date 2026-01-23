@@ -45,9 +45,8 @@
 /* Begin PBXFileReference section */
 		56C229352F1B87760083660B /* core.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = core.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		56C2293E2F1B87760083660B /* core_tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = core_tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		56C229F12F1C50000083660B /* MuJoCoFramework.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = MuJoCoFramework.xcconfig; path = ../../../third_party/MuJoCoFramework.xcconfig; sourceTree = "<group>"; };
+		56C229F12F1C50000083660B /* MuJoCoFramework.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = MuJoCoFramework.xcconfig; path = ../../third_party/MuJoCoFramework.xcconfig; sourceTree = "<group>"; };
 		56C22B012F1C61000083660B /* core.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = core.xcconfig; sourceTree = "<group>"; };
-		56C2B7E52F241D270055C34D /* FlatBuffers.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = FlatBuffers.xcconfig; sourceTree = "<group>"; };
 		56C2B7E62F241E1F0055C34D /* FlatBuffers.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = FlatBuffers.xcconfig; path = ../../third_party/FlatBuffers.xcconfig; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
@@ -91,7 +90,6 @@
 				56C229372F1B87760083660B /* core */,
 				56C229422F1B87760083660B /* core_tests */,
 				56C229362F1B87760083660B /* Products */,
-				56C2B7E52F241D270055C34D /* FlatBuffers.xcconfig */,
 			);
 			sourceTree = "<group>";
 		};
