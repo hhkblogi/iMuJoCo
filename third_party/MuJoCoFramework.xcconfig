@@ -10,28 +10,28 @@ MUJOCO_XCFRAMEWORK = $(PROJECT_DIR)/../../build/frameworks/mujoco.xcframework
 // The mujoco headers use #include <mujoco/mjdata.h> which needs Headers/ in search path
 HEADER_SEARCH_PATHS[sdk=macosx*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/macos-arm64/mujoco.framework/Headers
 HEADER_SEARCH_PATHS[sdk=iphoneos*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/ios-arm64/mujoco.framework/Headers
-HEADER_SEARCH_PATHS[sdk=iphonesimulator*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/ios-arm64/mujoco.framework/Headers
+HEADER_SEARCH_PATHS[sdk=iphonesimulator*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/ios-arm64-simulator/mujoco.framework/Headers
 HEADER_SEARCH_PATHS[sdk=appletvos*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/tvos-arm64/mujoco.framework/Headers
 HEADER_SEARCH_PATHS[sdk=appletvsimulator*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/tvos-arm64/mujoco.framework/Headers
 
 // Swift module import path - point to framework's Modules directory
 SWIFT_INCLUDE_PATHS[sdk=macosx*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/macos-arm64/mujoco.framework/Modules
 SWIFT_INCLUDE_PATHS[sdk=iphoneos*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/ios-arm64/mujoco.framework/Modules
-SWIFT_INCLUDE_PATHS[sdk=iphonesimulator*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/ios-arm64/mujoco.framework/Modules
+SWIFT_INCLUDE_PATHS[sdk=iphonesimulator*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/ios-arm64-simulator/mujoco.framework/Modules
 SWIFT_INCLUDE_PATHS[sdk=appletvos*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/tvos-arm64/mujoco.framework/Modules
 SWIFT_INCLUDE_PATHS[sdk=appletvsimulator*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/tvos-arm64/mujoco.framework/Modules
 
 // Framework search paths for linker (platform-specific paths inside xcframework)
 FRAMEWORK_SEARCH_PATHS[sdk=macosx*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/macos-arm64
 FRAMEWORK_SEARCH_PATHS[sdk=iphoneos*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/ios-arm64
-FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/ios-arm64_x86_64-simulator
+FRAMEWORK_SEARCH_PATHS[sdk=iphonesimulator*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/ios-arm64-simulator
 FRAMEWORK_SEARCH_PATHS[sdk=appletvos*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/tvos-arm64
-FRAMEWORK_SEARCH_PATHS[sdk=appletvsimulator*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/tvos-arm64_x86_64-simulator
+FRAMEWORK_SEARCH_PATHS[sdk=appletvsimulator*] = $(inherited) $(MUJOCO_XCFRAMEWORK)/tvos-arm64
 
 // Runtime library search paths for tests (platform-specific paths inside xcframework)
 LD_RUNPATH_SEARCH_PATHS[sdk=macosx*] = $(inherited) @executable_path/../Frameworks @loader_path/../Frameworks $(MUJOCO_XCFRAMEWORK)/macos-arm64
 LD_RUNPATH_SEARCH_PATHS[sdk=iphoneos*] = $(inherited) @executable_path/Frameworks @loader_path/Frameworks $(MUJOCO_XCFRAMEWORK)/ios-arm64
-LD_RUNPATH_SEARCH_PATHS[sdk=iphonesimulator*] = $(inherited) @executable_path/Frameworks @loader_path/Frameworks $(MUJOCO_XCFRAMEWORK)/ios-arm64
+LD_RUNPATH_SEARCH_PATHS[sdk=iphonesimulator*] = $(inherited) @executable_path/Frameworks @loader_path/Frameworks $(MUJOCO_XCFRAMEWORK)/ios-arm64-simulator
 LD_RUNPATH_SEARCH_PATHS[sdk=appletvos*] = $(inherited) @executable_path/Frameworks @loader_path/Frameworks $(MUJOCO_XCFRAMEWORK)/tvos-arm64
 LD_RUNPATH_SEARCH_PATHS[sdk=appletvsimulator*] = $(inherited) @executable_path/Frameworks @loader_path/Frameworks $(MUJOCO_XCFRAMEWORK)/tvos-arm64
 
