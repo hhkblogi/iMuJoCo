@@ -65,10 +65,11 @@ build_mujoco() {
     # Set platform flag
     local PLATFORM_FLAG=""
     case ${PLATFORM} in
-        macOS)        PLATFORM_FLAG="-DBUILD_MACOS=ON" ;;
-        iOS)          PLATFORM_FLAG="-DBUILD_IOS=ON" ;;
-        iOSSimulator) PLATFORM_FLAG="-DBUILD_IOS_SIMULATOR=ON" ;;
-        tvOS)         PLATFORM_FLAG="-DBUILD_TVOS=ON" ;;
+        macOS)         PLATFORM_FLAG="-DBUILD_MACOS=ON" ;;
+        iOS)           PLATFORM_FLAG="-DBUILD_IOS=ON" ;;
+        iOSSimulator)  PLATFORM_FLAG="-DBUILD_IOS_SIMULATOR=ON" ;;
+        tvOS)          PLATFORM_FLAG="-DBUILD_TVOS=ON" ;;
+        tvOSSimulator) PLATFORM_FLAG="-DBUILD_TVOS_SIMULATOR=ON" ;;
     esac
 
     # Configure
@@ -304,12 +305,12 @@ main() {
     fi
 
     # Build for all platforms
-    for PLATFORM in macOS iOS iOSSimulator tvOS; do
+    for PLATFORM in macOS iOS iOSSimulator tvOS tvOSSimulator; do
         build_mujoco "${PLATFORM}"
     done
 
     # Create frameworks for each platform
-    for PLATFORM in macOS iOS iOSSimulator tvOS; do
+    for PLATFORM in macOS iOS iOSSimulator tvOS tvOSSimulator; do
         if [[ "${BUILD_SHARED}" == "ON" ]]; then
             create_dynamic_framework "${PLATFORM}"
         else
@@ -326,6 +327,7 @@ main() {
         -framework "${FRAMEWORK_DIR}/iOS/mujoco.framework" \
         -framework "${FRAMEWORK_DIR}/iOSSimulator/mujoco.framework" \
         -framework "${FRAMEWORK_DIR}/tvOS/mujoco.framework" \
+        -framework "${FRAMEWORK_DIR}/tvOSSimulator/mujoco.framework" \
         -output "${FRAMEWORK_DIR}/mujoco.xcframework"
 
     log_info "XCFramework created at ${FRAMEWORK_DIR}/mujoco.xcframework"
