@@ -1,7 +1,7 @@
 // Render framework build configuration
 
 // Include MuJoCo framework settings (for MJFrameData, mjvScene types)
-#include "../third_party/MuJoCoFramework.xcconfig"
+#include "../../third_party/MuJoCoFramework.xcconfig"
 
 // Path to MJCPhysicsRuntime module (in core/core/)
 MJCPHYSICS_MODULE_PATH = $(PROJECT_DIR)/../core/core

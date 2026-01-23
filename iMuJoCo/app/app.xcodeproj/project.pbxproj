@@ -54,7 +54,7 @@
 		56C229182F1B87180083660B /* app_ui_tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = app_ui_tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		56C229982F1BC7FC0083660B /* core.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; path = core.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		56C22B202F1C80000083660B /* app.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = app.xcconfig; sourceTree = "<group>"; };
-		56C22BC72F1D0E800083660B /* mujoco.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = mujoco.xcframework; path = ../build/frameworks/mujoco.xcframework; sourceTree = "<group>"; };
+		56C22BC72F1D0E800083660B /* mujoco.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = mujoco.xcframework; path = ../../build/frameworks/mujoco.xcframework; sourceTree = "<group>"; };
 		56C22BCD2F1D10000083660B /* render.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; path = render.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
