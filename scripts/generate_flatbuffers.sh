@@ -18,6 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "${0}")" && pwd)"
 # Always use script location to find project root (works from Xcode or CLI)
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 FLATBUFFERS_DIR="${PROJECT_ROOT}/third_party/flatbuffers"
+FLATBUFFERS_PATCHES="${PROJECT_ROOT}/third_party/patches"
 FLATC_BUILD_DIR="${PROJECT_ROOT}/build/flatc"
 FLATC="${FLATC_BUILD_DIR}/flatc"
 SCHEMA_DIR="${PROJECT_ROOT}/schema"
@@ -64,6 +65,30 @@ find_cmake() {
 }
 
 CMAKE=$(find_cmake)
+
+# Apply patches to third-party dependencies
+apply_patches() {
+    if [[ ! -d "${FLATBUFFERS_PATCHES}" ]]; then
+        return 0
+    fi
+
+    local patches=("${FLATBUFFERS_PATCHES}"/flatbuffers-*.patch(N))
+    if [[ ${#patches[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    log_info "Applying patches to flatbuffers..."
+    for patch in "${patches[@]}"; do
+        local patch_name=$(basename "${patch}")
+        # Check if patch is already applied (git apply --check returns 0 if would apply cleanly)
+        if git -C "${FLATBUFFERS_DIR}" apply --check --reverse "${patch}" 2>/dev/null; then
+            log_info "  ${patch_name} (already applied)"
+        else
+            log_info "  ${patch_name}"
+            git -C "${FLATBUFFERS_DIR}" apply "${patch}"
+        fi
+    done
+}
 
 # Build flatc from submodule if not already built
 build_flatc() {
@@ -128,6 +153,7 @@ main() {
     log_info "FlatBuffers Schema Generator"
     log_info "Project root: ${PROJECT_ROOT}"
 
+    apply_patches
     build_flatc
     generate_cpp
 
