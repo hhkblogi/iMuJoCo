@@ -1,6 +1,6 @@
 // state.fbs
 // State packet: iMuJoCo → driver
-// Sends simulation state back to the client
+// Sends simulation state back to the driver
 
 namespace imujoco.schema;
 
@@ -29,3 +29,4 @@ table StatePacket {
 }
 
 root_type StatePacket;
+file_identifier "STPK";

@@ -2,7 +2,7 @@
 // Control packet: driver → iMuJoCo
 // Sends actuator control values to the simulation
 
-namespace imujoco.mujoco;
+namespace imujoco.schema;
 
 table ControlPacket {
   // Packet sequence number (for ordering/debugging)
@@ -13,3 +13,4 @@ table ControlPacket {
 }
 
 root_type ControlPacket;
+file_identifier "CTPK";
