@@ -1,6 +1,6 @@
 // FlatBuffers Build Configuration
 // Header-only C++ library for serialization
-// Version: v24.3.25 (git submodule)
+// Version: v25.12.19 (git submodule)
 
 // Header search paths - FlatBuffers is header-only
 // Projects are in iMuJoCo/{app,core,render}/, so ../../third_party/ goes to root third_party/
