@@ -1,5 +1,5 @@
 // control.fbs
-// Control packet: client → iMuJoCo
+// Control packet: driver → iMuJoCo
 // Sends actuator control values to the simulation
 
 namespace imujoco.mujoco;

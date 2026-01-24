@@ -7,8 +7,8 @@ FlatBuffers schema files for iMuJoCo data streaming protocol.
 ```
 schema/
 └── mujoco/
-    ├── control.fbs    # Client → iMuJoCo (actuator controls)
-    └── state.fbs      # iMuJoCo → Client (simulation state)
+    ├── control.fbs    # driver → iMuJoCo (actuator controls)
+    └── state.fbs      # iMuJoCo → driver (simulation state)
 ```
 
 ## Generating Code
@@ -31,10 +31,10 @@ flatc --python -o generated/python schema/mujoco/*.fbs
 ## Protocol Overview
 
 ```
-┌────────────┐    ControlPacket    ┌────────────┐
-│   Client   │ ─────────────────► │  iMuJoCo   │
-│            │ ◄───────────────── │            │
-└────────────┘    StatePacket      └────────────┘
+┌────────────┐    ControlPacket     ┌────────────┐
+│   Driver   │  ─────────────────►  │  iMuJoCo   │
+│            │  ◄─────────────────  │            │
+└────────────┘    StatePacket       └────────────┘
 ```
 
 - **ControlPacket**: Send actuator control values

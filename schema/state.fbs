@@ -1,8 +1,8 @@
 // state.fbs
-// State packet: iMuJoCo → client
+// State packet: iMuJoCo → driver
 // Sends simulation state back to the client
 
-namespace imujoco.mujoco;
+namespace imujoco.schema;
 
 table StatePacket {
   // Packet sequence number (for ordering/debugging)
