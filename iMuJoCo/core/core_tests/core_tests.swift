@@ -107,14 +107,15 @@ struct MJRuntimeTests {
 
         try runtime.loadModel(fromXML: simpleModel)
 
+        // Capture initial frame count before starting to avoid race condition
+        let initialFrameCount = runtime.frameCount
+        
         runtime.start()
         
         // Poll for frame count increase with timeout
         let startTime = ContinuousClock.now
         let timeout: Duration = .milliseconds(500)
         var frameCountIncreased = false
-        
-        let initialFrameCount = runtime.frameCount
         
         while ContinuousClock.now - startTime < timeout {
             try await Task.sleep(for: .milliseconds(10))
