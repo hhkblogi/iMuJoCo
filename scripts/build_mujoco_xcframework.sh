@@ -5,11 +5,10 @@
 # Options:
 #   --static     Build as static framework (merged static libraries)
 #   (default)    Build as dynamic framework (dylib with deps bundled inside)
+#
+# Requirements: Xcode Command Line Tools (provides cmake via xcrun)
 
 set -e
-
-# Add Homebrew paths for cmake (Xcode's shell doesn't have the same PATH)
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 # Clear Xcode environment variables that interfere with CMake cross-compilation
 # This is needed when running from Xcode's Run Script build phase
@@ -36,11 +35,18 @@ if [[ "$1" == "--static" ]]; then
     BUILD_SHARED=OFF
 fi
 
-# Colors
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-RED='\033[0;31m'
-NC='\033[0m'
+# Colors (disable if not interactive terminal)
+if [[ -t 1 ]]; then
+    GREEN='\033[0;32m'
+    YELLOW='\033[0;33m'
+    RED='\033[0;31m'
+    NC='\033[0m'
+else
+    GREEN=''
+    YELLOW=''
+    RED=''
+    NC=''
+fi
 
 log_info() {
     echo "${GREEN}[INFO]${NC} $1"
@@ -53,6 +59,20 @@ log_warn() {
 log_error() {
     echo "${RED}[ERROR]${NC} $1"
 }
+
+# Find cmake - prefer Xcode's bundled cmake, fallback to PATH
+find_cmake() {
+    local xcode_cmake
+    xcode_cmake=$(xcrun --find cmake 2>/dev/null) && [[ -x "$xcode_cmake" ]] && {
+        echo "$xcode_cmake"
+        return 0
+    }
+    command -v cmake 2>/dev/null && return 0
+    log_error "cmake not found. Install Xcode Command Line Tools: xcode-select --install"
+    exit 1
+}
+
+CMAKE=$(find_cmake)
 
 # Build MuJoCo for a specific platform
 build_mujoco() {
@@ -73,13 +93,13 @@ build_mujoco() {
     esac
 
     # Configure
-    cmake -S "${CMAKE_DIR}" -B "${PLATFORM_BUILD_DIR}" \
+    "$CMAKE" -S "${CMAKE_DIR}" -B "${PLATFORM_BUILD_DIR}" \
         ${PLATFORM_FLAG} \
         -DBUILD_SHARED_MUJOCO=${BUILD_SHARED} \
         -DCMAKE_BUILD_TYPE=Release
 
-    # Build
-    cmake --build "${PLATFORM_BUILD_DIR}" --config Release -j$(sysctl -n hw.ncpu)
+    # Build (--parallel auto-detects available cores)
+    "$CMAKE" --build "${PLATFORM_BUILD_DIR}" --config Release --parallel
 }
 
 # Create static framework (merges all .a files)

@@ -18,6 +18,17 @@
 			name = "mujoco-framework";
 			productName = "mujoco-framework";
 		};
+		56C2B7F12F25001A0055C34D /* flatbuffers-codegen */ = {
+			isa = PBXAggregateTarget;
+			buildConfigurationList = 56C2B7F72F25001A0055C34D /* Build configuration list for PBXAggregateTarget "flatbuffers-codegen" */;
+			buildPhases = (
+				56C2B7F02F25000A0055C34D /* Run Script - Generate FlatBuffers */,
+			);
+			dependencies = (
+			);
+			name = "flatbuffers-codegen";
+			productName = "flatbuffers-codegen";
+		};
 /* End PBXAggregateTarget section */
 
 /* Begin PBXBuildFile section */
@@ -39,6 +50,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 56C22B102F1C70000083660B;
 			remoteInfo = "mujoco-framework";
+		};
+		56C2B7F22F25001A0055C34D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 56C2292C2F1B87760083660B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 56C2B7F12F25001A0055C34D;
+			remoteInfo = "flatbuffers-codegen";
 		};
 /* End PBXContainerItemProxy section */
 
@@ -136,6 +154,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				56C2B7F32F25001A0055C34D /* PBXTargetDependency */,
 				56C22B132F1C70000083660B /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
@@ -193,6 +212,9 @@
 					56C22B102F1C70000083660B = {
 						CreatedOnToolsVersion = 26.2;
 					};
+					56C2B7F12F25001A0055C34D = {
+						CreatedOnToolsVersion = 26.2;
+					};
 				};
 			};
 			buildConfigurationList = 56C2292F2F1B87760083660B /* Build configuration list for PBXProject "core" */;
@@ -209,6 +231,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				56C2B7F12F25001A0055C34D /* flatbuffers-codegen */,
 				56C22B102F1C70000083660B /* mujoco-framework */,
 				56C229342F1B87760083660B /* core */,
 				56C2293D2F1B87760083660B /* core_tests */,
@@ -255,6 +278,28 @@
 			shellPath = /bin/zsh;
 			shellScript = "\"${PROJECT_DIR}/../../scripts/build_mujoco_xcframework.sh\"\n";
 		};
+		56C2B7F02F25000A0055C34D /* Run Script - Generate FlatBuffers */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(PROJECT_DIR)/../../schema/control.fbs",
+				"$(PROJECT_DIR)/../../schema/state.fbs",
+			);
+			name = "Run Script - Generate FlatBuffers";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(PROJECT_DIR)/../../build/generated/flatbuffers/imujoco/schema/control_generated.h",
+				"$(PROJECT_DIR)/../../build/generated/flatbuffers/imujoco/schema/state_generated.h",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/zsh;
+			shellScript = "\"${PROJECT_DIR}/../../scripts/generate_flatbuffers.sh\" \"${PROJECT_DIR}/../../build/generated/flatbuffers\"\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -284,6 +329,11 @@
 			isa = PBXTargetDependency;
 			target = 56C22B102F1C70000083660B /* mujoco-framework */;
 			targetProxy = 56C22B122F1C70000083660B /* PBXContainerItemProxy */;
+		};
+		56C2B7F32F25001A0055C34D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 56C2B7F12F25001A0055C34D /* flatbuffers-codegen */;
+			targetProxy = 56C2B7F22F25001A0055C34D /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -572,6 +622,26 @@
 			};
 			name = Release;
 		};
+		56C2B7F42F25001A0055C34D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 56C22B012F1C61000083660B /* core.xcconfig */;
+			buildSettings = {
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		56C2B7F52F25001A0055C34D /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 56C22B012F1C61000083660B /* core.xcconfig */;
+			buildSettings = {
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -607,6 +677,15 @@
 			buildConfigurations = (
 				56C22B142F1C70000083660B /* Debug */,
 				56C22B152F1C70000083660B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		56C2B7F72F25001A0055C34D /* Build configuration list for PBXAggregateTarget "flatbuffers-codegen" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				56C2B7F42F25001A0055C34D /* Debug */,
+				56C2B7F52F25001A0055C34D /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
