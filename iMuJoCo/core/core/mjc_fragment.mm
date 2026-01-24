@@ -90,6 +90,9 @@ int FragmentedSender::SendMessage(const uint8_t* data, size_t size,
     }
 
     // Calculate number of fragments needed
+    // Static assert ensures MJ_MAX_MESSAGE_SIZE is exactly representable with uint8_t fragment count
+    static_assert(MJ_MAX_MESSAGE_SIZE == MJ_MAX_FRAGMENT_PAYLOAD * MJ_MAX_FRAGMENTS,
+                  "MJ_MAX_MESSAGE_SIZE must equal MJ_MAX_FRAGMENT_PAYLOAD * MJ_MAX_FRAGMENTS");
     uint8_t fragment_count = static_cast<uint8_t>(
         (size + MJ_MAX_FRAGMENT_PAYLOAD - 1) / MJ_MAX_FRAGMENT_PAYLOAD);
 
@@ -175,11 +178,22 @@ const uint8_t* ReassemblyManager::ProcessFragment(const uint8_t* data, size_t si
     if (header->fragment_index >= header->fragment_count ||
         header->fragment_count == 0 ||
         header->payload_size > MJ_MAX_FRAGMENT_PAYLOAD ||
-        header->payload_size + MJ_FRAGMENT_HEADER_SIZE != size) {
+        header->payload_size + MJ_FRAGMENT_HEADER_SIZE != size ||
+        header->total_size > MJ_MAX_MESSAGE_SIZE) {
         os_log_error(GetFragmentLog(),
                      "ProcessFragment: invalid header fields - idx=%u count=%u payload=%u size=%zu",
                      header->fragment_index, header->fragment_count,
                      header->payload_size, size);
+        return nullptr;
+    }
+
+    // Validate fragment_count is consistent with total_size
+    uint8_t expected_count = static_cast<uint8_t>(
+        (header->total_size + MJ_MAX_FRAGMENT_PAYLOAD - 1) / MJ_MAX_FRAGMENT_PAYLOAD);
+    if (header->fragment_count != expected_count) {
+        os_log_error(GetFragmentLog(),
+                     "ProcessFragment: fragment_count mismatch - got=%u expected=%u for total_size=%u",
+                     header->fragment_count, expected_count, header->total_size);
         return nullptr;
     }
 
@@ -226,6 +240,15 @@ const uint8_t* ReassemblyManager::ProcessFragment(const uint8_t* data, size_t si
     // Copy payload to correct position in buffer
     size_t offset = static_cast<size_t>(header->fragment_index) * MJ_MAX_FRAGMENT_PAYLOAD;
     const uint8_t* payload = data + MJ_FRAGMENT_HEADER_SIZE;
+
+    // Validate that payload fits within total message buffer (security check)
+    if (offset + header->payload_size > slot->total_size) {
+        os_log_error(GetFragmentLog(),
+                     "ProcessFragment: payload exceeds buffer - offset=%zu payload=%u total=%u",
+                     offset, header->payload_size, slot->total_size);
+        return nullptr;
+    }
+
     memcpy(slot->buffer.data() + offset, payload, header->payload_size);
 
     os_log_debug(GetFragmentLog(),
@@ -240,9 +263,10 @@ const uint8_t* ReassemblyManager::ProcessFragment(const uint8_t* data, size_t si
                     "ProcessFragment: reassembled msg_id=%u (%u bytes, %u fragments)",
                     slot->message_id, slot->total_size, slot->fragment_count);
 
-        // Return pointer to buffer (caller must copy before next call)
-        // Note: we don't reset the slot here to allow the caller to access the data
-        // The slot will be reused via LRU eviction when needed
+        // Mark slot as inactive to prevent message_id collision on wrap-around.
+        // Buffer contents remain valid until caller copies or slot is reused.
+        slot->active = false;
+
         return slot->buffer.data();
     }
 

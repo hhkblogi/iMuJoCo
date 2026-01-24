@@ -513,4 +513,97 @@ using namespace imujoco;
                   @"Small ControlPacket should fit in one fragment (%zu bytes)", size);
 }
 
+#pragma mark - Security Tests (Malicious Packet Handling)
+
+- (void)test_security_buffer_overflow_large_index_small_total {
+    // Malicious packet: small total_size but large fragment_index
+    // This would cause offset to exceed buffer if not validated
+    ReassemblyManager manager;
+
+    std::vector<uint8_t> packet(MJ_FRAGMENT_HEADER_SIZE + 100);
+    MJFragmentHeader* header = reinterpret_cast<MJFragmentHeader*>(packet.data());
+    header->magic = MJ_PACKET_MAGIC_FRAG;
+    header->message_id = 1;
+    header->fragment_index = 200;  // Large index
+    header->fragment_count = 201;  // Matches index + 1
+    header->total_size = 100;      // Small total - inconsistent with fragment_count
+    header->payload_size = 100;
+    header->checksum = 0;
+    header->checksum = mj_fragment_header_checksum(header);
+
+    size_t message_size = 0;
+    const uint8_t* result = manager.ProcessFragment(packet.data(), packet.size(), &message_size);
+
+    // Should be rejected due to fragment_count vs total_size mismatch
+    XCTAssertTrue(result == nullptr, @"Malicious packet with inconsistent fragment_count should be rejected");
+}
+
+- (void)test_security_buffer_overflow_payload_exceeds_total {
+    // Malicious packet: last fragment claims payload larger than remaining space
+    ReassemblyManager manager;
+
+    uint32_t total_size = 1000;  // Total message size
+    // First fragment (valid)
+    {
+        std::vector<uint8_t> packet(MJ_FRAGMENT_HEADER_SIZE + MJ_MAX_FRAGMENT_PAYLOAD);
+        MJFragmentHeader* header = reinterpret_cast<MJFragmentHeader*>(packet.data());
+        header->magic = MJ_PACKET_MAGIC_FRAG;
+        header->message_id = 2;
+        header->fragment_index = 0;
+        header->fragment_count = 1;  // Claim only 1 fragment
+        header->total_size = total_size;
+        header->payload_size = MJ_MAX_FRAGMENT_PAYLOAD;  // But payload is larger than total_size
+        header->checksum = 0;
+        header->checksum = mj_fragment_header_checksum(header);
+
+        size_t message_size = 0;
+        const uint8_t* result = manager.ProcessFragment(packet.data(), packet.size(), &message_size);
+
+        // Should be rejected: payload_size (1456) > total_size (1000)
+        XCTAssertTrue(result == nullptr, @"Fragment with payload exceeding total_size should be rejected");
+    }
+}
+
+- (void)test_security_total_size_exceeds_max {
+    // Malicious packet: total_size exceeds MJ_MAX_MESSAGE_SIZE
+    ReassemblyManager manager;
+
+    std::vector<uint8_t> packet(MJ_FRAGMENT_HEADER_SIZE + 100);
+    MJFragmentHeader* header = reinterpret_cast<MJFragmentHeader*>(packet.data());
+    header->magic = MJ_PACKET_MAGIC_FRAG;
+    header->message_id = 3;
+    header->fragment_index = 0;
+    header->fragment_count = 255;
+    header->total_size = MJ_MAX_MESSAGE_SIZE + 1000;  // Exceeds max
+    header->payload_size = 100;
+    header->checksum = 0;
+    header->checksum = mj_fragment_header_checksum(header);
+
+    size_t message_size = 0;
+    const uint8_t* result = manager.ProcessFragment(packet.data(), packet.size(), &message_size);
+
+    XCTAssertTrue(result == nullptr, @"Fragment with total_size > MJ_MAX_MESSAGE_SIZE should be rejected");
+}
+
+- (void)test_security_fragment_count_mismatch {
+    // Malicious packet: fragment_count doesn't match total_size
+    ReassemblyManager manager;
+
+    std::vector<uint8_t> packet(MJ_FRAGMENT_HEADER_SIZE + 100);
+    MJFragmentHeader* header = reinterpret_cast<MJFragmentHeader*>(packet.data());
+    header->magic = MJ_PACKET_MAGIC_FRAG;
+    header->message_id = 4;
+    header->fragment_index = 0;
+    header->fragment_count = 10;    // Claims 10 fragments
+    header->total_size = 100;       // But 100 bytes only needs 1 fragment
+    header->payload_size = 100;
+    header->checksum = 0;
+    header->checksum = mj_fragment_header_checksum(header);
+
+    size_t message_size = 0;
+    const uint8_t* result = manager.ProcessFragment(packet.data(), packet.size(), &message_size);
+
+    XCTAssertTrue(result == nullptr, @"Fragment with mismatched fragment_count should be rejected");
+}
+
 @end

@@ -261,8 +261,11 @@ public:
 
         os_log_debug(OS_LOG_DEFAULT, "Received %zd bytes", recv_len);
 
+        // Periodically clean up stale incomplete messages
+        reassembly_manager_.CleanupStale();
+
         // Check for fragment header
-        if (recv_len >= MJ_FRAGMENT_HEADER_SIZE) {
+        if (recv_len >= static_cast<ssize_t>(MJ_FRAGMENT_HEADER_SIZE)) {
             const MJFragmentHeader* frag_header = reinterpret_cast<const MJFragmentHeader*>(buffer);
             if (frag_header->magic == MJ_PACKET_MAGIC_FRAG) {
                 // Process fragment
@@ -275,8 +278,13 @@ public:
                     return -1;
                 }
 
-                // Parse complete FlatBuffers message
-                return ParseControlPacket(complete, message_size, ctrl_out, max_ctrl);
+                // Copy reassembled data to temporary buffer before parsing.
+                // This decouples from ReassemblyManager's internal storage.
+                reassembly_buffer_.resize(message_size);
+                std::memcpy(reassembly_buffer_.data(), complete, message_size);
+
+                // Parse complete FlatBuffers message from stable copy
+                return ParseControlPacket(reassembly_buffer_.data(), message_size, ctrl_out, max_ctrl);
             }
         }
 
@@ -395,6 +403,7 @@ private:
     flatbuffers::FlatBufferBuilder fb_builder_;
     imujoco::FragmentedSender fragmented_sender_;
     imujoco::ReassemblyManager reassembly_manager_;
+    std::vector<uint8_t> reassembly_buffer_;  // Temporary buffer for reassembled messages
 };
 
 // MARK: - MJSimulationRuntime Class

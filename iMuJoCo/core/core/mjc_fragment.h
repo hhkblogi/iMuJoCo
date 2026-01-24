@@ -16,9 +16,13 @@ extern "C" {
 // MARK: - Constants
 
 // Network MTU and payload calculations
+// NOTE: These values assume IPv4 with no IP options (20-byte header) and 8-byte UDP header.
+// For IPv6 (40-byte header) or IPv4 with options, constants would need adjustment.
+// All multi-byte header fields use native byte order (no network byte order conversion).
+// This protocol is intended for same-architecture local network communication.
 #define MJ_MTU                  1500
 #define MJ_IP_UDP_OVERHEAD      28      // 20 bytes IP + 8 bytes UDP
-#define MJ_MAX_UDP_PAYLOAD      1472    // MTU - IP/UDP overhead
+#define MJ_MAX_UDP_PAYLOAD      1472    // MTU - IP/UDP overhead (space for header + payload)
 #define MJ_FRAGMENT_HEADER_SIZE 16
 #define MJ_MAX_FRAGMENT_PAYLOAD 1456    // Max UDP payload - fragment header
 #define MJ_MAX_FRAGMENTS        255
@@ -77,7 +81,9 @@ namespace imujoco {
 
 // MARK: - FragmentedSender
 
-/// Splits large messages into MTU-sized fragments and sends via UDP
+/// Splits large messages into MTU-sized fragments and sends via UDP.
+/// @note NOT thread-safe. Each thread should use its own FragmentedSender instance,
+///       or external synchronization must be provided.
 class FragmentedSender {
 public:
     FragmentedSender() = default;
@@ -158,7 +164,9 @@ struct ReassemblySlot {
 
 // MARK: - ReassemblyManager
 
-/// Reconstructs complete messages from incoming fragments
+/// Reconstructs complete messages from incoming fragments.
+/// @note NOT thread-safe. Must be used from a single thread (typically the receive loop).
+///       The returned buffer from ProcessFragment is valid until the next call.
 class ReassemblyManager {
 public:
     using Clock = std::chrono::steady_clock;
