@@ -4,7 +4,7 @@
 #
 # Arguments:
 #   output_dir    Where to generate C++ headers (default: uses FLATBUFFERS_OUTPUT_DIR
-#                 env var, or schema/generated/cpp if not set)
+#                 env var, or build/generated/flatbuffers if not set)
 #
 # Environment variables (set by Xcode Run Script phase):
 #   FLATBUFFERS_OUTPUT_DIR  Output directory for generated headers
@@ -30,6 +30,12 @@ OUTPUT_DIR="${1:-${FLATBUFFERS_OUTPUT_DIR:-${PROJECT_ROOT}/build/generated/flatb
 unset SDKROOT
 unset ARCHS
 unset PLATFORM_NAME
+unset IPHONEOS_DEPLOYMENT_TARGET
+unset TVOS_DEPLOYMENT_TARGET
+unset MACOSX_DEPLOYMENT_TARGET
+unset CONFIGURATION
+unset BUILT_PRODUCTS_DIR
+unset TARGET_BUILD_DIR
 
 # Colors (disable if not interactive terminal)
 if [[ -t 1 ]]; then
@@ -50,6 +56,15 @@ log_warn() {
     echo "${YELLOW}[WARN]${NC} $1"
 }
 
+# Check if flatbuffers submodule is initialized
+check_submodule() {
+    if [[ ! -d "${FLATBUFFERS_DIR}" ]] || [[ ! -f "${FLATBUFFERS_DIR}/CMakeLists.txt" ]]; then
+        echo "ERROR: FlatBuffers submodule not initialized." >&2
+        echo "Run: git submodule update --init --recursive" >&2
+        exit 1
+    fi
+}
+
 # Find cmake - prefer Xcode's bundled cmake, fallback to PATH
 find_cmake() {
     # Try Xcode's cmake first (no Homebrew dependency)
@@ -64,7 +79,10 @@ find_cmake() {
     return 1
 }
 
-CMAKE=$(find_cmake)
+if ! CMAKE=$(find_cmake); then
+    echo "ERROR: Failed to locate cmake. Aborting." >&2
+    exit 1
+fi
 
 # Apply patches to third-party dependencies
 apply_patches() {
@@ -72,6 +90,7 @@ apply_patches() {
         return 0
     fi
 
+    # (N) is a zsh glob qualifier: if no files match, the pattern expands to an empty array
     local patches=("${FLATBUFFERS_PATCHES}"/flatbuffers-*.patch(N))
     if [[ ${#patches[@]} -eq 0 ]]; then
         return 0
@@ -80,12 +99,15 @@ apply_patches() {
     log_info "Applying patches to flatbuffers..."
     for patch in "${patches[@]}"; do
         local patch_name=$(basename "${patch}")
-        # Check if patch is already applied (git apply --check returns 0 if would apply cleanly)
+        # Check if patch is already applied (reverse check succeeds if patch can be reversed)
         if git -C "${FLATBUFFERS_DIR}" apply --check --reverse "${patch}" 2>/dev/null; then
             log_info "  ${patch_name} (already applied)"
-        else
+        # If not already applied, ensure it can be applied cleanly in the forward direction
+        elif git -C "${FLATBUFFERS_DIR}" apply --check "${patch}" 2>/dev/null; then
             log_info "  ${patch_name}"
             git -C "${FLATBUFFERS_DIR}" apply "${patch}"
+        else
+            log_warn "  ${patch_name} (cannot apply cleanly, skipping)"
         fi
     done
 }
@@ -131,6 +153,7 @@ generate_cpp() {
     mkdir -p "${NAMESPACE_DIR}"
 
     # Find all .fbs files and generate headers
+    # (N) is a zsh glob qualifier: if no files match, the pattern expands to an empty array
     local fbs_files=("${SCHEMA_DIR}"/*.fbs(N))
 
     if [[ ${#fbs_files[@]} -eq 0 ]]; then
@@ -139,13 +162,15 @@ generate_cpp() {
     fi
 
     for fbs_file in "${fbs_files[@]}"; do
-        local basename=$(basename "${fbs_file}")
-        log_info "  Generating from ${basename}..."
+        local schema_name=$(basename "${fbs_file}")
+        log_info "  Generating from ${schema_name}..."
         "${FLATC}" --cpp --scoped-enums -o "${NAMESPACE_DIR}" "${fbs_file}"
     done
 
-    log_info "Generated headers in ${NAMESPACE_DIR}:"
-    ls -la "${NAMESPACE_DIR}"
+    log_info "Generated headers in ${NAMESPACE_DIR}"
+    if [[ -t 1 ]]; then
+        ls -la "${NAMESPACE_DIR}"
+    fi
 }
 
 # Main
@@ -153,6 +178,7 @@ main() {
     log_info "FlatBuffers Schema Generator"
     log_info "Project root: ${PROJECT_ROOT}"
 
+    check_submodule
     apply_patches
     build_flatc
     generate_cpp
