@@ -107,15 +107,26 @@ struct MJRuntimeTests {
 
         try runtime.loadModel(fromXML: simpleModel)
 
-        // Before starting, latestFrame may be nil or have initial data
+        // Capture initial frame count before starting to avoid race condition
         let initialFrameCount = runtime.frameCount
-
+        
         runtime.start()
-        // Wait for physics to produce frames
-        try await Task.sleep(for: .milliseconds(100))
-
+        
+        // Poll for frame count increase with timeout
+        let startTime = ContinuousClock.now
+        let timeout: Duration = .milliseconds(500)
+        var frameCountIncreased = false
+        
+        while ContinuousClock.now - startTime < timeout {
+            try await Task.sleep(for: .milliseconds(10))
+            if runtime.frameCount > initialFrameCount {
+                frameCountIncreased = true
+                break
+            }
+        }
+        
         // frameCount should have increased
-        #expect(runtime.frameCount > initialFrameCount)
+        #expect(frameCountIncreased, "Frame count should increase from \(initialFrameCount) to \(runtime.frameCount)")
 
         // latestFrame should return valid data
         let frame = runtime.latestFrame
