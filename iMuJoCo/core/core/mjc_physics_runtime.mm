@@ -25,6 +25,11 @@
 
 // FlatBuffers serialization
 #include <flatbuffers/flatbuffers.h>
+#include "imujoco/schema/state_generated.h"
+#include "imujoco/schema/control_generated.h"
+
+// Fragment support
+#include "mjc_fragment.h"
 
 // MARK: - Constants
 
@@ -33,7 +38,6 @@ namespace {
 constexpr int kRingBufferSize = 3;      // Triple buffering
 constexpr int kMaxGeoms = 10000;        // Maximum geoms per frame
 constexpr int kErrorLength = 1024;      // Error buffer size
-constexpr size_t kMaxUDPPacketSize = 65535;  // Maximum UDP datagram size
 constexpr int kMaxPacketsPerLoop = 100;      // Max UDP packets to process per physics step (prevents infinite loop)
 constexpr int kMaxActuators = 256;           // Maximum actuators for control buffer
 
@@ -168,37 +172,16 @@ private:
 };
 
 // MARK: - UDP Packet Structures
-
-#pragma pack(push, 1)
-
-struct ControlPacket {
-    uint32_t magic;       // MJ_PACKET_MAGIC_CTRL
-    uint32_t sequence;
-    int32_t nu;           // Number of control values
-    uint32_t reserved;
-    // Followed by: double ctrl[nu]
-};
-
-struct StatePacketHeader {
-    uint32_t magic;       // MJ_PACKET_MAGIC_STATE
-    uint32_t sequence;
-    double time;
-    int32_t nq;
-    int32_t nv;
-    int32_t nu;
-    int32_t nsensordata;
-    double energy[2];     // [potential, kinetic]
-    // Followed by: double qpos[nq], qvel[nv], ctrl[nu], sensordata[nsensordata]
-};
-
-#pragma pack(pop)
+// FlatBuffers schemas are used for serialization (see schema/state.fbs and schema/control.fbs)
+// Fragment header for MTU handling (see mjc_fragment.h)
 
 // MARK: - UDPServer
 
 class UDPServer {
 public:
     UDPServer() : socket_fd_(-1), port_(0), has_client_(false),
-                  packets_received_(0), packets_sent_(0), send_sequence_(0) {}
+                  packets_received_(0), packets_sent_(0), send_sequence_(0),
+                  fb_builder_(4096) {}
 
     ~UDPServer() {
         Close();
@@ -261,7 +244,7 @@ public:
     int ReceiveControl(double* ctrl_out, int max_ctrl) {
         if (socket_fd_ < 0) return -1;
 
-        uint8_t buffer[kMaxUDPPacketSize];
+        uint8_t buffer[MJ_MAX_UDP_PAYLOAD];
         struct sockaddr_in client_addr;
         socklen_t addr_len = sizeof(client_addr);
 
@@ -272,67 +255,68 @@ public:
             return -1;  // No packet available
         }
 
-        char addr_str[INET_ADDRSTRLEN];
-        if (!inet_ntop(AF_INET, &client_addr.sin_addr, addr_str, sizeof(addr_str))) {
-            strncpy(addr_str, "<invalid>", sizeof(addr_str));
-            addr_str[sizeof(addr_str) - 1] = '\0';
-        }
-        os_log_debug(OS_LOG_DEFAULT, "Received %zd bytes from %{public}s:%u",
-                     recv_len, addr_str, ntohs(client_addr.sin_port));
-
-        // Validate minimum header size
-        if (recv_len < (ssize_t)sizeof(ControlPacket)) {
-            os_log_error(OS_LOG_DEFAULT, "Packet too small: expected at least %zu bytes for header, got %zd",
-                         sizeof(ControlPacket), recv_len);
-            return -1;
-        }
-
-        const ControlPacket* packet = reinterpret_cast<const ControlPacket*>(buffer);
-
-        // Validate magic number
-        if (packet->magic != MJ_PACKET_MAGIC_CTRL) {
-            os_log_error(OS_LOG_DEFAULT, "Invalid magic: 0x%08X (expected 0x%08X)",
-                         packet->magic, MJ_PACKET_MAGIC_CTRL);
-            return -1;
-        }
-
         // Store client address for sending state back
         client_addr_ = client_addr;
         has_client_ = true;
+
+        os_log_debug(OS_LOG_DEFAULT, "Received %zd bytes", recv_len);
+
+        // Check for fragment header
+        if (recv_len >= MJ_FRAGMENT_HEADER_SIZE) {
+            const MJFragmentHeader* frag_header = reinterpret_cast<const MJFragmentHeader*>(buffer);
+            if (frag_header->magic == MJ_PACKET_MAGIC_FRAG) {
+                // Process fragment
+                size_t message_size = 0;
+                const uint8_t* complete = reassembly_manager_.ProcessFragment(
+                    buffer, static_cast<size_t>(recv_len), &message_size);
+
+                if (!complete) {
+                    // Incomplete message, wait for more fragments
+                    return -1;
+                }
+
+                // Parse complete FlatBuffers message
+                return ParseControlPacket(complete, message_size, ctrl_out, max_ctrl);
+            }
+        }
+
+        // Try parsing as direct (non-fragmented) FlatBuffers ControlPacket
+        return ParseControlPacket(buffer, static_cast<size_t>(recv_len), ctrl_out, max_ctrl);
+    }
+
+    // Parse a complete FlatBuffers ControlPacket
+    int ParseControlPacket(const uint8_t* data, size_t size, double* ctrl_out, int max_ctrl) {
+        // Verify FlatBuffers
+        flatbuffers::Verifier verifier(data, size);
+        if (!imujoco::schema::VerifyControlPacketBuffer(verifier)) {
+            os_log_error(OS_LOG_DEFAULT, "Invalid FlatBuffers ControlPacket buffer");
+            return -1;
+        }
+
+        auto packet = imujoco::schema::GetControlPacket(data);
         packets_received_++;
 
-        // Extract control values
-        int nu = packet->nu;
-        os_log_debug(OS_LOG_DEFAULT, "Control packet: seq=%u, nu=%d", packet->sequence, nu);
+        os_log_debug(OS_LOG_DEFAULT, "ControlPacket: seq=%u", packet->sequence());
 
-        // Packet with no controls is valid (just a "tick" request)
-        if (nu <= 0) return 0;
-
-        // Validate nu is within range (use max_ctrl from model, not fixed constant)
-        if (nu > max_ctrl) {
-            os_log_error(OS_LOG_DEFAULT, "Invalid nu=%d exceeds model max_ctrl %d", nu, max_ctrl);
-            return -1;
+        auto ctrl = packet->ctrl();
+        if (!ctrl || ctrl->size() == 0) {
+            // Packet with no controls is valid (just a "tick" request)
+            return 0;
         }
 
-        // Validate packet size
-        size_t expected_size = sizeof(ControlPacket) + nu * sizeof(double);
-        if ((size_t)recv_len < expected_size) {
-            os_log_error(OS_LOG_DEFAULT, "Packet too small for %d controls: received %zd bytes, expected %zu bytes",
-                         nu, recv_len, expected_size);
-            return -1;
-        }
-
-        // Copy control values
-        const double* ctrl_data = reinterpret_cast<const double*>(buffer + sizeof(ControlPacket));
+        int nu = static_cast<int>(ctrl->size());
         int copy_count = std::min(nu, max_ctrl);
+
         if (copy_count > 0 && ctrl_out != nullptr) {
-            memcpy(ctrl_out, ctrl_data, copy_count * sizeof(double));
+            for (int i = 0; i < copy_count; i++) {
+                ctrl_out[i] = ctrl->Get(i);
+            }
         }
 
         return copy_count;
     }
 
-    // Send state packet to last known client
+    // Send state packet to last known client using FlatBuffers + fragmentation
     bool SendState(const mjModel* model, const mjData* data) {
         if (socket_fd_ < 0 || !has_client_ || !model || !data) {
             if (socket_fd_ < 0) os_log_debug(OS_LOG_DEFAULT, "SendState: socket not open");
@@ -340,71 +324,61 @@ public:
             return false;
         }
 
-        // Calculate packet size
-        int nq = model->nq;
-        int nv = model->nv;
-        int nu = model->nu;
-        int nsensordata = model->nsensordata;
+        // Reset FlatBuffers builder
+        fb_builder_.Clear();
 
-        size_t data_size = (nq + nv + nu + nsensordata) * sizeof(double);
-        size_t packet_size = sizeof(StatePacketHeader) + data_size;
+        // Create vectors for state data
+        flatbuffers::Offset<flatbuffers::Vector<double>> qpos_vec = 0;
+        flatbuffers::Offset<flatbuffers::Vector<double>> qvel_vec = 0;
+        flatbuffers::Offset<flatbuffers::Vector<double>> ctrl_vec = 0;
+        flatbuffers::Offset<flatbuffers::Vector<double>> sensor_vec = 0;
 
-        // Reuse thread_local buffer to avoid repeated allocations
-        static thread_local std::vector<uint8_t> buffer;
-        buffer.resize(packet_size);
-
-        // Fill header
-        StatePacketHeader* header = reinterpret_cast<StatePacketHeader*>(buffer.data());
-        header->magic = MJ_PACKET_MAGIC_STATE;
-        header->sequence = send_sequence_++;
-        header->time = data->time;
-        header->nq = nq;
-        header->nv = nv;
-        header->nu = nu;
-        header->nsensordata = nsensordata;
-        header->energy[0] = data->energy[0];  // Potential
-        header->energy[1] = data->energy[1];  // Kinetic
-
-        // Copy data arrays
-        double* out = reinterpret_cast<double*>(buffer.data() + sizeof(StatePacketHeader));
-
-        if (nq > 0) {
-            memcpy(out, data->qpos, nq * sizeof(double));
-            out += nq;
+        if (model->nq > 0) {
+            qpos_vec = fb_builder_.CreateVector(data->qpos, model->nq);
         }
-        if (nv > 0) {
-            memcpy(out, data->qvel, nv * sizeof(double));
-            out += nv;
+        if (model->nv > 0) {
+            qvel_vec = fb_builder_.CreateVector(data->qvel, model->nv);
         }
-        if (nu > 0) {
-            memcpy(out, data->ctrl, nu * sizeof(double));
-            out += nu;
+        if (model->nu > 0) {
+            ctrl_vec = fb_builder_.CreateVector(data->ctrl, model->nu);
         }
-        if (nsensordata > 0) {
-            memcpy(out, data->sensordata, nsensordata * sizeof(double));
+        if (model->nsensordata > 0) {
+            sensor_vec = fb_builder_.CreateVector(data->sensordata, model->nsensordata);
         }
 
-        // Send packet
-        ssize_t sent = sendto(socket_fd_, buffer.data(), packet_size, 0,
-                              (struct sockaddr*)&client_addr_, sizeof(client_addr_));
+        // Create StatePacket
+        auto state_packet = imujoco::schema::CreateStatePacket(
+            fb_builder_,
+            send_sequence_++,
+            data->time,
+            data->energy[0],  // potential
+            data->energy[1],  // kinetic
+            qpos_vec,
+            qvel_vec,
+            ctrl_vec,
+            sensor_vec
+        );
 
-        if (sent == (ssize_t)packet_size) {
+        imujoco::schema::FinishStatePacketBuffer(fb_builder_, state_packet);
+
+        // Send with fragmentation if needed
+        int fragments = fragmented_sender_.SendMessage(
+            fb_builder_.GetBufferPointer(),
+            fb_builder_.GetSize(),
+            socket_fd_,
+            client_addr_
+        );
+
+        if (fragments > 0) {
             packets_sent_++;
-            if (packets_sent_ <= 5 || packets_sent_ % 100 == 0) {  // Log first 5 and every 100
-                char ip_str[INET_ADDRSTRLEN];
-                if (!inet_ntop(AF_INET, &client_addr_.sin_addr, ip_str, sizeof(ip_str))) {
-                    strncpy(ip_str, "<invalid>", sizeof(ip_str));
-                    ip_str[sizeof(ip_str) - 1] = '\0';
-                }
-                os_log_debug(OS_LOG_DEFAULT, "Sent state packet #%u (%zu bytes) to %{public}s:%u",
-                             packets_sent_, packet_size,
-                             ip_str, ntohs(client_addr_.sin_port));
+            if (packets_sent_ <= 5 || packets_sent_ % 100 == 0) {
+                os_log_debug(OS_LOG_DEFAULT, "Sent state packet #%u (%u bytes, %d fragments)",
+                             packets_sent_, static_cast<uint32_t>(fb_builder_.GetSize()), fragments);
             }
             return true;
-        } else {
-            os_log_error(OS_LOG_DEFAULT, "sendto failed: sent %zd of %zu bytes, errno=%d",
-                         sent, packet_size, errno);
         }
+
+        os_log_error(OS_LOG_DEFAULT, "Failed to send state packet");
         return false;
     }
 
@@ -416,6 +390,11 @@ private:
     uint32_t packets_received_;
     uint32_t packets_sent_;
     uint32_t send_sequence_;
+
+    // FlatBuffers + fragmentation support
+    flatbuffers::FlatBufferBuilder fb_builder_;
+    imujoco::FragmentedSender fragmented_sender_;
+    imujoco::ReassemblyManager reassembly_manager_;
 };
 
 // MARK: - MJSimulationRuntime Class

@@ -19,9 +19,8 @@ extern "C" {
 #define MJ_MAX_GEOMS 10000
 #define MJ_DEFAULT_UDP_PORT 8888
 
-// UDP Packet magic numbers
-#define MJ_PACKET_MAGIC_CTRL  0x4D4A4354  // "MJCT" - Control packet
-#define MJ_PACKET_MAGIC_STATE 0x4D4A5354  // "MJST" - State packet
+// UDP Packet magic number (see mjc_fragment.h for fragment protocol)
+#define MJ_PACKET_MAGIC_FRAG  0x4D4A4647  // "MJFG" - Fragment packet
 
 // MARK: - Types
 
