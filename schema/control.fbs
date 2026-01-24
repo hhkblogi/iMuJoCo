@@ -1,0 +1,16 @@
+// control.fbs
+// Control packet: driver → iMuJoCo
+// Sends actuator control values to the simulation
+
+namespace imujoco.schema;
+
+table ControlPacket {
+  // Packet sequence number (for ordering/debugging)
+  sequence: uint32;
+
+  // Control values for actuators (length = model.nu)
+  ctrl: [double];
+}
+
+root_type ControlPacket;
+file_identifier "CTPK";
