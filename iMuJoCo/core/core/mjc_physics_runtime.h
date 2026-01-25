@@ -116,7 +116,12 @@ struct MJFrameDataStorage {
 // IMPORTANT: Only the most recent pointer returned by getLatestFrame() or waitForFrame()
 // on a given thread is guaranteed valid. It becomes invalid on the next call to either
 // function on that thread. Do not cache or store these pointers across function calls.
-// The underlying ring buffer storage remains valid for the runtime's lifetime.
+//
+// The underlying ring buffer uses lock-free triple buffering with a fixed-size storage
+// array. Storage slots are never deallocated during the runtime's lifetime, so the
+// storage_ pointer inside MJFrameData remains valid. However, the storage contents
+// may be overwritten by the physics thread, which is why callers should use frame
+// data promptly within a single render pass.
 
 class SWIFT_IMMORTAL_REFERENCE MJFrameData {
 public:
@@ -169,8 +174,10 @@ private:
 
 /// Get pointer to the contiguous geoms array for indexed access.
 ///
+/// @warning No bounds checking is performed. Accessing indices outside
+/// `[0, frame->geomCount() - 1]` results in undefined behavior.
+///
 /// The returned array contains exactly `frame->geomCount()` elements.
-/// Callers must only index in the range `[0, frame->geomCount() - 1]`.
 /// The pointer is owned by `frame` and is valid as long as the underlying
 /// MJFrameDataStorage outlives all accesses.
 ///

@@ -69,6 +69,12 @@ public enum MJRuntimeError: Error, LocalizedError {
 /// Swift wrapper for MuJoCo Physics Runtime.
 /// Provides simulation with proper CPU-simulation time synchronization.
 ///
+/// ## Lifetime Management
+///
+/// MJRuntime owns the underlying C++ runtime and destroys it in `deinit`.
+/// **Important:** Do not retain `latestFrame` references beyond the MJRuntime's
+/// lifetime. Frame data becomes invalid when the runtime is deallocated.
+///
 /// ## Thread Safety
 ///
 /// **Thread-safe (can be called from any thread):**
