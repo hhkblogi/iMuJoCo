@@ -498,13 +498,11 @@ public:
         return stats;
     }
 
-    MJFrameData* GetLatestFrame() {
-        const MJFrameDataStorage* storage = ring_buffer_.GetLatestFrame();
+    // Helper: allocate MJFrameData view from shared thread-local pool.
+    // Pool of 2 views allows consecutive calls without invalidation.
+    static MJFrameData* AllocateFrameView(const MJFrameDataStorage* storage) {
         if (!storage) return nullptr;
-        // Thread-local pool of 2 views allows consecutive calls without invalidation:
-        //   let frame1 = runtime.latestFrame
-        //   let frame2 = runtime.latestFrame  // frame1 still valid
-        // This makes the API safer while keeping zero-allocation for typical usage.
+        // Thread-local pool shared by GetLatestFrame() and WaitForFrame()
         thread_local std::array<std::unique_ptr<MJFrameData>, 2> tls_view_pool;
         thread_local size_t tls_view_index = 0;
         tls_view_index = (tls_view_index + 1) % tls_view_pool.size();
@@ -512,17 +510,16 @@ public:
         return tls_view_pool[tls_view_index].get();
     }
 
+    MJFrameData* GetLatestFrame() {
+        const MJFrameDataStorage* storage = ring_buffer_.GetLatestFrame();
+        return AllocateFrameView(storage);
+    }
+
     MJFrameData* WaitForFrame() {
         thread_local uint64_t last_read_frame = 0;
         const MJFrameDataStorage* storage = ring_buffer_.WaitForFrame(last_read_frame);
         last_read_frame = ring_buffer_.GetFrameCount();
-        if (!storage) return nullptr;
-        // Thread-local pool of 2 views (shared with GetLatestFrame)
-        thread_local std::array<std::unique_ptr<MJFrameData>, 2> tls_view_pool;
-        thread_local size_t tls_view_index = 0;
-        tls_view_index = (tls_view_index + 1) % tls_view_pool.size();
-        tls_view_pool[tls_view_index] = std::make_unique<MJFrameData>(storage);
-        return tls_view_pool[tls_view_index].get();
+        return AllocateFrameView(storage);
     }
 
     uint64_t GetFrameCount() const {
