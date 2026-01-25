@@ -2,10 +2,10 @@
 <Workspace
    version = "1.0">
    <FileRef
-      location = "group:iMuJoCo/render/render.xcodeproj">
+      location = "group:imujoco/render/render.xcodeproj">
    </FileRef>
    <Group
-      location = "group:iMuJoCo/app"
+      location = "group:imujoco/app"
       name = "app">
       <FileRef
          location = "group:app.xcodeproj">
@@ -42,7 +42,7 @@
       </Group>
    </Group>
    <Group
-      location = "group:iMuJoCo/core"
+      location = "group:imujoco/core"
       name = "core">
       <Group
          location = "group:core"
