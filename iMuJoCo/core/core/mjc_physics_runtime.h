@@ -113,10 +113,10 @@ struct MJFrameDataStorage {
 // Uses SWIFT_IMMORTAL_REFERENCE so Swift treats it as a reference type, avoiding
 // any copying of the underlying large storage.
 //
-// IMPORTANT: MJFrameData pointers are valid only until the next getLatestFrame()
-// or waitForFrame() call on the same thread. Do not cache or store these pointers
-// across function calls. The underlying storage remains valid for the runtime's
-// lifetime, but the view object itself is recreated per-call via thread-local storage.
+// IMPORTANT: Each thread maintains a pool of 2 MJFrameData view objects. This allows
+// up to 2 consecutive getLatestFrame() calls without invalidation. Beyond that, older
+// pointers become invalid. Do not cache or store these pointers across many function
+// calls. The underlying storage remains valid for the runtime's lifetime.
 
 class SWIFT_IMMORTAL_REFERENCE MJFrameData {
 public:

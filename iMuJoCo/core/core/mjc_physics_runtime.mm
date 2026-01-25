@@ -501,12 +501,15 @@ public:
     MJFrameData* GetLatestFrame() {
         const MJFrameDataStorage* storage = ring_buffer_.GetLatestFrame();
         if (!storage) return nullptr;
-        // Thread-local view ensures each thread has its own view object.
-        // This makes getLatestFrame() thread-safe - multiple threads can call
-        // it concurrently without invalidating each other's returned pointers.
-        thread_local std::unique_ptr<MJFrameData> tls_frame_view;
-        tls_frame_view = std::make_unique<MJFrameData>(storage);
-        return tls_frame_view.get();
+        // Thread-local pool of 2 views allows consecutive calls without invalidation:
+        //   let frame1 = runtime.latestFrame
+        //   let frame2 = runtime.latestFrame  // frame1 still valid
+        // This makes the API safer while keeping zero-allocation for typical usage.
+        thread_local std::array<std::unique_ptr<MJFrameData>, 2> tls_view_pool;
+        thread_local size_t tls_view_index = 0;
+        tls_view_index = (tls_view_index + 1) % tls_view_pool.size();
+        tls_view_pool[tls_view_index] = std::make_unique<MJFrameData>(storage);
+        return tls_view_pool[tls_view_index].get();
     }
 
     MJFrameData* WaitForFrame() {
@@ -514,10 +517,12 @@ public:
         const MJFrameDataStorage* storage = ring_buffer_.WaitForFrame(last_read_frame);
         last_read_frame = ring_buffer_.GetFrameCount();
         if (!storage) return nullptr;
-        // Thread-local view ensures each thread has its own view object.
-        thread_local std::unique_ptr<MJFrameData> tls_frame_view;
-        tls_frame_view = std::make_unique<MJFrameData>(storage);
-        return tls_frame_view.get();
+        // Thread-local pool of 2 views (shared with GetLatestFrame)
+        thread_local std::array<std::unique_ptr<MJFrameData>, 2> tls_view_pool;
+        thread_local size_t tls_view_index = 0;
+        tls_view_index = (tls_view_index + 1) % tls_view_pool.size();
+        tls_view_pool[tls_view_index] = std::make_unique<MJFrameData>(storage);
+        return tls_view_pool[tls_view_index].get();
     }
 
     uint64_t GetFrameCount() const {
