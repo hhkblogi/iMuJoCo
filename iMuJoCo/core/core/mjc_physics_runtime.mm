@@ -499,7 +499,8 @@ public:
     }
 
     // Helper: allocate MJFrameData view from shared thread-local pool.
-    // Pool of 2 views allows consecutive calls without invalidation.
+    // Pool of 2 views reduces allocations. Only the most recent pointer returned
+    // on a given thread is guaranteed valid; it is invalidated on the next call.
     static MJFrameData* AllocateFrameView(const MJFrameDataStorage* storage) {
         if (!storage) return nullptr;
         // Thread-local pool shared by GetLatestFrame() and WaitForFrame()
@@ -806,7 +807,9 @@ MJSimulationRuntime* MJSimulationRuntime::create(const MJRuntimeConfig& config) 
 }
 
 void MJSimulationRuntime::destroy(MJSimulationRuntime* runtime) {
-    delete runtime;
+    if (runtime) {
+        delete runtime;
+    }
 }
 
 bool MJSimulationRuntime::loadModel(const char* xmlPath, std::string* outError) {
