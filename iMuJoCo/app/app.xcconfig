@@ -16,5 +16,8 @@ SWIFT_INCLUDE_PATHS[sdk=appletvsimulator*] = $(inherited) $(MJCPHYSICS_MODULE_PA
 // Enable Clang modules for C/C++ headers
 CLANG_ENABLE_MODULES = YES
 
+// Enable Swift C++ interop
+SWIFT_OBJC_INTEROP_MODE = objcxx
+
 // Link against Metal frameworks (needed for render views)
 OTHER_LDFLAGS = $(inherited) -framework Metal -framework MetalKit
