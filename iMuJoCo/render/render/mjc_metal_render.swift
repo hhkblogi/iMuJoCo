@@ -197,8 +197,10 @@ public final class MJCMetalRender {
                        drawable: CAMetalDrawable,
                        renderPassDescriptor: MTLRenderPassDescriptor?) {
 
-        // MJFrameData is a reference type (SWIFT_IMMORTAL_REFERENCE) - safe to use directly
-        // No raw pointer workarounds needed
+        // MJFrameData is exposed to Swift as a reference type (SWIFT_IMMORTAL_REFERENCE).
+        // IMPORTANT: The underlying storage is managed via thread-local storage and is only
+        // valid until the next getLatestFrame() call on the same thread. Do NOT store the
+        // frame reference beyond this render call.
 
         guard let commandBuffer = command_queue.makeCommandBuffer() else { return }
 

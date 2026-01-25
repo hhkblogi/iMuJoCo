@@ -331,7 +331,9 @@ final class SimulationGridManager: @unchecked Sendable {
         }
 
         guard let modelPath = path else {
-            // Log bundle contents for debugging (only at debug level)
+            // Log all paths that were tried to help with debugging
+            let triedPaths = searchPaths.map { $0.1 }.joined(separator: ", ")
+            logger.error("Model '\(name)' not found. Tried: \(triedPaths)")
             if let bundlePath = Bundle.main.resourcePath {
                 logger.debug("Bundle resource path: \(bundlePath)")
                 if let contents = try? FileManager.default.contentsOfDirectory(atPath: bundlePath) {

@@ -794,7 +794,11 @@ MJSimulationRuntime* MJSimulationRuntime::create(const MJRuntimeConfig& config) 
     try {
         auto impl = std::make_unique<MJSimulationRuntimeImpl>(config);
         return new MJSimulationRuntime(std::move(impl));
+    } catch (const std::exception& e) {
+        os_log_error(OS_LOG_DEFAULT, "MJSimulationRuntime::create failed: %{public}s", e.what());
+        return nullptr;
     } catch (...) {
+        os_log_error(OS_LOG_DEFAULT, "MJSimulationRuntime::create failed with unknown exception");
         return nullptr;
     }
 }
