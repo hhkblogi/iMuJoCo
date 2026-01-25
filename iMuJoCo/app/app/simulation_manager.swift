@@ -3,9 +3,12 @@
 
 import Foundation
 import Observation
+import os.log
 import core
 import render
 import MJCPhysicsRuntime
+
+private let logger = Logger(subsystem: "com.mujoco.app", category: "SimulationManager")
 
 // MARK: - Simulation State
 
@@ -322,17 +325,17 @@ final class SimulationGridManager: @unchecked Sendable {
         for (subdirectory, description) in searchPaths {
             if let foundPath = Bundle.main.path(forResource: name, ofType: "xml", inDirectory: subdirectory) {
                 path = foundPath
-                print("[SimulationManager] Found model '\(name)' in \(description): \(foundPath)")
+                logger.debug("Found model '\(name)' in \(description): \(foundPath)")
                 break
             }
         }
 
         guard let modelPath = path else {
-            // List what's in the bundle for debugging
+            // Log bundle contents for debugging (only at debug level)
             if let bundlePath = Bundle.main.resourcePath {
-                print("[SimulationManager] Bundle resource path: \(bundlePath)")
+                logger.debug("Bundle resource path: \(bundlePath)")
                 if let contents = try? FileManager.default.contentsOfDirectory(atPath: bundlePath) {
-                    print("[SimulationManager] Bundle contents: \(contents.prefix(20))")
+                    logger.debug("Bundle contents: \(contents.prefix(20))")
                 }
             }
             throw MuJoCoError.loadFailed("Model '\(name)' not found in bundle")

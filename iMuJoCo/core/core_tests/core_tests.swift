@@ -156,7 +156,8 @@ struct MJRuntimeTests {
 
         // Get latest frame - MJFrameData is a reference type (class)
         guard let frame = runtime.latestFrame else {
-            Issue.record("latestFrame returned nil")
+            // Add diagnostic info to help identify the root cause
+            Issue.record("latestFrame returned nil - state: \(runtime.state), frameCount: \(runtime.frameCount)")
             runtime.pause()
             return
         }
@@ -205,7 +206,7 @@ struct MJRuntimeTests {
         runtime.cameraDistance = 5.0
         runtime.setCameraLookat(x: 1.0, y: 2.0, z: 0.5)
 
-        // Verify values were set
+        // Verify values were set (Swift.abs needed to disambiguate from C++ abs)
         #expect(Swift.abs(runtime.cameraAzimuth - 45.0) < 0.01)
         #expect(Swift.abs(runtime.cameraElevation - (-30.0)) < 0.01)
         #expect(Swift.abs(runtime.cameraDistance - 5.0) < 0.01)

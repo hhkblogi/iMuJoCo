@@ -175,17 +175,17 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
     }
 
     deinit {
-        // First, pause to stop new draw calls
+        // Lifecycle shutdown sequence:
+        // 1. isPaused = true prevents Metal from scheduling new draw calls
+        // 2. lock() waits for any in-progress draw() to complete (if it holds the lock)
+        // 3. isRenderingEnabled = false ensures any draw() that passed the first check
+        //    will exit at the double-check after acquiring the lock
+        // This is safe because draw() uses try() which returns immediately if locked.
         isPaused = true
-
-        // Acquire lock to wait for any in-progress render to complete
         renderLock.lock()
-
-        // Now it's safe to disable and clean up
         isRenderingEnabled = false
         delegate = nil
         render = nil
-
         renderLock.unlock()
     }
 
