@@ -1,4 +1,5 @@
 module MJCPhysicsRuntime {
     header "mjc_physics_runtime.h"
+    requires cplusplus
     export *
 }
