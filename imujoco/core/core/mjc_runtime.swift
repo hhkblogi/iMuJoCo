@@ -20,7 +20,7 @@ public enum MJRuntimeSimulationState: Int32 {
         case .Running: self = .running
         case .Paused: self = .paused
         @unknown default:
-          <#fatalError()#>
+            self = .inactive
         }
     }
 }

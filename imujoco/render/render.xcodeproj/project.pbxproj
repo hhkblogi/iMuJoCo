@@ -7,8 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		5696A6752F25EF0700CA2B22 /* core.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5696A6742F25EF0700CA2B22 /* core.framework */; };
-		5696A6762F25EF0700CA2B22 /* core.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 5696A6742F25EF0700CA2B22 /* core.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		5696A95E2F267CD200CA2B22 /* core.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5696A95D2F267CD200CA2B22 /* core.framework */; };
+		5696A95F2F267CD200CA2B22 /* core.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 5696A95D2F267CD200CA2B22 /* core.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		56C22C6F2F1E10E50083660B /* mjc_metal_render.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C22C6A2F1E10E50083660B /* mjc_metal_render.swift */; };
 		56C22C702F1E10E50083660B /* mjc_metal_view.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C22C6B2F1E10E50083660B /* mjc_metal_view.swift */; };
 		56C22C712F1E10E50083660B /* mujoco_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = 56C22C6C2F1E10E50083660B /* mujoco_shaders.metal */; };
@@ -34,7 +34,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				5696A6762F25EF0700CA2B22 /* core.framework in Embed Frameworks */,
+				5696A95F2F267CD200CA2B22 /* core.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -42,7 +42,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		5696A6742F25EF0700CA2B22 /* core.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; path = core.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+		5696A95D2F267CD200CA2B22 /* core.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; path = core.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		56C22C552F1E0F240083660B /* render.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = render.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		56C22C672F1E10130083660B /* render_tests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = render_tests.swift; sourceTree = "<group>"; };
 		56C22C6A2F1E10E50083660B /* mjc_metal_render.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = mjc_metal_render.swift; sourceTree = "<group>"; };
@@ -58,7 +58,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				5696A6752F25EF0700CA2B22 /* core.framework in Frameworks */,
+				5696A95E2F267CD200CA2B22 /* core.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -73,10 +73,10 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		5696A6732F25EF0700CA2B22 /* Frameworks */ = {
+		5696A95C2F267CD200CA2B22 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
-				5696A6742F25EF0700CA2B22 /* core.framework */,
+				5696A95D2F267CD200CA2B22 /* core.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -87,7 +87,7 @@
 				56C22C732F1E20000083660B /* render.xcconfig */,
 				56C22C682F1E10130083660B /* render_tests */,
 				56C22C6E2F1E10E50083660B /* render */,
-				5696A6732F25EF0700CA2B22 /* Frameworks */,
+				5696A95C2F267CD200CA2B22 /* Frameworks */,
 				56C22C562F1E0F240083660B /* Products */,
 			);
 			sourceTree = "<group>";
@@ -411,7 +411,7 @@
 					"@executable_path/../Frameworks",
 					"@loader_path/Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
 				MODULE_VERIFIER_SUPPORTED_LANGUAGES = "objective-c objective-c++";
 				MODULE_VERIFIER_SUPPORTED_LANGUAGE_STANDARDS = "gnu17 gnu++20";
@@ -426,7 +426,7 @@
 				SWIFT_INSTALL_OBJC_HEADER = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,3";
-				TVOS_DEPLOYMENT_TARGET = 18.0;
+				TVOS_DEPLOYMENT_TARGET = 26.0;
 			};
 			name = Debug;
 		};
@@ -456,7 +456,7 @@
 					"@executable_path/../Frameworks",
 					"@loader_path/Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0;
 				MODULE_VERIFIER_SUPPORTED_LANGUAGES = "objective-c objective-c++";
 				MODULE_VERIFIER_SUPPORTED_LANGUAGE_STANDARDS = "gnu17 gnu++20";
@@ -471,7 +471,7 @@
 				SWIFT_INSTALL_OBJC_HEADER = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,3";
-				TVOS_DEPLOYMENT_TARGET = 18.0;
+				TVOS_DEPLOYMENT_TARGET = 26.0;
 			};
 			name = Release;
 		};
