@@ -63,4 +63,4 @@ build/
 *.dwo
 
 # Local settings (contains DEVELOPMENT_TEAM, etc.)
-Local.xcconfig
+local.xcconfig
