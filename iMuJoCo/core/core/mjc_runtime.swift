@@ -1,5 +1,5 @@
 // mjc_runtime.swift
-// Swift wrapper for MJCPhysicsRuntime C interface
+// Swift wrapper for MJSimulationRuntime C++ class
 
 import Foundation
 import MJCPhysicsRuntime
@@ -12,8 +12,14 @@ public enum MJRuntimeSimulationState: Int32 {
     case running = 2
     case paused = 3
 
-    public init(from cState: MJRuntimeState) {
-        self = MJRuntimeSimulationState(rawValue: Int32(cState.rawValue)) ?? .inactive
+    public init(from cppState: MJRuntimeState) {
+        // C++ enum class is a closed type - all cases are known at compile time
+        switch cppState {
+        case .Inactive: self = .inactive
+        case .Loaded: self = .loaded
+        case .Running: self = .running
+        case .Paused: self = .paused
+        }
     }
 }
 
@@ -30,15 +36,15 @@ public struct MJRuntimeStatistics {
     public let packetsSent: UInt32
     public let hasClient: Bool
 
-    public init(from cStats: MJRuntimeStats) {
-        self.simulationTime = cStats.simulationTime
-        self.measuredSlowdown = cStats.measuredSlowdown
-        self.timestep = cStats.timestep
-        self.stepsPerSecond = cStats.stepsPerSecond
-        self.udpPort = cStats.udpPort
-        self.packetsReceived = cStats.packetsReceived
-        self.packetsSent = cStats.packetsSent
-        self.hasClient = cStats.hasClient
+    public init(from cppStats: MJRuntimeStats) {
+        self.simulationTime = cppStats.simulationTime
+        self.measuredSlowdown = cppStats.measuredSlowdown
+        self.timestep = cppStats.timestep
+        self.stepsPerSecond = cppStats.stepsPerSecond
+        self.udpPort = cppStats.udpPort
+        self.packetsReceived = cppStats.packetsReceived
+        self.packetsSent = cppStats.packetsSent
+        self.hasClient = cppStats.hasClient
     }
 }
 
@@ -63,10 +69,16 @@ public enum MJRuntimeError: Error, LocalizedError {
 /// Swift wrapper for MuJoCo Physics Runtime.
 /// Provides simulation with proper CPU-simulation time synchronization.
 ///
+/// ## Lifetime Management
+///
+/// MJRuntime owns the underlying C++ runtime and destroys it in `deinit`.
+/// **Important:** Do not retain `latestFrame` references beyond the MJRuntime's
+/// lifetime. Frame data becomes invalid when the runtime is deallocated.
+///
 /// ## Thread Safety
 ///
 /// **Thread-safe (can be called from any thread):**
-/// - `latestFrame`, `waitForFrame`, `frameCount` - lock-free ring buffer access
+/// - `frameCount` - lock-free counter
 ///
 /// **Single-thread only (call from main thread or owner thread):**
 /// - `start()`, `pause()`, `reset()`, `step()` - control methods
@@ -75,99 +87,86 @@ public enum MJRuntimeError: Error, LocalizedError {
 ///
 /// **Safe reset sequence:** `pause()` → `reset()` → `start()`
 public final class MJRuntime {
-    private let handle: MJRuntimeHandle
+    private let runtime: MJSimulationRuntime
 
     // MARK: - Initialization
 
     public init(instanceIndex: Int32, targetFPS: Double = 60.0, busyWait: Bool = false, udpPort: UInt16 = 0) throws {
-        var config = MJRuntimeConfig(
-            instanceIndex: instanceIndex,
-            targetFPS: targetFPS,
-            busyWait: busyWait,
-            udpPort: udpPort  // 0 = use default (8888 + instanceIndex)
-        )
+        var config = MJRuntimeConfig()
+        config.instanceIndex = instanceIndex
+        config.targetFPS = targetFPS
+        config.busyWait = busyWait
+        config.udpPort = udpPort  // 0 = use default (8888 + instanceIndex)
 
-        guard let h = mjc_runtime_create(&config) else {
+        guard let ptr = MJSimulationRuntime.create(config) else {
             throw MJRuntimeError.creationFailed
         }
-        self.handle = h
+        self.runtime = ptr
     }
 
     deinit {
-        mjc_runtime_destroy(handle)
+        MJSimulationRuntime.destroy(runtime)
     }
 
     // MARK: - Model Loading
 
     /// Load a model from an XML file path
     public func loadModel(fromFile path: String) throws {
-        var errorBuffer = [CChar](repeating: 0, count: 1024)
-        let success = mjc_runtime_load_model(
-            handle,
-            path,
-            &errorBuffer,
-            Int32(errorBuffer.count)
-        )
+        var errorString = std.string()
+        let success = runtime.loadModel(path, &errorString)
 
         if !success {
-            let errorMessage = String(cString: errorBuffer)
-            throw MJRuntimeError.loadFailed(errorMessage)
+            throw MJRuntimeError.loadFailed(String(errorString))
         }
     }
 
     /// Load a model from an XML string
     public func loadModel(fromXML xml: String) throws {
-        var errorBuffer = [CChar](repeating: 0, count: 1024)
-        let success = mjc_runtime_load_model_xml(
-            handle,
-            xml,
-            &errorBuffer,
-            Int32(errorBuffer.count)
-        )
+        var errorString = std.string()
+        let success = runtime.loadModelXML(xml, &errorString)
 
         if !success {
-            let errorMessage = String(cString: errorBuffer)
-            throw MJRuntimeError.loadFailed(errorMessage)
+            throw MJRuntimeError.loadFailed(String(errorString))
         }
     }
 
     /// Unload the current model
     public func unload() {
-        mjc_runtime_unload(handle)
+        runtime.unload()
     }
 
     // MARK: - Simulation Control
 
     /// Start the physics simulation (runs on dedicated C++ thread)
     public func start() {
-        mjc_runtime_start(handle)
+        runtime.start()
     }
 
     /// Pause the physics simulation
     public func pause() {
-        mjc_runtime_pause(handle)
+        runtime.pause()
     }
 
     /// Reset the simulation to initial state
     public func reset() {
-        mjc_runtime_reset(handle)
+        runtime.reset()
     }
 
     /// Step the simulation manually (when paused)
     public func step() {
-        mjc_runtime_step(handle)
+        runtime.step()
     }
 
     // MARK: - State Access
 
     /// Get the current simulation state
     public var state: MJRuntimeSimulationState {
-        MJRuntimeSimulationState(from: mjc_runtime_get_state(handle))
+        MJRuntimeSimulationState(from: runtime.getState())
     }
 
     /// Get simulation statistics
     public var stats: MJRuntimeStatistics {
-        MJRuntimeStatistics(from: mjc_runtime_get_stats(handle))
+        MJRuntimeStatistics(from: runtime.getStats())
     }
 
     /// Current simulation time
@@ -202,115 +201,50 @@ public final class MJRuntime {
         stats.packetsSent
     }
 
-    // MARK: - Scene Access
-    // NOTE: With lock-free ring buffer, these methods are for compatibility.
-    // Prefer using latestFrame/waitForFrame for thread-safe frame access.
-
-    /// Lock placeholder (no-op with current lock-free implementation).
-    /// Retained for API compatibility; does not provide synchronization.
-    public func lock() {
-        mjc_runtime_lock(handle)
-    }
-
-    /// Unlock placeholder (no-op with current lock-free implementation).
-    public func unlock() {
-        mjc_runtime_unlock(handle)
-    }
-
-    /// Update the visualization scene with current simulation state.
-    public func updateScene() {
-        mjc_runtime_update_scene(handle)
-    }
-
-    /// Get pointer to mjvScene for rendering.
-    /// WARNING: Not thread-safe while physics is running. Use latestFrame instead.
-    public var scenePointer: UnsafePointer<mjvScene>? {
-        mjc_runtime_get_scene(handle)
-    }
-
-    /// Get pointer to mjvCamera.
-    /// WARNING: Not thread-safe while physics is running.
-    public var cameraPointer: UnsafeMutablePointer<mjvCamera>? {
-        mjc_runtime_get_camera(handle)
-    }
-
-    /// Get pointer to mjvOption.
-    /// WARNING: Not thread-safe while physics is running.
-    public var optionPointer: UnsafeMutablePointer<mjvOption>? {
-        mjc_runtime_get_option(handle)
-    }
-
-    /// Execute a closure (lock/unlock are no-ops with lock-free implementation).
-    /// NOTE: This does NOT provide thread synchronization. Use for API compatibility only.
-    public func withLock<T>(_ body: () throws -> T) rethrows -> T {
-        lock()
-        defer { unlock() }
-        return try body()
-    }
-
     // MARK: - Camera Control
 
     public var cameraAzimuth: Double {
-        get {
-            withLock { cameraPointer?.pointee.azimuth ?? 90.0 }
-        }
-        set {
-            mjc_runtime_set_camera_azimuth(handle, newValue)
-        }
+        get { runtime.getCameraAzimuth() }
+        set { runtime.setCameraAzimuth(newValue) }
     }
 
     public var cameraElevation: Double {
-        get {
-            withLock { cameraPointer?.pointee.elevation ?? -15.0 }
-        }
-        set {
-            mjc_runtime_set_camera_elevation(handle, newValue)
-        }
+        get { runtime.getCameraElevation() }
+        set { runtime.setCameraElevation(newValue) }
     }
 
     public var cameraDistance: Double {
-        get {
-            withLock { cameraPointer?.pointee.distance ?? 3.0 }
-        }
-        set {
-            mjc_runtime_set_camera_distance(handle, newValue)
-        }
+        get { runtime.getCameraDistance() }
+        set { runtime.setCameraDistance(newValue) }
     }
 
     public func setCameraLookat(x: Double, y: Double, z: Double) {
-        mjc_runtime_set_camera_lookat(handle, x, y, z)
+        runtime.setCameraLookat(x, y, z)
     }
 
     public func resetCamera() {
-        mjc_runtime_reset_camera(handle)
+        runtime.resetCamera()
     }
 
     // MARK: - Real-time Control
 
     public var realtimeFactor: Double {
-        get { mjc_runtime_get_realtime_factor(handle) }
-        set { mjc_runtime_set_realtime_factor(handle, newValue) }
+        get { runtime.getRealtimeFactor() }
+        set { runtime.setRealtimeFactor(newValue) }
     }
 
-    // MARK: - Ring Buffer API (Lock-Free Frame Access)
+    // MARK: - Frame Access
+
+    /// Get the current frame count (for tracking new frames)
+    public var frameCount: UInt64 {
+        runtime.getFrameCount()
+    }
 
     /// Get the latest available frame without waiting (non-blocking)
     /// May return the same frame multiple times if physics is slower than render
     /// Returns nil if no frame is available yet
-    public var latestFrame: UnsafePointer<MJFrameData>? {
-        mjc_runtime_get_latest_frame(handle)
-    }
-
-    /// Wait for a new frame from the physics thread (blocking).
-    /// Use this when you want to synchronize rendering with physics.
-    /// The runtime internally tracks the last delivered frame, blocking
-    /// until a strictly newer frame is available.
-    public func waitForFrame() -> UnsafePointer<MJFrameData>? {
-        mjc_runtime_wait_for_frame(handle)
-    }
-
-    /// Get the current frame count (for tracking new frames)
-    public var frameCount: UInt64 {
-        mjc_runtime_get_frame_count(handle)
+    public var latestFrame: MJFrameData? {
+        // MJFrameData is a SWIFT_IMMORTAL_REFERENCE class - Swift treats it as a reference type
+        return runtime.getLatestFrame()
     }
 }
