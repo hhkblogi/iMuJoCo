@@ -1,226 +1,323 @@
 // mjc_physics_runtime.h
-// C interface for MuJoCo physics simulation runtime
+// C++ interface for MuJoCo physics simulation runtime
 // Uses lock-free ring buffer with C++20 atomic wait/notify for lowest latency
 
 #ifndef mjc_physics_runtime_h
 #define mjc_physics_runtime_h
 
-#include <mujoco/mujoco.h>
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
+#include <cstdint>
+#include <memory>
+#include <string>
 
-#ifdef __cplusplus
-extern "C" {
+// Swift C++ interop: for non-copyable types with reference semantics
+#if __has_attribute(swift_attr)
+#define SWIFT_IMMORTAL_REFERENCE __attribute__((swift_attr("import_reference"))) __attribute__((swift_attr("retain:immortal"))) __attribute__((swift_attr("release:immortal")))
+#else
+#define SWIFT_IMMORTAL_REFERENCE
 #endif
+
+// Forward declare MuJoCo types to avoid including mujoco.h in Swift context
+// These are opaque pointers for Swift; full access requires C++ code
+struct mjModel_;
+typedef struct mjModel_ mjModel;
+struct mjData_;
+typedef struct mjData_ mjData;
+struct mjvScene_;
+typedef struct mjvScene_ mjvScene;
+struct mjvCamera_;
+typedef struct mjvCamera_ mjvCamera;
+struct mjvOption_;
+typedef struct mjvOption_ mjvOption;
 
 // MARK: - Constants
 
-#define MJ_MAX_GEOMS 10000
-#define MJ_DEFAULT_UDP_PORT 8888
+constexpr int MJ_MAX_GEOMS = 10000;
+constexpr uint16_t MJ_DEFAULT_UDP_PORT = 8888;
 
 // UDP Packet magic number (see mjc_fragment.h for fragment protocol)
-#define MJ_PACKET_MAGIC_FRAG  0x4D4A4647  // "MJFG" - Fragment packet
+constexpr uint32_t MJ_PACKET_MAGIC_FRAG = 0x4D4A4647;  // "MJFG" - Fragment packet
 
 // MARK: - Types
 
-// Opaque handle to a simulation instance
-typedef void* MJRuntimeHandle;
+/// Simulation state enum
+enum class MJRuntimeState : int32_t {
+    Inactive = 0,
+    Loaded = 1,
+    Running = 2,
+    Paused = 3
+};
 
-// Simulation state enum
-typedef enum {
-    MJRuntimeStateInactive = 0,
-    MJRuntimeStateLoaded,
-    MJRuntimeStateRunning,
-    MJRuntimeStatePaused
-} MJRuntimeState;
+/// Configuration for creating a runtime instance
+struct MJRuntimeConfig {
+    int32_t instanceIndex = 0;      ///< Instance ID (0-3)
+    double targetFPS = 60.0;        ///< Target simulation FPS
+    bool busyWait = false;          ///< Use busy wait for better timing (uses more CPU)
+    uint16_t udpPort = 0;           ///< UDP port for network I/O (0 = default: 8888 + instanceIndex)
+};
 
-// Configuration for creating a runtime instance
-typedef struct {
-    int32_t instanceIndex;          // Instance ID (0-3)
-    double targetFPS;               // Target simulation FPS (default: 60)
-    bool busyWait;                  // Use busy wait for better timing (uses more CPU)
-    uint16_t udpPort;               // UDP port for network I/O (0 = disabled, default: 8888 + instanceIndex)
-} MJRuntimeConfig;
+/// Statistics from the physics runtime
+struct MJRuntimeStats {
+    double simulationTime = 0.0;        ///< Current simulation time
+    double measuredSlowdown = 1.0;      ///< Measured slowdown factor
+    double timestep = 0.002;            ///< Model timestep
+    int32_t stepsPerSecond = 0;         ///< Measured physics steps per second
 
-// Statistics from the physics runtime
-typedef struct {
-    double simulationTime;          // Current simulation time
-    double measuredSlowdown;        // Measured slowdown factor
-    double timestep;                // Model timestep
-    int32_t stepsPerSecond;         // Measured physics steps per second
     // Network stats
-    uint16_t udpPort;               // UDP port being used (0 if disabled)
-    uint32_t packetsReceived;       // Total control packets received
-    uint32_t packetsSent;           // Total state packets sent
-    bool hasClient;                 // True if a client is connected
-} MJRuntimeStats;
+    uint16_t udpPort = 0;               ///< UDP port being used (0 if disabled)
+    uint32_t packetsReceived = 0;       ///< Total control packets received
+    uint32_t packetsSent = 0;           ///< Total state packets sent
+    bool hasClient = false;             ///< True if a client is connected
+};
 
 // MARK: - GeomInstance (for instanced rendering)
 
-typedef struct {
+struct MJGeomInstance {
     // Transform
-    float pos[3];           // World position
-    float mat[9];           // 3x3 rotation matrix
-    float size[3];          // Geom size parameters
+    float pos[3] = {0, 0, 0};               ///< World position
+    float mat[9] = {1,0,0, 0,1,0, 0,0,1};   ///< 3x3 rotation matrix
+    float size[3] = {1, 1, 1};              ///< Geom size parameters
 
     // Visual properties
-    float rgba[4];          // Color
-    int32_t type;           // Geom type (sphere, capsule, box, etc.)
-    float emission;         // Emission
-    float specular;         // Specular
-    float shininess;        // Shininess
-} MJGeomInstance;
+    float rgba[4] = {1, 1, 1, 1};           ///< Color
+    int32_t type = 0;                       ///< Geom type (sphere, capsule, box, etc.)
+    float emission = 0.0f;                  ///< Emission
+    float specular = 0.5f;                  ///< Specular
+    float shininess = 0.5f;                 ///< Shininess
+};
 
-// MARK: - FrameData (complete frame for rendering from ring buffer)
+// MARK: - FrameDataStorage (internal ring buffer storage - not exposed to Swift)
+// This struct is stored by value in the ring buffer. It's large (~920KB) due to
+// the embedded geom array. Swift should never access this type directly.
 
-typedef struct {
-    // Geom instances for rendering
+struct MJFrameDataStorage {
     MJGeomInstance geoms[MJ_MAX_GEOMS];
-    int32_t geom_count;
+    int32_t geomCount = 0;
 
     // Camera state
-    float camera_pos[3];
-    float camera_lookat[3];
-    float camera_azimuth;
-    float camera_elevation;
-    float camera_distance;
+    float cameraPos[3] = {0, 0, 0};
+    float cameraLookat[3] = {0, 0, 0};
+    float cameraAzimuth = 0.0f;
+    float cameraElevation = 0.0f;
+    float cameraDistance = 3.0f;
 
     // Timing
-    double simulation_time;
-    int32_t steps_per_second;
+    double simulationTime = 0.0;
+    int32_t stepsPerSecond = 0;
 
     // Frame sequence number (for debugging)
-    uint64_t frame_number;
-} MJFrameData;
+    uint64_t frameNumber = 0;
+};
 
-// MARK: - Lifecycle
+// MARK: - MJFrameData (Swift-facing view class with reference semantics)
+// This is a lightweight wrapper (~8 bytes) that provides safe access to frame data.
+// Uses SWIFT_IMMORTAL_REFERENCE so Swift treats it as a reference type, avoiding
+// any copying of the underlying large storage.
 
-/// Create a new runtime instance with the given configuration
-/// Returns NULL on failure
-MJRuntimeHandle mjc_runtime_create(const MJRuntimeConfig* config);
+class SWIFT_IMMORTAL_REFERENCE MJFrameData {
+public:
+    /// Create a view wrapping the given storage
+    explicit MJFrameData(const MJFrameDataStorage* storage) : storage_(storage) {}
 
-/// Destroy a runtime instance and free all resources
-void mjc_runtime_destroy(MJRuntimeHandle handle);
+    // Non-copyable to enforce reference semantics
+    MJFrameData(const MJFrameData&) = delete;
+    MJFrameData& operator=(const MJFrameData&) = delete;
 
-// MARK: - Model Loading
+    // Friend function for geom access (member functions returning pointers not supported in Swift)
+    friend const MJGeomInstance* MJFrameDataGetGeoms(const MJFrameData* frame);
 
-/// Load a model from an XML file path
-bool mjc_runtime_load_model(MJRuntimeHandle handle,
-                           const char* xmlPath,
-                           char* errorBuffer,
-                           int32_t errorBufferSize);
+    // MARK: - Accessors
 
-/// Load a model from an XML string
-bool mjc_runtime_load_model_xml(MJRuntimeHandle handle,
-                               const char* xmlString,
-                               char* errorBuffer,
-                               int32_t errorBufferSize);
+    /// Number of geometry instances in this frame
+    int32_t geomCount() const { return storage_ ? storage_->geomCount : 0; }
 
-/// Unload the current model
-void mjc_runtime_unload(MJRuntimeHandle handle);
+    /// Camera azimuth angle in degrees
+    float cameraAzimuth() const { return storage_ ? storage_->cameraAzimuth : 0.0f; }
 
-// MARK: - Simulation Control
+    /// Camera elevation angle in degrees
+    float cameraElevation() const { return storage_ ? storage_->cameraElevation : 0.0f; }
 
-/// Start the physics simulation (runs on dedicated thread)
-void mjc_runtime_start(MJRuntimeHandle handle);
+    /// Camera distance from lookat point
+    float cameraDistance() const { return storage_ ? storage_->cameraDistance : 3.0f; }
 
-/// Pause the physics simulation
-void mjc_runtime_pause(MJRuntimeHandle handle);
+    /// Camera lookat X coordinate
+    float cameraLookatX() const { return storage_ ? storage_->cameraLookat[0] : 0.0f; }
 
-/// Reset the simulation to initial state.
-/// WARNING: Not thread-safe while simulation is running.
-/// Call mjc_runtime_pause() first, then reset, then mjc_runtime_start().
-void mjc_runtime_reset(MJRuntimeHandle handle);
+    /// Camera lookat Y coordinate
+    float cameraLookatY() const { return storage_ ? storage_->cameraLookat[1] : 0.0f; }
 
-/// Step the simulation manually (when paused)
-void mjc_runtime_step(MJRuntimeHandle handle);
+    /// Camera lookat Z coordinate
+    float cameraLookatZ() const { return storage_ ? storage_->cameraLookat[2] : 0.0f; }
 
-/// Get the current simulation state
-MJRuntimeState mjc_runtime_get_state(MJRuntimeHandle handle);
+    /// Current simulation time
+    double simulationTime() const { return storage_ ? storage_->simulationTime : 0.0; }
 
-/// Get simulation statistics
-MJRuntimeStats mjc_runtime_get_stats(MJRuntimeHandle handle);
+    /// Frame sequence number
+    uint64_t frameNumber() const { return storage_ ? storage_->frameNumber : 0; }
 
-// MARK: - Ring Buffer API (Lock-Free Frame Access)
+private:
+    const MJFrameDataStorage* storage_;
+};
 
-/// Wait for a new frame from the physics thread (blocking)
-/// Returns pointer to the latest completed frame
-/// Use this when you want to synchronize render with physics
-const MJFrameData* mjc_runtime_wait_for_frame(MJRuntimeHandle handle);
+// MARK: - MJFrameData Free Functions (for Swift access)
+// Swift C++ interop doesn't support member functions that return pointers,
+// so we provide these free functions instead.
 
-/// Get the latest available frame without waiting (non-blocking)
-/// May return the same frame multiple times if physics is slower than render
-/// Use this for non-blocking render loop
-const MJFrameData* mjc_runtime_get_latest_frame(MJRuntimeHandle handle);
+/// Get pointer to the geoms array for indexed access
+/// @param frame The frame data view
+/// @return Pointer to first geom, or nullptr if frame is null
+const MJGeomInstance* MJFrameDataGetGeoms(const MJFrameData* frame);
 
-/// Get the current frame count (for tracking new frames)
-uint64_t mjc_runtime_get_frame_count(MJRuntimeHandle handle);
+// MARK: - Version Info
 
-// MARK: - Frame Data Accessors (for Swift interop)
-// These are static inline (header-only) so they don't require symbol resolution at link time.
-// Callers only need to include this header; no library linkage is needed for these functions.
-// Note: Uses NULL instead of nullptr for C compatibility (required for Swift ClangImporter).
+/// Get MuJoCo version number (e.g., 340 for version 3.4.0)
+int32_t MJGetVersion();
 
-/// Get pointer to the geoms array in a frame
-static inline const MJGeomInstance* mjc_frame_get_geoms(const MJFrameData* frame) {
-    return frame ? frame->geoms : NULL;
-}
+// MARK: - Forward Declarations
 
-/// Get the geom count from a frame
-static inline int32_t mjc_frame_get_geom_count(const MJFrameData* frame) {
-    return frame ? frame->geom_count : 0;
-}
+class MJSimulationRuntimeImpl;
 
-/// Get a specific geom by index from a frame
-static inline const MJGeomInstance* mjc_frame_get_geom(const MJFrameData* frame, int32_t index) {
-    if (!frame || index < 0 || index >= frame->geom_count) {
-        return NULL;
-    }
-    return &frame->geoms[index];
-}
+// MARK: - MJSimulationRuntime
 
-// MARK: - Legacy Scene Access (for compatibility)
+/// MuJoCo physics simulation runtime.
+///
+/// This class manages a MuJoCo simulation running on a dedicated physics thread.
+/// It uses a lock-free ring buffer for thread-safe frame access from the render thread.
+///
+/// ## Thread Safety
+///
+/// **Thread-safe (can be called from any thread):**
+/// - `getLatestFrame()`, `waitForFrame()`, `getFrameCount()` - lock-free ring buffer
+/// - `getState()`, `getStats()` - atomic reads
+///
+/// **Single-thread only (call from owner thread):**
+/// - `start()`, `pause()`, `reset()`, `step()` - control methods
+/// - `loadModel()`, `loadModelXML()`, `unload()` - model management
+/// - Camera setters
+///
+/// ## Usage Example
+///
+/// ```cpp
+/// auto runtime = MJSimulationRuntime::create({.instanceIndex = 0});
+/// if (runtime->loadModel("humanoid.xml")) {
+///     runtime->start();
+///     while (running) {
+///         const auto* frame = runtime->getLatestFrame();
+///         // Render frame...
+///     }
+///     runtime->pause();
+/// }
+/// ```
+class SWIFT_IMMORTAL_REFERENCE MJSimulationRuntime {
+public:
+    /// Create a new runtime instance
+    /// @param config Configuration options
+    /// @return Pointer to runtime (caller owns), or nullptr on failure
+    static MJSimulationRuntime* create(const MJRuntimeConfig& config);
 
-/// Lock/unlock are no-ops with ring buffer, kept for API compatibility
-void mjc_runtime_lock(MJRuntimeHandle handle);
-void mjc_runtime_unlock(MJRuntimeHandle handle);
+    /// Destroy a runtime instance (call when done)
+    /// @param runtime Pointer returned by create()
+    static void destroy(MJSimulationRuntime* runtime);
 
-/// Update scene - no-op with ring buffer, scene is updated automatically
-void mjc_runtime_update_scene(MJRuntimeHandle handle);
+    /// Destructor - stops simulation and frees resources
+    ~MJSimulationRuntime();
 
-/// Get pointer to mjvScene (legacy, prefer ring buffer API)
-const mjvScene* mjc_runtime_get_scene(MJRuntimeHandle handle);
+    // Non-copyable, non-movable
+    MJSimulationRuntime(const MJSimulationRuntime&) = delete;
+    MJSimulationRuntime& operator=(const MJSimulationRuntime&) = delete;
+    MJSimulationRuntime(MJSimulationRuntime&&) = delete;
+    MJSimulationRuntime& operator=(MJSimulationRuntime&&) = delete;
 
-/// Get pointer to mjvCamera
-mjvCamera* mjc_runtime_get_camera(MJRuntimeHandle handle);
+    // MARK: - Model Loading
 
-/// Get pointer to mjvOption
-mjvOption* mjc_runtime_get_option(MJRuntimeHandle handle);
+    /// Load a model from an XML file path
+    /// @param xmlPath Path to the XML file
+    /// @param outError Optional pointer to receive error message
+    /// @return true on success
+    bool loadModel(const char* xmlPath, std::string* outError = nullptr);
 
-/// Get pointer to mjModel (read-only)
-const mjModel* mjc_runtime_get_model(MJRuntimeHandle handle);
+    /// Load a model from an XML string
+    /// @param xmlString XML content
+    /// @param outError Optional pointer to receive error message
+    /// @return true on success
+    bool loadModelXML(const char* xmlString, std::string* outError = nullptr);
 
-/// Get pointer to mjData (read-only)
-const mjData* mjc_runtime_get_data(MJRuntimeHandle handle);
+    /// Unload the current model
+    void unload();
 
-// MARK: - Camera Control
-// NOTE: Camera methods are not synchronized with physics thread.
-// For best results, call these when simulation is paused or from main thread only.
+    // MARK: - Simulation Control
 
-void mjc_runtime_set_camera_azimuth(MJRuntimeHandle handle, double azimuth);
-void mjc_runtime_set_camera_elevation(MJRuntimeHandle handle, double elevation);
-void mjc_runtime_set_camera_distance(MJRuntimeHandle handle, double distance);
-void mjc_runtime_set_camera_lookat(MJRuntimeHandle handle, double x, double y, double z);
-void mjc_runtime_reset_camera(MJRuntimeHandle handle);
+    /// Start the physics simulation (runs on dedicated thread)
+    void start();
 
-// MARK: - Real-time Control
+    /// Pause the physics simulation
+    void pause();
 
-void mjc_runtime_set_realtime_factor(MJRuntimeHandle handle, double factor);
-double mjc_runtime_get_realtime_factor(MJRuntimeHandle handle);
+    /// Reset the simulation to initial state
+    /// @note Call pause() first for thread safety
+    void reset();
 
-#ifdef __cplusplus
-}
-#endif
+    /// Step the simulation manually (when paused)
+    void step();
+
+    /// Get the current simulation state
+    MJRuntimeState getState() const;
+
+    /// Get simulation statistics
+    MJRuntimeStats getStats() const;
+
+    // MARK: - Frame Access (Lock-Free)
+
+    /// Get the latest available frame (non-blocking)
+    /// @return Pointer to frame view, valid until next getLatestFrame() call
+    MJFrameData* getLatestFrame();
+
+    /// Wait for a new frame (blocking)
+    /// @return Pointer to frame view, or nullptr if shutdown signaled
+    MJFrameData* waitForFrame();
+
+    /// Get the current frame count
+    uint64_t getFrameCount() const;
+
+    // MARK: - Camera Control
+
+    void setCameraAzimuth(double azimuth);
+    void setCameraElevation(double elevation);
+    void setCameraDistance(double distance);
+    void setCameraLookat(double x, double y, double z);
+    void resetCamera();
+
+    double getCameraAzimuth() const;
+    double getCameraElevation() const;
+    double getCameraDistance() const;
+
+    // MARK: - Real-time Control
+
+    void setRealtimeFactor(double factor);
+    double getRealtimeFactor() const;
+
+    // MARK: - Legacy Access (for compatibility with C++ code that needs MuJoCo types)
+    // Note: These return opaque pointers when used from Swift
+
+    /// Get pointer to mjvScene (prefer getLatestFrame for thread safety)
+    const mjvScene* getScene() const;
+
+    /// Get pointer to mjvCamera
+    mjvCamera* getCamera();
+
+    /// Get pointer to mjvOption
+    mjvOption* getOption();
+
+    /// Get pointer to mjModel (read-only)
+    const mjModel* getModel() const;
+
+    /// Get pointer to mjData (read-only)
+    const mjData* getData() const;
+
+private:
+    /// Private constructor - use create()
+    explicit MJSimulationRuntime(std::unique_ptr<MJSimulationRuntimeImpl> impl);
+
+    std::unique_ptr<MJSimulationRuntimeImpl> impl_;
+};
 
 #endif /* mjc_physics_runtime_h */
