@@ -1,5 +1,8 @@
 // Render framework build configuration
 
+// Include local developer settings (gitignored)
+#include? "../local.xcconfig"
+
 // Include MuJoCo framework settings (for MJFrameData, mjvScene types)
 #include "../../third_party/MuJoCoFramework.xcconfig"
 

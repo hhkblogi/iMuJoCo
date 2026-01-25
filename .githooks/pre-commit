@@ -1,6 +1,9 @@
 #!/bin/bash
 # Pre-commit hook: Normalize team-specific signing settings in pbxproj files
-# This prevents accidental commits of personal team IDs and signing identities
+# This prevents accidental commits of personal team IDs
+#
+# DEVELOPMENT_TEAM is set to $(DEVELOPMENT_TEAM) which resolves from local.xcconfig
+# This hook normalizes any hardcoded team IDs back to the variable reference.
 
 # Use while read loop with null-terminated strings for safe filename handling
 while IFS= read -r -d '' pbxproj; do
@@ -10,17 +13,12 @@ while IFS= read -r -d '' pbxproj; do
     # Start with current file content
     cp "$pbxproj" "$tmpfile"
 
-    # Strip DEVELOPMENT_TEAM lines (personal team IDs)
-    if grep -q 'DEVELOPMENT_TEAM' "$tmpfile"; then
-        echo "Stripping DEVELOPMENT_TEAM from $pbxproj"
-        sed '/DEVELOPMENT_TEAM/d' "$tmpfile" > "$tmpfile.new" && mv "$tmpfile.new" "$tmpfile"
-        modified=true
-    fi
-
-    # Normalize CODE_SIGN_IDENTITY to ad-hoc signing ("-")
-    if grep -q 'CODE_SIGN_IDENTITY = "Apple Development"' "$tmpfile"; then
-        echo "Normalizing CODE_SIGN_IDENTITY to ad-hoc in $pbxproj"
-        sed 's/CODE_SIGN_IDENTITY = "Apple Development"/CODE_SIGN_IDENTITY = "-"/g' "$tmpfile" > "$tmpfile.new" && mv "$tmpfile.new" "$tmpfile"
+    # Normalize DEVELOPMENT_TEAM to variable reference (replace hardcoded team IDs)
+    # Matches: DEVELOPMENT_TEAM = XXXXX; or DEVELOPMENT_TEAM = "XXXXX";
+    # But NOT: DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";
+    if grep -q 'DEVELOPMENT_TEAM = ' "$tmpfile" && grep -v '\$(DEVELOPMENT_TEAM)' "$tmpfile" | grep -q 'DEVELOPMENT_TEAM = '; then
+        echo "Normalizing DEVELOPMENT_TEAM to variable in $pbxproj"
+        sed 's/DEVELOPMENT_TEAM = "[^$][^"]*";/DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";/g; s/DEVELOPMENT_TEAM = [^"$][^";]*;/DEVELOPMENT_TEAM = "$(DEVELOPMENT_TEAM)";/g' "$tmpfile" > "$tmpfile.new" && mv "$tmpfile.new" "$tmpfile"
         modified=true
     fi
 

@@ -1,0 +1,9 @@
+// local.xcconfig.template
+// Copy this file to local.xcconfig and fill in your values.
+// local.xcconfig is gitignored and will not be committed.
+
+// Your Apple Developer Team ID (found in Apple Developer Portal)
+DEVELOPMENT_TEAM =
+
+// Optional: Override code signing identity if needed
+// CODE_SIGN_IDENTITY = Apple Development

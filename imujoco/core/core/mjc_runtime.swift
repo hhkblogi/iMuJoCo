@@ -19,6 +19,8 @@ public enum MJRuntimeSimulationState: Int32 {
         case .Loaded: self = .loaded
         case .Running: self = .running
         case .Paused: self = .paused
+        @unknown default:
+          <#fatalError()#>
         }
     }
 }

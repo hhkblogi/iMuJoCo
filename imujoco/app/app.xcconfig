@@ -1,5 +1,8 @@
 // App build configuration
 
+// Include local developer settings (gitignored)
+#include? "../local.xcconfig"
+
 // Include MuJoCo framework settings
 #include "../../third_party/MuJoCoFramework.xcconfig"
 
