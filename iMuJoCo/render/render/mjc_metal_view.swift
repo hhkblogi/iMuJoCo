@@ -438,7 +438,8 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
 
         // Get frame data from the data source
         // Note: latestFrame may return nil during startup or if no frames have been written
-        // MJFrameData is a reference type (SWIFT_IMMORTAL_REFERENCE) - safe to use directly
+        // IMPORTANT: MJFrameData is only valid until the next latestFrame call on this thread.
+        // Do not store the frame reference beyond this draw call.
         guard let frame = dataSource.latestFrame else {
             // No frame available yet - this is normal during startup
             return
