@@ -167,7 +167,13 @@ private:
 // Swift C++ interop doesn't support member functions that return pointers,
 // so we provide these free functions instead.
 
-/// Get pointer to the geoms array for indexed access
+/// Get pointer to the contiguous geoms array for indexed access.
+///
+/// The returned array contains exactly `frame->geomCount()` elements.
+/// Callers must only index in the range `[0, frame->geomCount() - 1]`.
+/// The pointer is owned by `frame` and is valid as long as the underlying
+/// MJFrameDataStorage outlives all accesses.
+///
 /// @param frame The frame data view
 /// @return Pointer to first geom, or nullptr if frame is null
 const MJGeomInstance* MJFrameDataGetGeoms(const MJFrameData* frame);

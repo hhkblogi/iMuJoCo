@@ -23,15 +23,23 @@ private let logger = Logger(subsystem: "com.mujoco.render", category: "MuJoCoMTK
 /// ```swift
 /// class MyRuntime: MJCRenderDataSource {
 ///     var latestFrame: MJFrameData? {
-///         return runtime.latestFrame
+///         return source.latestFrame
 ///     }
 ///     // ... implement other requirements
+/// }
+///
+/// // Safe usage - access frame properties within a single scope:
+/// if let frame = runtime.latestFrame {
+///     let count = frame.geomCount()
+///     // Use frame data here - do not store beyond this scope
 /// }
 /// ```
 public protocol MJCRenderDataSource: AnyObject {
     /// Get the latest frame data for rendering (non-blocking).
     /// Returns nil if no frame is available yet.
-    /// MJFrameData is a reference type (SWIFT_IMMORTAL_REFERENCE) - no copying occurs.
+    ///
+    /// - Important: The returned frame is only valid until the next `latestFrame` call
+    ///   on the same thread. Do not store references across calls.
     var latestFrame: MJFrameData? { get }
 
     /// Camera azimuth angle in degrees (horizontal rotation).
@@ -140,7 +148,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
     public var dataSource: MJCRenderDataSource? {
         didSet {
             // Start rendering when dataSource is set (if everything else is ready)
-            checkReadyToRender()
+            check_ready_to_render()
         }
     }
 
@@ -230,7 +238,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
     }
 
     // Called when dataSource is set - this is when we can safely start rendering
-    private func checkReadyToRender() {
+    private func check_ready_to_render() {
         if isRenderingEnabled && render != nil && dataSource != nil && isPaused {
             isPaused = false
         }
