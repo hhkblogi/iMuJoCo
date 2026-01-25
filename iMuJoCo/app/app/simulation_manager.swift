@@ -236,16 +236,8 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
 
     // MARK: - MJCRenderDataSource Protocol
 
-    public var latestFrame: UnsafePointer<MJFrameData>? {
+    public var latestFrame: MJFrameData? {
         runtime?.latestFrame
-    }
-
-    public var scenePointer: UnsafePointer<mjvScene>? {
-        runtime?.scenePointer
-    }
-
-    public var cameraPointer: UnsafeMutablePointer<mjvCamera>? {
-        runtime?.cameraPointer
     }
 
     public var cameraAzimuth: Double {
@@ -318,10 +310,40 @@ final class SimulationGridManager: @unchecked Sendable {
     @MainActor
     func loadBundledModel(at index: Int, name: String) async throws {
         guard let instance = instance(at: index) else { return }
-        guard let path = Bundle.main.path(forResource: name, ofType: "xml") else {
+
+        // Try multiple search paths for the model file
+        let searchPaths: [(String?, String)] = [
+            (nil, "Bundle root"),
+            ("Resources/Models", "Resources/Models subdirectory"),
+            ("Models", "Models subdirectory")
+        ]
+
+        var path: String?
+        for (subdirectory, description) in searchPaths {
+            if let foundPath = Bundle.main.path(forResource: name, ofType: "xml", inDirectory: subdirectory) {
+                path = foundPath
+                print("[SimulationManager] Found model '\(name)' in \(description): \(foundPath)")
+                break
+            }
+        }
+
+        guard let modelPath = path else {
+            // List what's in the bundle for debugging
+            if let bundlePath = Bundle.main.resourcePath {
+                print("[SimulationManager] Bundle resource path: \(bundlePath)")
+                if let contents = try? FileManager.default.contentsOfDirectory(atPath: bundlePath) {
+                    print("[SimulationManager] Bundle contents: \(contents.prefix(20))")
+                }
+            }
             throw MuJoCoError.loadFailed("Model '\(name)' not found in bundle")
         }
-        try await instance.loadModel(fromFile: path)
+
+        // Verify file exists before passing to MuJoCo
+        if !FileManager.default.fileExists(atPath: modelPath) {
+            throw MuJoCoError.loadFailed("Model file not found at path: \(modelPath)")
+        }
+
+        try await instance.loadModel(fromFile: modelPath)
         instance.start()
     }
 
