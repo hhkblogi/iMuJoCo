@@ -190,12 +190,15 @@ public final class MJCMetalRender {
     /// path for optimal performance and thread safety.
     ///
     /// - Parameters:
-    ///   - frameData: Pointer to the frame data containing geometry instances.
+    ///   - frame: The frame data view (SWIFT_IMMORTAL_REFERENCE class).
     ///   - drawable: The Metal drawable to render into.
     ///   - renderPassDescriptor: Optional render pass descriptor. If nil, a default is created.
-    public func Render(frameData: UnsafePointer<MJFrameData>,
+    public func Render(frame: MJFrameData,
                        drawable: CAMetalDrawable,
                        renderPassDescriptor: MTLRenderPassDescriptor?) {
+
+        // MJFrameData is a reference type (SWIFT_IMMORTAL_REFERENCE) - safe to use directly
+        // No raw pointer workarounds needed
 
         guard let commandBuffer = command_queue.makeCommandBuffer() else { return }
 
@@ -237,17 +240,21 @@ public final class MJCMetalRender {
         let aspect = Float(width) / Float(height)
         let fovy = Float(45.0 * .pi / 180.0)
 
-        let frame = frameData.pointee
-        let azRad = frame.camera_azimuth * .pi / 180.0
-        let elRad = frame.camera_elevation * .pi / 180.0
-        let dist = frame.camera_distance
+        let azRad = frame.cameraAzimuth() * .pi / 180.0
+        let elRad = frame.cameraElevation() * .pi / 180.0
+        let dist = frame.cameraDistance()
+
+        // Access camera lookat
+        let lookatX = frame.cameraLookatX()
+        let lookatY = frame.cameraLookatY()
+        let lookatZ = frame.cameraLookatZ()
 
         let eye = simd_float3(
-            frame.camera_lookat.0 + dist * sin(azRad) * cos(elRad),
-            frame.camera_lookat.1 + dist * cos(azRad) * cos(elRad),
-            frame.camera_lookat.2 + dist * sin(elRad)
+            lookatX + dist * sin(azRad) * cos(elRad),
+            lookatY + dist * cos(azRad) * cos(elRad),
+            lookatZ + dist * sin(elRad)
         )
-        let center = simd_float3(frame.camera_lookat.0, frame.camera_lookat.1, frame.camera_lookat.2)
+        let center = simd_float3(lookatX, lookatY, lookatZ)
         let up = simd_float3(0, 0, 1)
 
         let viewMatrix = Self.look_at(eye: eye, center: center, up: up)
@@ -260,8 +267,8 @@ public final class MJCMetalRender {
         var totalVertices = 0
         var totalIndices = 0
 
-        // Get geom count through accessor function
-        let geomCount = mjc_frame_get_geom_count(frameData)
+        // Get geom count
+        let geomCount = Int(frame.geomCount())
 
         // Handle empty frame
         if geomCount == 0 {
@@ -271,18 +278,26 @@ public final class MJCMetalRender {
             return
         }
 
+        // Get pointer to geoms array (using free function - member functions returning pointers not supported)
+        guard let geomsPtr = MJFrameDataGetGeoms(frame) else {
+            encoder.endEncoding()
+            commandBuffer.present(drawable)
+            commandBuffer.commit()
+            return
+        }
+
         // Render each geometry from ring buffer frame data
         var skippedGeoms = 0
-        for i in 0..<Int(geomCount) {
+        for i in 0..<geomCount {
             // Buffer overflow protection: skip remaining geometries if buffers are full
             if totalVertices + Self.max_vertices_per_geom > max_vertices ||
                totalIndices + Self.max_indices_per_geom > max_indices {
-                skippedGeoms = Int(geomCount) - i
+                skippedGeoms = geomCount - i
                 break
             }
 
-            guard let geomPtr = mjc_frame_get_geom(frameData, Int32(i)) else { continue }
-            let geom = geomPtr.pointee
+            // Access geom through array indexing
+            let geom = geomsPtr[i]
 
             var vertexCount = 0
             var indexCount = 0
@@ -345,178 +360,6 @@ public final class MJCMetalRender {
         if skippedGeoms > 0 {
             let rendered = Int(geomCount) - skippedGeoms
             logger.warning("Skipped \(skippedGeoms)/\(geomCount) geometries due to buffer capacity (rendered \(rendered), vertices: \(totalVertices)/\(self.max_vertices), indices: \(totalIndices)/\(self.max_indices))")
-        }
-
-        encoder.endEncoding()
-        commandBuffer.present(drawable)
-        commandBuffer.commit()
-    }
-
-    // MARK: - Rendering (Legacy mjvScene API)
-
-    /// Renders a scene using the legacy mjvScene API (for backwards compatibility).
-    ///
-    /// This method renders geometry from MuJoCo's native `mjvScene` structure.
-    /// Prefer the `Render(frameData:drawable:renderPassDescriptor:)` method for
-    /// new code as it provides better thread safety through the ring buffer API.
-    ///
-    /// - Parameters:
-    ///   - scene: Pointer to the MuJoCo visualization scene.
-    ///   - camera: Pointer to the MuJoCo camera settings.
-    ///   - drawable: The Metal drawable to render into.
-    ///   - renderPassDescriptor: Optional render pass descriptor. If nil, a default is created.
-    public func Render(scene: UnsafePointer<mjvScene>,
-                       camera: UnsafePointer<mjvCamera>,
-                       drawable: CAMetalDrawable,
-                       renderPassDescriptor: MTLRenderPassDescriptor?) {
-
-        guard let commandBuffer = command_queue.makeCommandBuffer() else { return }
-
-        let passDescriptor = renderPassDescriptor ?? MTLRenderPassDescriptor()
-        passDescriptor.colorAttachments[0].texture = drawable.texture
-        passDescriptor.colorAttachments[0].loadAction = .clear
-        passDescriptor.colorAttachments[0].storeAction = .store
-        passDescriptor.colorAttachments[0].clearColor = MTLClearColor(red: 0.15, green: 0.18, blue: 0.22, alpha: 1.0)
-
-        // Setup depth texture
-        let width = drawable.texture.width
-        let height = drawable.texture.height
-
-        if depth_texture == nil || depth_texture!.width != width || depth_texture!.height != height {
-            let depthDesc = MTLTextureDescriptor.texture2DDescriptor(
-                pixelFormat: .depth32Float,
-                width: width,
-                height: height,
-                mipmapped: false
-            )
-            depthDesc.usage = .renderTarget
-            depthDesc.storageMode = .private
-            depth_texture = device.makeTexture(descriptor: depthDesc)
-        }
-
-        passDescriptor.depthAttachment.texture = depth_texture
-        passDescriptor.depthAttachment.loadAction = .clear
-        passDescriptor.depthAttachment.storeAction = .dontCare
-        passDescriptor.depthAttachment.clearDepth = 1.0
-
-        guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: passDescriptor) else { return }
-
-        encoder.setRenderPipelineState(pipeline_state)
-        encoder.setDepthStencilState(depth_state)
-        encoder.setCullMode(.none)
-
-        // Setup camera matrices
-        let aspect = Float(width) / Float(height)
-        let fovy = Float(45.0 * .pi / 180.0)
-
-        let cam = camera.pointee
-        let azRad = Float(cam.azimuth) * .pi / 180.0
-        let elRad = Float(cam.elevation) * .pi / 180.0
-        let dist = Float(cam.distance)
-
-        let eye = simd_float3(
-            Float(cam.lookat.0) + dist * sin(azRad) * cos(elRad),
-            Float(cam.lookat.1) + dist * cos(azRad) * cos(elRad),
-            Float(cam.lookat.2) + dist * sin(elRad)
-        )
-        let center = simd_float3(Float(cam.lookat.0), Float(cam.lookat.1), Float(cam.lookat.2))
-        let up = simd_float3(0, 0, 1)
-
-        let viewMatrix = Self.look_at(eye: eye, center: center, up: up)
-        let projMatrix = Self.perspective(fovy: fovy, aspect: aspect, near: 0.01, far: 100.0)
-
-        // Get buffer pointers
-        let vertexData = vertex_buffer.contents().bindMemory(to: MJCMetalVertex.self, capacity: max_vertices)
-        let indexData = index_buffer.contents().bindMemory(to: UInt32.self, capacity: max_indices)
-
-        var totalVertices = 0
-        var totalIndices = 0
-
-        // Render each geometry
-        let scn = scene.pointee
-
-        // Handle empty scene
-        if scn.ngeom == 0 || scn.geoms == nil {
-            encoder.endEncoding()
-            commandBuffer.present(drawable)
-            commandBuffer.commit()
-            return
-        }
-
-        let geomsPtr = scn.geoms!
-
-        // Render each geometry
-        var skippedGeoms = 0
-        for i in 0..<Int(scn.ngeom) {
-            // Buffer overflow protection: skip remaining geometries if buffers are full
-            if totalVertices + Self.max_vertices_per_geom > max_vertices ||
-               totalIndices + Self.max_indices_per_geom > max_indices {
-                skippedGeoms = Int(scn.ngeom) - i
-                break
-            }
-
-            let geom = geomsPtr[i]
-
-            var vertexCount = 0
-            var indexCount = 0
-
-            Self.convert_geom(
-                geom: geom,
-                vertices: vertexData.advanced(by: totalVertices),
-                indices: indexData.advanced(by: totalIndices),
-                vertexCount: &vertexCount,
-                indexCount: &indexCount
-            )
-
-            if vertexCount > 0 && indexCount > 0 {
-                // Build model matrix from geom pose
-                var modelMatrix = simd_float4x4(1.0)
-                modelMatrix.columns.0 = simd_float4(geom.mat.0, geom.mat.3, geom.mat.6, 0)
-                modelMatrix.columns.1 = simd_float4(geom.mat.1, geom.mat.4, geom.mat.7, 0)
-                modelMatrix.columns.2 = simd_float4(geom.mat.2, geom.mat.5, geom.mat.8, 0)
-                modelMatrix.columns.3 = simd_float4(geom.pos.0, geom.pos.1, geom.pos.2, 1)
-
-                let emission = geom.emission
-                let specular = geom.specular
-                let shininess = min(max(geom.shininess, 1.0), 10.0)  // Clamp to reasonable range
-
-                var uniforms = MJCMetalUniforms(
-                    modelMatrix: modelMatrix,
-                    viewMatrix: viewMatrix,
-                    projectionMatrix: projMatrix,
-                    normal_matrix: Self.normal_matrix(from: modelMatrix),
-                    lightPosition: simd_float3(0, 0, 10),
-                    _padding0: 0,
-                    cameraPosition: eye,
-                    _padding1: 0,
-                    color: simd_float4(1, 1, 1, 1),
-                    emission: emission,
-                    specular: specular,
-                    shininess: shininess,
-                    _padding2: 0
-                )
-
-                encoder.setVertexBuffer(vertex_buffer, offset: totalVertices * MemoryLayout<MJCMetalVertex>.stride, index: 0)
-                encoder.setVertexBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
-                encoder.setFragmentBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
-
-                encoder.drawIndexedPrimitives(
-                    type: .triangle,
-                    indexCount: indexCount,
-                    indexType: .uint32,
-                    indexBuffer: index_buffer,
-                    indexBufferOffset: totalIndices * MemoryLayout<UInt32>.stride
-                )
-
-                totalVertices += vertexCount
-                totalIndices += indexCount
-            }
-        }
-
-        // Warn if geometries were skipped due to buffer overflow
-        if skippedGeoms > 0 {
-            let rendered = Int(scn.ngeom) - skippedGeoms
-            logger.warning("Skipped \(skippedGeoms)/\(scn.ngeom) geometries due to buffer capacity (rendered \(rendered), vertices: \(totalVertices)/\(self.max_vertices), indices: \(totalIndices)/\(self.max_indices))")
         }
 
         encoder.endEncoding()
@@ -606,44 +449,6 @@ public final class MJCMetalRender {
 
         case 6: // mjGEOM_BOX
             generate_box(size: size, color: color, vertices: vertices, indices: indices,
-                       vertexCount: &vertexCount, indexCount: &indexCount)
-
-        default:
-            // Placeholder cube for unsupported types
-            generate_box(size: (0.02, 0.02, 0.02), color: color, vertices: vertices, indices: indices,
-                       vertexCount: &vertexCount, indexCount: &indexCount)
-        }
-    }
-
-    /// Convert mjvGeom (legacy API) to mesh vertices
-    private static func convert_geom(geom: mjvGeom,
-                                    vertices: UnsafeMutablePointer<MJCMetalVertex>,
-                                    indices: UnsafeMutablePointer<UInt32>,
-                                    vertexCount: inout Int,
-                                    indexCount: inout Int) {
-        let color = simd_float4(geom.rgba.0, geom.rgba.1, geom.rgba.2, geom.rgba.3)
-
-        switch geom.type {
-        case 0: // mjGEOM_PLANE
-            generate_plane(size: geom.size, color: color, vertices: vertices, indices: indices,
-                         vertexCount: &vertexCount, indexCount: &indexCount)
-
-        case 2: // mjGEOM_SPHERE
-            generate_sphere(radius: geom.size.0, color: color, vertices: vertices, indices: indices,
-                          vertexCount: &vertexCount, indexCount: &indexCount)
-
-        case 3: // mjGEOM_CAPSULE
-            generate_capsule(radius: geom.size.0, halfLength: geom.size.2, color: color,
-                           vertices: vertices, indices: indices,
-                           vertexCount: &vertexCount, indexCount: &indexCount)
-
-        case 5: // mjGEOM_CYLINDER
-            generate_cylinder(radius: geom.size.0, halfLength: geom.size.2, color: color,
-                            vertices: vertices, indices: indices,
-                            vertexCount: &vertexCount, indexCount: &indexCount)
-
-        case 6: // mjGEOM_BOX
-            generate_box(size: geom.size, color: color, vertices: vertices, indices: indices,
                        vertexCount: &vertexCount, indexCount: &indexCount)
 
         default:

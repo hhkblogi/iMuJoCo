@@ -14,7 +14,6 @@ private let logger = Logger(subsystem: "com.mujoco.render", category: "MuJoCoMTK
 ///
 /// Implement this protocol to connect your physics runtime to the Metal view.
 /// The render will call `latestFrame` each frame to get geometry data for rendering.
-/// If `latestFrame` returns nil, the render falls back to the legacy `scenePointer` API.
 ///
 /// ## Camera Control
 /// The protocol includes camera properties that gesture handlers will update.
@@ -23,8 +22,8 @@ private let logger = Logger(subsystem: "com.mujoco.render", category: "MuJoCoMTK
 /// ## Example Implementation
 /// ```swift
 /// class MyRuntime: MJCRenderDataSource {
-///     var latestFrame: UnsafePointer<MJFrameData>? {
-///         return mjc_runtime_get_latest_frame(handle)
+///     var latestFrame: MJFrameData? {
+///         return runtime.getLatestFrame()
 ///     }
 ///     // ... implement other requirements
 /// }
@@ -32,14 +31,8 @@ private let logger = Logger(subsystem: "com.mujoco.render", category: "MuJoCoMTK
 public protocol MJCRenderDataSource: AnyObject {
     /// Get the latest frame data for rendering (non-blocking).
     /// Returns nil if no frame is available yet.
-    var latestFrame: UnsafePointer<MJFrameData>? { get }
-
-    /// Legacy scene pointer for backwards compatibility.
-    /// Used as fallback when `latestFrame` returns nil.
-    var scenePointer: UnsafePointer<mjvScene>? { get }
-
-    /// Legacy camera pointer for backwards compatibility.
-    var cameraPointer: UnsafeMutablePointer<mjvCamera>? { get }
+    /// MJFrameData is a reference type (SWIFT_IMMORTAL_REFERENCE) - no copying occurs.
+    var latestFrame: MJFrameData? { get }
 
     /// Camera azimuth angle in degrees (horizontal rotation).
     var cameraAzimuth: Double { get set }
@@ -144,9 +137,20 @@ public struct MuJoCoMetalView: NSViewRepresentable {
 // MARK: - Custom MTKView
 
 public class MuJoCoMTKView: MTKView, MTKViewDelegate {
-    public var dataSource: MJCRenderDataSource?
+    public var dataSource: MJCRenderDataSource? {
+        didSet {
+            // Start rendering when dataSource is set (if everything else is ready)
+            checkReadyToRender()
+        }
+    }
 
     private var render: MJCMetalRender?
+
+    // Track if view is ready for rendering (avoids crashes during deallocation)
+    private var isRenderingEnabled: Bool = true
+
+    // Lock to prevent deallocation during rendering
+    private let renderLock = NSLock()
 
     // Performance metrics
     private var frame_count: Int = 0
@@ -170,24 +174,43 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         common_init()
     }
 
+    deinit {
+        // First, pause to stop new draw calls
+        isPaused = true
+
+        // Acquire lock to wait for any in-progress render to complete
+        renderLock.lock()
+
+        // Now it's safe to disable and clean up
+        isRenderingEnabled = false
+        delegate = nil
+        render = nil
+
+        renderLock.unlock()
+    }
+
     private func common_init() {
         guard let device = self.device else {
             logger.error("Metal is not supported on this device")
+            isRenderingEnabled = false
             return
         }
 
-        self.delegate = self
+        // Keep paused during initialization
+        self.isPaused = true
         self.colorPixelFormat = .bgra8Unorm
         self.depthStencilPixelFormat = .depth32Float
         self.preferredFramesPerSecond = 60
         self.enableSetNeedsDisplay = false
-        self.isPaused = false
 
-        // Initialize Metal render
+        // Initialize Metal render BEFORE setting delegate
+        // This ensures render is ready before any draw calls
         do {
             render = try MJCMetalRender(device: device)
         } catch {
             logger.error("Failed to create Metal render: \(error)")
+            isRenderingEnabled = false
+            return
         }
 
         #if os(iOS)
@@ -197,6 +220,20 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         #if os(tvOS)
         setup_tv_gestures()
         #endif
+
+        // Set delegate last, after everything is fully initialized
+        self.delegate = self
+
+        // Only enable rendering after everything is initialized
+        // Note: We DON'T unpause here - we wait for dataSource to be set
+        isRenderingEnabled = true
+    }
+
+    // Called when dataSource is set - this is when we can safely start rendering
+    private func checkReadyToRender() {
+        if isRenderingEnabled && render != nil && dataSource != nil && isPaused {
+            isPaused = false
+        }
     }
 
     #if os(iOS)
@@ -378,30 +415,40 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
     }
 
     public func draw(in view: MTKView) {
+        // Early exit if rendering is disabled (during deallocation or failed init)
+        guard isRenderingEnabled else { return }
+
+        // Acquire lock to prevent deallocation during rendering
+        guard renderLock.try() else { return }
+        defer { renderLock.unlock() }
+
+        // Double-check after acquiring lock
+        guard isRenderingEnabled else { return }
+
         let frameStart = CACurrentMediaTime()
 
-        guard let render = render,
-              let dataSource = dataSource else {
+        // Capture strong references to ensure objects survive the entire method
+        guard let render = self.render,
+              let dataSource = self.dataSource else {
             return
         }
 
-        // Get current drawable
+        // Get current drawable - may be nil if view is not visible
         guard let drawable = currentDrawable else { return }
 
-        // Render using lock-free ring buffer API (preferred)
-        if let frameData = dataSource.latestFrame {
-            render.Render(
-                frameData: frameData,
-                drawable: drawable,
-                renderPassDescriptor: currentRenderPassDescriptor
-            )
+        // Get frame data from the data source
+        // Note: latestFrame may return nil during startup or if no frames have been written
+        // MJFrameData is a reference type (SWIFT_IMMORTAL_REFERENCE) - safe to use directly
+        guard let frame = dataSource.latestFrame else {
+            // No frame available yet - this is normal during startup
+            return
         }
-        // Fallback to legacy scene API if ring buffer not available
-        else if let scene = dataSource.scenePointer,
-                let camera = dataSource.cameraPointer {
+
+        // Only render if we have geometry to draw
+        let geomCount = frame.geomCount()
+        if geomCount > 0 {
             render.Render(
-                scene: scene,
-                camera: camera,
+                frame: frame,
                 drawable: drawable,
                 renderPassDescriptor: currentRenderPassDescriptor
             )
