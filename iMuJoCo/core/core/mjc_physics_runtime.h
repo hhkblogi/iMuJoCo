@@ -288,9 +288,10 @@ public:
     // The underlying ring buffer storage is lock-free for producer/consumer access.
 
     /// Get the latest available frame (non-blocking, thread-safe).
-    /// @return Pointer to frame view. Valid until the next getLatestFrame() or
-    ///         waitForFrame() call on the SAME THREAD. The underlying storage
-    ///         remains valid as long as the runtime exists.
+    /// @return Pointer to frame view, or nullptr if no frames have been written
+    ///         yet (e.g., before the first simulation step). Valid until the next
+    ///         getLatestFrame() or waitForFrame() call on the SAME THREAD. The
+    ///         underlying storage remains valid as long as the runtime exists.
     MJFrameData* getLatestFrame();
 
     /// Wait for a new frame (blocking, thread-safe).
