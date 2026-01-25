@@ -343,11 +343,6 @@ final class SimulationGridManager: @unchecked Sendable {
             throw MuJoCoError.loadFailed("Model '\(name)' not found in bundle")
         }
 
-        // Verify file exists before passing to MuJoCo
-        if !FileManager.default.fileExists(atPath: modelPath) {
-            throw MuJoCoError.loadFailed("Model file not found at path: \(modelPath)")
-        }
-
         try await instance.loadModel(fromFile: modelPath)
         instance.start()
     }
