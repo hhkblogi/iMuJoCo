@@ -4,11 +4,14 @@
 
 # Use while read loop with null-terminated strings for safe filename handling
 while IFS= read -r -d '' pbxproj; do
-    if grep -q 'DEVELOPMENT_TEAM[[:space:]]*=' "$pbxproj"; then
+    if grep -q 'DEVELOPMENT_TEAM[[:space:]]*=' "$pbxproj" || grep -q '"DEVELOPMENT_TEAM\[sdk=' "$pbxproj"; then
         echo "Stripping DEVELOPMENT_TEAM from $pbxproj"
         # Cross-platform sed: use tmpfile instead of macOS-specific sed -i ''
         tmpfile="$(mktemp)"
-        if sed '/DEVELOPMENT_TEAM[[:space:]]*=/d' "$pbxproj" > "$tmpfile" && mv "$tmpfile" "$pbxproj"; then
+        # Remove both forms:
+        #   DEVELOPMENT_TEAM = value;
+        #   "DEVELOPMENT_TEAM[sdk=*]" = value;
+        if sed -e '/DEVELOPMENT_TEAM[[:space:]]*=/d' -e '/"DEVELOPMENT_TEAM\[sdk=/d' "$pbxproj" > "$tmpfile" && mv "$tmpfile" "$pbxproj"; then
             git add "$pbxproj"
         else
             echo "Error: failed to strip DEVELOPMENT_TEAM from $pbxproj" >&2
