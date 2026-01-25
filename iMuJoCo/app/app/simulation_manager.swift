@@ -314,7 +314,11 @@ final class SimulationGridManager: @unchecked Sendable {
     func loadBundledModel(at index: Int, name: String) async throws {
         guard let instance = instance(at: index) else { return }
 
-        // Try multiple search paths for the model file
+        // Try multiple search paths for the model file.
+        // Rationale: Bundle resource locations can vary between Xcode configurations
+        // (Debug/Release), build systems, and test environments. This multi-path
+        // approach ensures robustness during development. Once bundle organization
+        // is finalized, this can be simplified to a single path.
         let searchPaths: [(String?, String)] = [
             (nil, "Bundle root"),
             ("Resources/Models", "Resources/Models subdirectory"),

@@ -15,6 +15,10 @@ private let logger = Logger(subsystem: "com.mujoco.render", category: "MuJoCoMTK
 /// Implement this protocol to connect your physics runtime to the Metal view.
 /// The render will call `latestFrame` each frame to get geometry data for rendering.
 ///
+/// - Note: This protocol uses MJFrameData (C++ interop) instead of raw pointers.
+///   The legacy scenePointer/cameraPointer API has been removed in favor of the
+///   safer, typed MJFrameData interface.
+///
 /// ## Camera Control
 /// The protocol includes camera properties that gesture handlers will update.
 /// Your implementation should apply these values to the underlying camera system.
@@ -188,7 +192,11 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         // 2. lock() waits for any in-progress draw() to complete (if it holds the lock)
         // 3. isRenderingEnabled = false ensures any draw() that passed the first check
         //    will exit at the double-check after acquiring the lock
-        // This is safe because draw() uses try() which returns immediately if locked.
+        //
+        // Note: deinit may block briefly if draw() is in progress. This is a deliberate
+        // tradeoff - we ensure clean shutdown rather than racing with the render thread.
+        // In practice draw() completes quickly (<16ms per frame). If draw() were to hang,
+        // deinit would also hang, but this indicates a deeper Metal/GPU issue.
         isPaused = true
         renderLock.lock()
         isRenderingEnabled = false

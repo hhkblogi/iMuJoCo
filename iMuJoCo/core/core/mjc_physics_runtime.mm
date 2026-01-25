@@ -499,8 +499,22 @@ public:
     }
 
     // Helper: allocate MJFrameData view from shared thread-local pool.
-    // Pool of 2 views reduces allocations. Only the most recent pointer returned
-    // on a given thread is guaranteed valid; it is invalidated on the next call.
+    //
+    // Design: Pool of 2 views provides breathing room for callers that need to
+    // briefly hold a reference while calling getLatestFrame() again (e.g., for
+    // comparison). Only the most recent pointer is guaranteed valid; the previous
+    // one becomes invalid on the next call.
+    //
+    // Why not use assignment/reuse? MJFrameData is non-copyable (deleted copy
+    // constructor/assignment) to enforce reference semantics in Swift. We must
+    // create new instances rather than mutate existing ones.
+    //
+    // Alternatives considered:
+    // - Single instance: Too restrictive for any compare-and-swap patterns
+    // - Larger pool: Diminishing returns, 2 is sufficient for typical use
+    // - shared_ptr: Would require API changes and add overhead
+    //
+    // The lifetime constraint is documented in mjc_physics_runtime.h (lines 116-124).
     static MJFrameData* AllocateFrameView(const MJFrameDataStorage* storage) {
         if (!storage) return nullptr;
         // Thread-local pool shared by GetLatestFrame() and WaitForFrame()
