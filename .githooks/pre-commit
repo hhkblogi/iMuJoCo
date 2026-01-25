@@ -1,6 +1,9 @@
 #!/bin/bash
 # Pre-commit hook: Normalize team-specific signing settings in pbxproj files
 # This prevents accidental commits of personal team IDs and signing identities
+#
+# With CODE_SIGN_STYLE = Automatic, Xcode manages signing via xcuserdata (gitignored).
+# This hook ensures no team-specific settings leak into the repository.
 
 # Use while read loop with null-terminated strings for safe filename handling
 while IFS= read -r -d '' pbxproj; do
@@ -14,6 +17,13 @@ while IFS= read -r -d '' pbxproj; do
     if grep -q 'DEVELOPMENT_TEAM' "$tmpfile"; then
         echo "Stripping DEVELOPMENT_TEAM from $pbxproj"
         sed '/DEVELOPMENT_TEAM/d' "$tmpfile" > "$tmpfile.new" && mv "$tmpfile.new" "$tmpfile"
+        modified=true
+    fi
+
+    # Strip SDK-specific CODE_SIGN_IDENTITY lines (e.g., [sdk=iphoneos*])
+    if grep -q 'CODE_SIGN_IDENTITY\[sdk=' "$tmpfile"; then
+        echo "Stripping SDK-specific CODE_SIGN_IDENTITY from $pbxproj"
+        sed '/CODE_SIGN_IDENTITY\[sdk=/d' "$tmpfile" > "$tmpfile.new" && mv "$tmpfile.new" "$tmpfile"
         modified=true
     fi
 
