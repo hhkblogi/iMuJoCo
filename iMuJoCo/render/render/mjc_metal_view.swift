@@ -23,7 +23,7 @@ private let logger = Logger(subsystem: "com.mujoco.render", category: "MuJoCoMTK
 /// ```swift
 /// class MyRuntime: MJCRenderDataSource {
 ///     var latestFrame: MJFrameData? {
-///         return runtime.getLatestFrame()
+///         return runtime.latestFrame
 ///     }
 ///     // ... implement other requirements
 /// }

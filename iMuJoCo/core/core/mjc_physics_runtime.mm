@@ -501,9 +501,12 @@ public:
     MJFrameData* GetLatestFrame() {
         const MJFrameDataStorage* storage = ring_buffer_.GetLatestFrame();
         if (!storage) return nullptr;
-        // Update the view to point to current storage
-        frame_view_ = std::make_unique<MJFrameData>(storage);
-        return frame_view_.get();
+        // Thread-local view ensures each thread has its own view object.
+        // This makes getLatestFrame() thread-safe - multiple threads can call
+        // it concurrently without invalidating each other's returned pointers.
+        thread_local std::unique_ptr<MJFrameData> tls_frame_view;
+        tls_frame_view = std::make_unique<MJFrameData>(storage);
+        return tls_frame_view.get();
     }
 
     MJFrameData* WaitForFrame() {
@@ -511,9 +514,10 @@ public:
         const MJFrameDataStorage* storage = ring_buffer_.WaitForFrame(last_read_frame);
         last_read_frame = ring_buffer_.GetFrameCount();
         if (!storage) return nullptr;
-        // Update the view to point to current storage
-        frame_view_ = std::make_unique<MJFrameData>(storage);
-        return frame_view_.get();
+        // Thread-local view ensures each thread has its own view object.
+        thread_local std::unique_ptr<MJFrameData> tls_frame_view;
+        tls_frame_view = std::make_unique<MJFrameData>(storage);
+        return tls_frame_view.get();
     }
 
     uint64_t GetFrameCount() const {
@@ -760,7 +764,6 @@ private:
 
     LockFreeRingBuffer ring_buffer_;
     UDPServer udp_server_;
-    std::unique_ptr<MJFrameData> frame_view_;  // Swift-facing view of current frame
 
     std::thread physics_thread_;
     std::atomic<bool> exit_requested_;

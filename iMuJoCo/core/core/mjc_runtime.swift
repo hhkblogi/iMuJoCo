@@ -13,12 +13,12 @@ public enum MJRuntimeSimulationState: Int32 {
     case paused = 3
 
     public init(from cppState: MJRuntimeState) {
+        // C++ enum class is a closed type - all cases are known at compile time
         switch cppState {
         case .Inactive: self = .inactive
         case .Loaded: self = .loaded
         case .Running: self = .running
         case .Paused: self = .paused
-        @unknown default: self = .inactive
         }
     }
 }

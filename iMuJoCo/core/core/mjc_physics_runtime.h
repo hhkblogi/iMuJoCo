@@ -112,6 +112,11 @@ struct MJFrameDataStorage {
 // This is a lightweight wrapper (~8 bytes) that provides safe access to frame data.
 // Uses SWIFT_IMMORTAL_REFERENCE so Swift treats it as a reference type, avoiding
 // any copying of the underlying large storage.
+//
+// IMPORTANT: MJFrameData pointers are valid only until the next getLatestFrame()
+// or waitForFrame() call on the same thread. Do not cache or store these pointers
+// across function calls. The underlying storage remains valid for the runtime's
+// lifetime, but the view object itself is recreated per-call via thread-local storage.
 
 class SWIFT_IMMORTAL_REFERENCE MJFrameData {
 public:
@@ -265,14 +270,19 @@ public:
     /// Get simulation statistics
     MJRuntimeStats getStats() const;
 
-    // MARK: - Frame Access (Lock-Free)
+    // MARK: - Frame Access
+    // Thread-safe: Each thread gets its own view object via thread-local storage.
+    // The underlying ring buffer storage is lock-free for producer/consumer access.
 
-    /// Get the latest available frame (non-blocking)
-    /// @return Pointer to frame view, valid until next getLatestFrame() call
+    /// Get the latest available frame (non-blocking, thread-safe).
+    /// @return Pointer to frame view. Valid until the next getLatestFrame() or
+    ///         waitForFrame() call on the SAME THREAD. The underlying storage
+    ///         remains valid as long as the runtime exists.
     MJFrameData* getLatestFrame();
 
-    /// Wait for a new frame (blocking)
-    /// @return Pointer to frame view, or nullptr if shutdown signaled
+    /// Wait for a new frame (blocking, thread-safe).
+    /// @return Pointer to frame view, or nullptr if shutdown signaled.
+    ///         Same lifetime semantics as getLatestFrame().
     MJFrameData* waitForFrame();
 
     /// Get the current frame count
