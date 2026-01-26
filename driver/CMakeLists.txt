@@ -86,42 +86,56 @@ target_link_libraries(mujoco_driver
 
 # Python bindings
 if(MUJOCO_DRIVER_BUILD_PYTHON)
-    # Prefer uv-managed Python from workspace .venv
-    if(EXISTS "${CMAKE_SOURCE_DIR}/.venv")
-        set(Python3_ROOT_DIR "${CMAKE_SOURCE_DIR}/.venv")
-        set(Python3_FIND_VIRTUALENV FIRST)
-    endif()
-    find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
-
-    FetchContent_Declare(
-        pybind11
-        GIT_REPOSITORY https://github.com/pybind/pybind11.git
-        GIT_TAG v2.13.6
+    set(MUJOCO_DRIVER_PY_BINDINGS
+        ${CMAKE_CURRENT_SOURCE_DIR}/python/mujoco_driver/bindings.cc
     )
-    FetchContent_MakeAvailable(pybind11)
-
-    pybind11_add_module(_mujoco_driver python/mujoco_driver/bindings.cc)
-
-    target_include_directories(_mujoco_driver PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/cc/include
-        ${GENERATED_DIR}
-    )
-
-    target_link_libraries(_mujoco_driver PRIVATE mujoco_driver)
-
-    # Output Python module to build/driver/python directory
-    set(PYTHON_OUTPUT_DIR ${CMAKE_BINARY_DIR}/driver/python/mujoco_driver)
-    set_target_properties(_mujoco_driver PROPERTIES
-        LIBRARY_OUTPUT_DIRECTORY ${PYTHON_OUTPUT_DIR}
-    )
-
-    # Copy Python package files to build directory
-    file(MAKE_DIRECTORY ${PYTHON_OUTPUT_DIR})
-    configure_file(
+    set(MUJOCO_DRIVER_PY_INIT
         ${CMAKE_CURRENT_SOURCE_DIR}/python/mujoco_driver/__init__.py
-        ${PYTHON_OUTPUT_DIR}/__init__.py
-        COPYONLY
     )
+
+    if(EXISTS "${MUJOCO_DRIVER_PY_BINDINGS}" AND EXISTS "${MUJOCO_DRIVER_PY_INIT}")
+        # Prefer uv-managed Python from workspace .venv
+        if(EXISTS "${CMAKE_SOURCE_DIR}/.venv")
+            set(Python3_ROOT_DIR "${CMAKE_SOURCE_DIR}/.venv")
+            set(Python3_FIND_VIRTUALENV FIRST)
+        endif()
+        find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+
+        FetchContent_Declare(
+            pybind11
+            GIT_REPOSITORY https://github.com/pybind/pybind11.git
+            GIT_TAG v2.13.6
+        )
+        FetchContent_MakeAvailable(pybind11)
+
+        pybind11_add_module(_mujoco_driver ${MUJOCO_DRIVER_PY_BINDINGS})
+
+        target_include_directories(_mujoco_driver PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/cc/include
+            ${GENERATED_DIR}
+        )
+
+        target_link_libraries(_mujoco_driver PRIVATE mujoco_driver)
+
+        # Output Python module to build/driver/python directory
+        set(PYTHON_OUTPUT_DIR ${CMAKE_BINARY_DIR}/driver/python/mujoco_driver)
+        set_target_properties(_mujoco_driver PROPERTIES
+            LIBRARY_OUTPUT_DIRECTORY ${PYTHON_OUTPUT_DIR}
+        )
+
+        # Copy Python package files to build directory
+        file(MAKE_DIRECTORY ${PYTHON_OUTPUT_DIR})
+        configure_file(
+            ${MUJOCO_DRIVER_PY_INIT}
+            ${PYTHON_OUTPUT_DIR}/__init__.py
+            COPYONLY
+        )
+    else()
+        message(WARNING
+            "MUJOCO_DRIVER_BUILD_PYTHON is ON, but Python bindings sources not found; "
+            "skipping Python bindings."
+        )
+    endif()
 endif()
 
 # Tests

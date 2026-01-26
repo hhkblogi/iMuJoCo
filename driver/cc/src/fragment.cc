@@ -145,6 +145,7 @@ ReassemblyResult ReassemblyManager::ProcessFragment(const uint8_t* data,
     // Validate header fields
     if (header->fragment_index >= header->fragment_count ||
         header->fragment_count == 0 ||
+        header->total_size == 0 ||
         header->payload_size > kMaxFragmentPayload ||
         header->payload_size + kFragmentHeaderSize != size ||
         header->total_size > kMaxMessageSize) {

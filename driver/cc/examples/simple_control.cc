@@ -72,7 +72,7 @@ int main(int argc, char* argv[]) {
     // Shared state between RX callback and main thread
     std::mutex state_mutex;
     double latest_time = 0.0;
-    size_t ctrl_dim = 0;
+    std::atomic<size_t> ctrl_dim{0};
     std::atomic<int> state_count{0};
 
     // Subscribe to state updates (runs on RX thread)
@@ -82,9 +82,11 @@ int main(int argc, char* argv[]) {
         {
             std::lock_guard<std::mutex> lock(state_mutex);
             latest_time = state.time;
-            if (ctrl_dim == 0 && !state.ctrl.empty()) {
-                ctrl_dim = state.ctrl.size();
-            }
+        }
+
+        // Set ctrl_dim once (atomic)
+        if (ctrl_dim.load() == 0 && !state.ctrl.empty()) {
+            ctrl_dim.store(state.ctrl.size());
         }
 
         // Print progress every 100 states
@@ -111,23 +113,24 @@ int main(int argc, char* argv[]) {
     std::cout << "Waiting for first state..." << std::endl;
     std::vector<double> init_ctrl(32, 0.0);  // Send zeros initially
     int attempts = 0;
-    while (running && ctrl_dim == 0 && attempts < 100) {
+    while (running && ctrl_dim.load() == 0 && attempts < 100) {
         driver.SendControl(init_ctrl);
         attempts++;
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 
-    if (ctrl_dim == 0) {
+    size_t local_ctrl_dim = ctrl_dim.load();
+    if (local_ctrl_dim == 0) {
         std::cerr << "Timeout waiting for first state\n";
         driver.Disconnect();
         return 1;
     }
 
-    std::cout << "Control dimension: " << ctrl_dim << std::endl;
+    std::cout << "Control dimension: " << local_ctrl_dim << std::endl;
 
     // Control loop - sends at ~1000 Hz
     int send_count = 0;
-    std::vector<double> ctrl(ctrl_dim, 0.0);
+    std::vector<double> ctrl(local_ctrl_dim, 0.0);
 
     while (running) {
         // Get latest time for control computation

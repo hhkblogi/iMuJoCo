@@ -1,8 +1,8 @@
 // udp_socket.h
 // Simple POSIX UDP socket wrapper (macOS/Linux)
 
-#ifndef MUJOCO_DRIVER_UDP_SOCKET_H
-#define MUJOCO_DRIVER_UDP_SOCKET_H
+#ifndef IMUJOCO_DRIVER_UDP_SOCKET_H
+#define IMUJOCO_DRIVER_UDP_SOCKET_H
 
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -46,6 +46,7 @@ public:
             remote_addr_ = other.remote_addr_;
             remote_addr_len_ = other.remote_addr_len_;
             other.socket_ = -1;
+            other.remote_addr_len_ = 0;
         }
         return *this;
     }
@@ -176,4 +177,4 @@ private:
 
 }  // namespace imujoco::driver
 
-#endif  // MUJOCO_DRIVER_UDP_SOCKET_H
+#endif  // IMUJOCO_DRIVER_UDP_SOCKET_H
