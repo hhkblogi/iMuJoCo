@@ -51,12 +51,12 @@ if ! pyenv commands | grep -q virtualenv; then
     exit 1
 fi
 
-# Find matching Python version
-INSTALLED_VERSION=$(pyenv versions --bare | grep "^${PYTHON_VERSION}" | sort -V | tail -1)
+# Find matching Python version (stable releases only, exclude alpha/beta)
+INSTALLED_VERSION=$(pyenv versions --bare | grep "^${PYTHON_VERSION}\.[0-9]" | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
 if [[ -z "$INSTALLED_VERSION" ]]; then
     log_error "Python $PYTHON_VERSION is not installed."
-    log_info "Available versions matching $PYTHON_VERSION:"
-    pyenv install --list | grep "^[[:space:]]*${PYTHON_VERSION}" | head -5
+    log_info "Available stable versions matching $PYTHON_VERSION:"
+    pyenv install --list | grep "^[[:space:]]*${PYTHON_VERSION}\.[0-9]" | head -5
     log_info "Install with: pyenv install $PYTHON_VERSION"
     exit 1
 fi
@@ -109,15 +109,18 @@ if [[ -f "pyproject.toml" ]]; then
         exit 1
     fi
 
-    # Check if this is a workspace with no Python packages
-    if grep -Fq "packages = []" pyproject.toml; then
-        log_info "No Python packages defined (packages = []); skipping package installation."
-        log_info "Dev dependencies can be installed manually: pip install pytest numpy"
-    elif grep -Fq "[project.optional-dependencies]" pyproject.toml; then
+    # Install dev dependencies if defined
+    if grep -Fq "[project.optional-dependencies]" pyproject.toml; then
         if ! pip install ".[dev]"; then
             log_error "Failed to install dev dependencies."
             exit 1
         fi
+        # Note if this is a workspace with no Python packages
+        if grep -Fq "packages = []" pyproject.toml; then
+            log_info "Installed dev dependencies (no Python packages in this workspace)."
+        fi
+    elif grep -Fq "packages = []" pyproject.toml; then
+        log_info "No Python packages or dev dependencies defined; skipping installation."
     else
         log_info "No [project.optional-dependencies] found; skipping dependency installation."
     fi
