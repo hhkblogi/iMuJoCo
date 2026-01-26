@@ -35,7 +35,17 @@ int main(int argc, char* argv[]) {
         host = argv[1];
     }
     if (argc > 2) {
-        port = static_cast<uint16_t>(std::stoi(argv[2]));
+        try {
+            int parsed_port = std::stoi(argv[2]);
+            if (parsed_port < 0 || parsed_port > 65535) {
+                std::cerr << "Invalid port number: must be in range [0, 65535]" << std::endl;
+                return 1;
+            }
+            port = static_cast<uint16_t>(parsed_port);
+        } catch (const std::exception& e) {
+            std::cerr << "Failed to parse port '" << argv[2] << "': " << e.what() << std::endl;
+            return 1;
+        }
     }
 
     std::cout << "MuJoCo Driver Example (Async Mode)" << std::endl;

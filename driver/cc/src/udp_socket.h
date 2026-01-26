@@ -97,12 +97,20 @@ public:
             return false;
         }
 
-        auto* addr = reinterpret_cast<sockaddr_in*>(result->ai_addr);
-        remote_addr_.sin_addr = addr->sin_addr;
-        remote_addr_len_ = sizeof(remote_addr_);
+        // Find first IPv4 address in results
+        bool found = false;
+        for (addrinfo* rp = result; rp != nullptr; rp = rp->ai_next) {
+            if (rp->ai_family == AF_INET && rp->ai_addr) {
+                auto* addr = reinterpret_cast<sockaddr_in*>(rp->ai_addr);
+                remote_addr_.sin_addr = addr->sin_addr;
+                remote_addr_len_ = sizeof(remote_addr_);
+                found = true;
+                break;
+            }
+        }
 
         freeaddrinfo(result);
-        return true;
+        return found;
     }
 
     /// Send data to the remote endpoint.

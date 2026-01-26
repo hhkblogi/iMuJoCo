@@ -36,7 +36,18 @@ int main(int argc, char* argv[]) {
     }
 
     const char* host = argv[1];
-    uint16_t port = static_cast<uint16_t>(std::atoi(argv[2]));
+    uint16_t port = 8888;
+    try {
+        int parsed_port = std::stoi(argv[2]);
+        if (parsed_port < 0 || parsed_port > 65535) {
+            std::cerr << "Invalid port number: must be in range [0, 65535]" << std::endl;
+            return 1;
+        }
+        port = static_cast<uint16_t>(parsed_port);
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to parse port '" << argv[2] << "': " << e.what() << std::endl;
+        return 1;
+    }
 
     std::cout << "State Receiver - Connecting to " << host << ":" << port << std::endl;
 

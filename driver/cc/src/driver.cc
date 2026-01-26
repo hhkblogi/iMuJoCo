@@ -202,7 +202,8 @@ void Driver::rx_thread_func() {
         auto received = socket_->Receive(recv_buffer_, config_.timeout_ms);
 
         if (received == 0) {
-            // Timeout - continue
+            // Timeout - cleanup stale reassembly slots
+            reassembler_->CleanupStale();
             continue;
         }
 
@@ -262,10 +263,18 @@ std::optional<SimulationState> Driver::parse_state_packet(const uint8_t* data, s
 }
 
 void Driver::dispatch_state(const uint8_t* data, size_t size) {
-    std::lock_guard<std::mutex> lock(subscribers_mutex_);
+    // Copy subscriber maps to avoid holding mutex during callbacks
+    // This prevents deadlock if callbacks try to Subscribe/Unsubscribe
+    std::map<SubscriptionId, RawStateCallback> raw_subs_copy;
+    std::map<SubscriptionId, StateCallback> subs_copy;
+    {
+        std::lock_guard<std::mutex> lock(subscribers_mutex_);
+        raw_subs_copy = raw_subscribers_;
+        subs_copy = subscribers_;
+    }
 
     // Dispatch to raw subscribers first (no parsing needed)
-    for (const auto& [id, callback] : raw_subscribers_) {
+    for (const auto& [id, callback] : raw_subs_copy) {
         try {
             callback(std::span<const uint8_t>(data, size));
         } catch (const std::exception& e) {
@@ -274,10 +283,10 @@ void Driver::dispatch_state(const uint8_t* data, size_t size) {
     }
 
     // Parse and dispatch to regular subscribers only if there are any
-    if (!subscribers_.empty()) {
+    if (!subs_copy.empty()) {
         auto state = parse_state_packet(data, size);
         if (state) {
-            for (const auto& [id, callback] : subscribers_) {
+            for (const auto& [id, callback] : subs_copy) {
                 try {
                     callback(*state);
                 } catch (const std::exception& e) {
