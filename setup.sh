@@ -74,13 +74,13 @@ if [[ -f "pyproject.toml" ]]; then
     echo "Installing packages from pyproject.toml..."
 
     # Upgrade pip first
-    pip install --upgrade pip
+    pip install --upgrade pip || { echo "Error: Failed to upgrade pip." >&2; exit 1; }
 
     # Install the project with dev dependencies
     if grep -Fq "[project.optional-dependencies]" pyproject.toml; then
         pip install -e ".[dev]" || { echo "Error: Failed to install project with dev dependencies (.[dev])." >&2; exit 1; }
     else
-        pip install -e .
+        pip install -e . || { echo "Error: Failed to install project." >&2; exit 1; }
     fi
 fi
 
