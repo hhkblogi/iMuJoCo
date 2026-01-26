@@ -78,7 +78,7 @@ if [[ -f "pyproject.toml" ]]; then
 
     # Install the project with dev dependencies
     if grep -Fq "[project.optional-dependencies]" pyproject.toml; then
-        pip install -e ".[dev]" || pip install -e .
+        pip install -e ".[dev]" || { echo "Error: Failed to install project with dev dependencies (.[dev])." >&2; exit 1; }
     else
         pip install -e .
     fi
