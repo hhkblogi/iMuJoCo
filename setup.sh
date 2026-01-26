@@ -1,5 +1,6 @@
 #!/bin/zsh
 # setup.sh - Set up Python environment using pyenv + virtualenv
+# Requires: zsh (uses zsh-specific features)
 
 set -e
 
@@ -77,11 +78,11 @@ if [[ -f "pyproject.toml" ]]; then
     # Upgrade pip first
     pip install --upgrade pip || { echo "Error: Failed to upgrade pip." >&2; exit 1; }
 
-    # Install the project with dev dependencies (non-editable since no Python source)
+    # Install dev dependencies if defined (no Python packages in this workspace)
     if grep -Fq "[project.optional-dependencies]" pyproject.toml; then
-        pip install ".[dev]" || { echo "Error: Failed to install project with dev dependencies (.[dev])." >&2; exit 1; }
+        pip install ".[dev]" || { echo "Error: Failed to install dev dependencies." >&2; exit 1; }
     else
-        pip install . || { echo "Error: Failed to install project." >&2; exit 1; }
+        echo "No [project.optional-dependencies] found; skipping dependency installation."
     fi
 fi
 
