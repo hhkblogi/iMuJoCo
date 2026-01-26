@@ -80,7 +80,7 @@ void Driver::SendControl(const ControlCommand& cmd) {
     // Use a mutable copy if we need to set sequence
     ControlCommand packet = cmd;
     if (packet.sequence == 0) {
-        packet.sequence = ++sequence_;
+        packet.sequence = sequence_.fetch_add(1, std::memory_order_relaxed) + 1;
     }
 
     // Use FlatBuffers Pack to convert from Object API type (ControlPacketT)

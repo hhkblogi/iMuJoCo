@@ -20,7 +20,6 @@ TEST(DriverTest, ConfigDefaults) {
     EXPECT_EQ(config.port, 8888);
     EXPECT_EQ(config.local_port, 0);
     EXPECT_EQ(config.timeout_ms, 100);
-    EXPECT_DOUBLE_EQ(config.max_control_rate, 1000.0);
     EXPECT_TRUE(config.auto_start_receiving);
 }
 

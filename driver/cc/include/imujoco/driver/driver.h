@@ -55,9 +55,6 @@ struct DriverConfig {
     // Receive timeout in milliseconds (0 = no timeout)
     uint32_t timeout_ms = 100;
 
-    // Maximum control rate in Hz (0 = unlimited)
-    double max_control_rate = 1000.0;
-
     // Auto-start receiving on connect (default: true)
     bool auto_start_receiving = true;
 };
@@ -73,11 +70,8 @@ struct DriverStats {
     // Errors
     uint64_t send_errors = 0;
     uint64_t receive_errors = 0;
-    uint64_t checksum_errors = 0;
-    uint64_t reassembly_timeouts = 0;
 
     // Timing
-    double avg_round_trip_ms = 0.0;
     double last_state_time = 0.0;
 };
 
@@ -123,9 +117,6 @@ using ErrorCallback = std::function<void(std::error_code ec, const std::string& 
 ///
 /// // Send controls (runs on caller's thread)
 /// driver.SendControl(ctrl);
-///
-/// // Or use synchronous step (blocks until response)
-/// auto state = driver.Step(ctrl);
 /// ```
 class Driver {
 public:
