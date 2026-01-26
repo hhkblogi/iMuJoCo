@@ -17,9 +17,9 @@ else
     NC=''
 fi
 
-log_info() { echo "${GREEN}[INFO]${NC} $1"; }
-log_warn() { echo "${YELLOW}[WARN]${NC} $1"; }
-log_error() { echo "${RED}[ERROR]${NC} $1" >&2; }
+log_info()  { printf '%b\n' "${GREEN}[INFO]${NC} $1"; }
+log_warn()  { printf '%b\n' "${YELLOW}[WARN]${NC} $1"; }
+log_error() { printf '%b\n' "${RED}[ERROR]${NC} $1" >&2; }
 
 # Configuration
 PYTHON_VERSION="3.14"
@@ -57,7 +57,7 @@ if [[ -z "$INSTALLED_VERSION" ]]; then
     log_error "Python $PYTHON_VERSION is not installed."
     log_info "Available stable versions matching $PYTHON_VERSION:"
     pyenv install --list | grep "^[[:space:]]*${PYTHON_VERSION}\.[0-9]" | head -5
-    log_info "Install with: pyenv install $PYTHON_VERSION"
+    log_info "Install with: pyenv install <full-version>, e.g. pyenv install 3.14.0"
     exit 1
 fi
 log_info "Using Python: $INSTALLED_VERSION"
