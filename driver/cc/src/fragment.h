@@ -17,16 +17,23 @@ namespace imujoco::driver {
 // Network constants
 // NOTE: These values assume IPv4 with no IP options (20-byte header) and 8-byte
 // UDP header. For IPv6 (40-byte header) or IPv4 with options, constants would
-// need adjustment. All multi-byte header fields use native byte order (no
-// network byte order conversion). This protocol is intended for
-// same-architecture local network communication.
+// need adjustment.
+//
+// ENDIANNESS: All multi-byte header fields use native byte order (no network
+// byte order conversion). This protocol is designed for same-architecture
+// communication (e.g., macOS host to iOS device, both little-endian ARM64).
+// For cross-architecture support, convert fields using htonl/htons/ntohl/ntohs.
 constexpr size_t kMTU = 1500;
 constexpr size_t kIPUDPOverhead = 28;  // 20 bytes IP + 8 bytes UDP
 constexpr size_t kFragmentHeaderSize = 16;
 constexpr size_t kMaxUDPPayload = kMTU - kIPUDPOverhead;  // 1472
 constexpr size_t kMaxFragmentPayload = kMaxUDPPayload - kFragmentHeaderSize;  // 1456
 constexpr uint8_t kMaxFragments = 255;
-constexpr size_t kMaxMessageSize = kMaxFragments * kMaxFragmentPayload;  // ~371KB
+constexpr size_t kMaxMessageSize = kMaxFragments * kMaxFragmentPayload;  // 371,280 bytes
+
+// Ensure kMaxMessageSize is exactly representable by kMaxFragments fragments
+static_assert(kMaxMessageSize == static_cast<size_t>(kMaxFragments) * kMaxFragmentPayload,
+              "kMaxMessageSize must equal kMaxFragments * kMaxFragmentPayload");
 
 // Fragment packet magic number: "MJFG" (MuJoCo Fragment)
 constexpr uint32_t kFragmentMagic = 0x4D4A4647;

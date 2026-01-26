@@ -58,20 +58,27 @@ bool Driver::Connect() {
 }
 
 void Driver::Disconnect() {
-    std::lock_guard<std::mutex> lock(connect_mutex_);
+    // Use unique_lock to allow releasing before StopReceiving() to avoid deadlock
+    // (StopReceiving acquires rx_mutex_, and we must not hold connect_mutex_ while
+    // acquiring rx_mutex_ to prevent lock ordering issues)
+    {
+        std::lock_guard<std::mutex> lock(connect_mutex_);
 
-    if (!connected_.load(std::memory_order_acquire)) {
-        return;  // Already disconnected
+        if (!connected_.load(std::memory_order_acquire)) {
+            return;  // Already disconnected
+        }
+
+        connected_.store(false, std::memory_order_release);
     }
 
-    connected_.store(false, std::memory_order_release);
-
-    // Stop RX thread after marking as disconnected, so it can observe the new state
-    // and exit its receive loop before we close the socket
+    // Stop RX thread after marking as disconnected (without holding connect_mutex_)
     StopReceiving();
 
     // Close socket once RX thread has stopped
-    socket_->Close();
+    {
+        std::lock_guard<std::mutex> lock(connect_mutex_);
+        socket_->Close();
+    }
 }
 
 bool Driver::IsConnected() const {

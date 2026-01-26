@@ -47,11 +47,12 @@ add_custom_command(
     OUTPUT
         ${GENERATED_DIR}/control_generated.h
         ${GENERATED_DIR}/state_generated.h
-    COMMAND flatc --cpp --gen-object-api -o ${GENERATED_DIR} ${SCHEMA_DIR}/control.fbs
-    COMMAND flatc --cpp --gen-object-api -o ${GENERATED_DIR} ${SCHEMA_DIR}/state.fbs
+    COMMAND $<TARGET_FILE:flatc> --cpp --gen-object-api -o ${GENERATED_DIR} ${SCHEMA_DIR}/control.fbs
+    COMMAND $<TARGET_FILE:flatc> --cpp --gen-object-api -o ${GENERATED_DIR} ${SCHEMA_DIR}/state.fbs
     DEPENDS
         ${SCHEMA_DIR}/control.fbs
         ${SCHEMA_DIR}/state.fbs
+        flatc
     COMMENT "Generating FlatBuffers C++ headers with Object API"
 )
 
