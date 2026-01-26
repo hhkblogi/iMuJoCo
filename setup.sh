@@ -104,11 +104,20 @@ if [[ -f "pyproject.toml" ]]; then
     log_info "Installing packages from pyproject.toml..."
 
     # Upgrade pip first
-    pip install --upgrade pip || { log_error "Failed to upgrade pip."; exit 1; }
+    if ! pip install --upgrade pip; then
+        log_error "Failed to upgrade pip."
+        exit 1
+    fi
 
-    # Install dev dependencies if defined (no Python packages in this workspace)
-    if grep -Fq "[project.optional-dependencies]" pyproject.toml; then
-        pip install ".[dev]" || { log_error "Failed to install dev dependencies."; exit 1; }
+    # Check if this is a workspace with no Python packages
+    if grep -Fq "packages = []" pyproject.toml; then
+        log_info "No Python packages defined (packages = []); skipping package installation."
+        log_info "Dev dependencies can be installed manually: pip install pytest numpy"
+    elif grep -Fq "[project.optional-dependencies]" pyproject.toml; then
+        if ! pip install ".[dev]"; then
+            log_error "Failed to install dev dependencies."
+            exit 1
+        fi
     else
         log_info "No [project.optional-dependencies] found; skipping dependency installation."
     fi
