@@ -24,7 +24,7 @@ log_error() { echo "${RED}[ERROR]${NC} $1" >&2; }
 # Configuration
 PYTHON_VERSION="3.14"
 # Derive repository directory name, preferring git toplevel when available
-if command -v git &> /dev/null && git rev-parse --show-toplevel &> /dev/null 2>&1; then
+if command -v git &> /dev/null && git rev-parse --show-toplevel &> /dev/null; then
     REPO_DIR_NAME=$(basename "$(git rev-parse --show-toplevel)")
 else
     REPO_DIR_NAME=$(basename "$(pwd)")
@@ -110,7 +110,7 @@ if [[ -f "pyproject.toml" ]]; then
     fi
 
     # Install dev dependencies if defined
-    if grep -Fq "[project.optional-dependencies]" pyproject.toml; then
+    if grep -Eq '^[[:space:]]*\[project\.optional-dependencies\]' pyproject.toml; then
         if ! pip install ".[dev]"; then
             log_error "Failed to install dev dependencies."
             exit 1
