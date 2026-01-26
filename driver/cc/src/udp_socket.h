@@ -37,6 +37,7 @@ public:
           remote_addr_(other.remote_addr_),
           remote_addr_len_(other.remote_addr_len_) {
         other.socket_ = -1;
+        other.remote_addr_len_ = 0;
     }
 
     UdpSocket& operator=(UdpSocket&& other) noexcept {

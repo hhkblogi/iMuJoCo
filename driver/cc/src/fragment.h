@@ -22,14 +22,11 @@ namespace imujoco::driver {
 // same-architecture local network communication.
 constexpr size_t kMTU = 1500;
 constexpr size_t kIPUDPOverhead = 28;  // 20 bytes IP + 8 bytes UDP
-constexpr size_t kMaxUDPPayload =
-    1472;  // MTU - IP/UDP overhead (space for header + payload)
 constexpr size_t kFragmentHeaderSize = 16;
-constexpr size_t kMaxFragmentPayload =
-    1456;  // Max UDP payload - fragment header
+constexpr size_t kMaxUDPPayload = kMTU - kIPUDPOverhead;  // 1472
+constexpr size_t kMaxFragmentPayload = kMaxUDPPayload - kFragmentHeaderSize;  // 1456
 constexpr uint8_t kMaxFragments = 255;
-constexpr size_t kMaxMessageSize =
-    kMaxFragments * kMaxFragmentPayload;  // ~371KB
+constexpr size_t kMaxMessageSize = kMaxFragments * kMaxFragmentPayload;  // ~371KB
 
 // Fragment packet magic number: "MJFG" (MuJoCo Fragment)
 constexpr uint32_t kFragmentMagic = 0x4D4A4647;

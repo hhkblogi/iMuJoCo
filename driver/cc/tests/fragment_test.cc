@@ -6,6 +6,8 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstring>
+#include <numeric>
 #include <random>
 
 namespace imujoco::driver {
@@ -259,8 +261,8 @@ TEST(FragmentTest, EmptyMessage) {
     auto fragments = sender.FragmentMessage(nullptr, 0);
     EXPECT_TRUE(fragments.empty());
 
-    std::vector<uint8_t> empty;
-    fragments = sender.FragmentMessage(empty.data(), 0);
+    // Test with explicit nullptr and size 0 (don't use empty vector's data())
+    fragments = sender.FragmentMessage(nullptr, 0);
     EXPECT_TRUE(fragments.empty());
 }
 
