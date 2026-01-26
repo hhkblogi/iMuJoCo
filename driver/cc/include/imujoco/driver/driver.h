@@ -251,12 +251,14 @@ private:
     std::unique_ptr<FragmentedSender> sender_;
     std::atomic<uint32_t> sequence_{0};
 
-    // RX: Thread and reassembly
+    // RX: Thread and reassembly (protected by rx_mutex_)
+    mutable std::mutex rx_mutex_;
     std::thread rx_thread_;
     std::unique_ptr<ReassemblyManager> reassembler_;
     std::vector<uint8_t> recv_buffer_;
 
-    // State
+    // Connection state (protected by connect_mutex_)
+    mutable std::mutex connect_mutex_;
     std::atomic<bool> connected_{false};
     std::atomic<bool> receiving_{false};
 

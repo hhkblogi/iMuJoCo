@@ -33,24 +33,22 @@ Driver::~Driver() {
 // ============================================================================
 
 bool Driver::Connect() {
-    // Use compare_exchange to prevent concurrent Connect() calls
-    bool expected = false;
-    if (!connected_.compare_exchange_strong(expected, true,
-                                            std::memory_order_acq_rel,
-                                            std::memory_order_acquire)) {
-        return true;  // Already connected (or another thread is connecting)
+    std::lock_guard<std::mutex> lock(connect_mutex_);
+
+    if (connected_.load(std::memory_order_acquire)) {
+        return true;  // Already connected
     }
 
     if (!socket_->Initialize(config_.local_port)) {
-        connected_.store(false, std::memory_order_release);
         return false;
     }
 
     if (!socket_->SetRemote(config_.host, config_.port)) {
         socket_->Close();
-        connected_.store(false, std::memory_order_release);
         return false;
     }
+
+    connected_.store(true, std::memory_order_release);
 
     if (config_.auto_start_receiving) {
         StartReceiving();
@@ -60,13 +58,13 @@ bool Driver::Connect() {
 }
 
 void Driver::Disconnect() {
-    // Atomically transition to disconnected state; if already disconnected, no-op
-    bool expected = true;
-    if (!connected_.compare_exchange_strong(expected, false,
-                                            std::memory_order_acq_rel,
-                                            std::memory_order_acquire)) {
-        return;
+    std::lock_guard<std::mutex> lock(connect_mutex_);
+
+    if (!connected_.load(std::memory_order_acquire)) {
+        return;  // Already disconnected
     }
+
+    connected_.store(false, std::memory_order_release);
 
     // Stop RX thread after marking as disconnected, so it can observe the new state
     // and exit its receive loop before we close the socket
@@ -188,13 +186,23 @@ void Driver::OnError(ErrorCallback callback) {
 // ============================================================================
 
 void Driver::StartReceiving() {
-    bool expected = false;
-    if (receiving_.compare_exchange_strong(expected, true)) {
-        rx_thread_ = std::thread([this]() { rx_thread_func(); });
+    std::lock_guard<std::mutex> lock(rx_mutex_);
+
+    if (receiving_.load(std::memory_order_acquire)) {
+        return;  // Already receiving
     }
+
+    receiving_.store(true, std::memory_order_release);
+    rx_thread_ = std::thread([this]() { rx_thread_func(); });
 }
 
 void Driver::StopReceiving() {
+    std::lock_guard<std::mutex> lock(rx_mutex_);
+
+    if (!receiving_.load(std::memory_order_acquire)) {
+        return;  // Not receiving
+    }
+
     receiving_.store(false, std::memory_order_release);
     if (rx_thread_.joinable()) {
         rx_thread_.join();

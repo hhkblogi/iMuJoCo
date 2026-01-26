@@ -74,9 +74,10 @@ std::vector<std::vector<uint8_t>> FragmentedSender::FragmentMessage(
         return fragments;  // Message too large
     }
 
-    // Calculate number of fragments needed
+    // Calculate number of fragments needed (safe division to avoid overflow)
+    // size is already bounded by kMaxMessageSize check above
     uint8_t fragment_count = static_cast<uint8_t>(
-        (size + kMaxFragmentPayload - 1) / kMaxFragmentPayload);
+        (size / kMaxFragmentPayload) + (size % kMaxFragmentPayload != 0 ? 1 : 0));
 
     // Get unique message ID
     uint16_t msg_id = message_id_++;
