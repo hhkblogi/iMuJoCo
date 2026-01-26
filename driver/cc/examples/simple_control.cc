@@ -9,6 +9,7 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include <numbers>
 #include <thread>
 #include <chrono>
 #include <csignal>
@@ -142,7 +143,7 @@ int main(int argc, char* argv[]) {
 
         // Generate control signal (example: sinusoidal)
         for (size_t i = 0; i < ctrl.size(); i++) {
-            ctrl[i] = 0.1 * std::sin(2.0 * M_PI * 0.5 * t + i * 0.1);
+            ctrl[i] = 0.1 * std::sin(2.0 * std::numbers::pi * 0.5 * t + i * 0.1);
         }
 
         // Send control (non-blocking)
