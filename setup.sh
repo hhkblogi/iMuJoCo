@@ -27,7 +27,7 @@ if ! pyenv commands | grep -q virtualenv; then
 fi
 
 # Find matching Python version
-INSTALLED_VERSION=$(pyenv versions --bare | grep "^${PYTHON_VERSION}" | tail -1)
+INSTALLED_VERSION=$(pyenv versions --bare | grep "^${PYTHON_VERSION}" | sort -V | tail -1)
 if [[ -z "$INSTALLED_VERSION" ]]; then
     echo "Python $PYTHON_VERSION is not installed."
     echo "Available versions matching $PYTHON_VERSION:"
@@ -77,8 +77,8 @@ if [[ -f "pyproject.toml" ]]; then
     pip install --upgrade pip
 
     # Install the project with dev dependencies
-    if grep -q "\[project.optional-dependencies\]" pyproject.toml; then
-        pip install -e ".[dev]" 2>/dev/null || pip install -e .
+    if grep -Fq "[project.optional-dependencies]" pyproject.toml; then
+        pip install -e ".[dev]" || pip install -e .
     else
         pip install -e .
     fi
@@ -91,3 +91,6 @@ echo "Python: $(python --version)"
 echo "Location: $(which python)"
 echo ""
 echo "The virtualenv will auto-activate when you cd into this directory."
+echo "Note: Ensure pyenv is initialized in your shell config (~/.zshrc):"
+echo "  eval \"\$(pyenv init -)\""
+echo "  eval \"\$(pyenv virtualenv-init -)\""
