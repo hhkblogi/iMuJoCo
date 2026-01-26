@@ -22,7 +22,8 @@ fi
 # Check if pyenv-virtualenv is available
 if ! pyenv commands | grep -q virtualenv; then
     echo "Error: pyenv-virtualenv is not installed"
-    echo "Install with: brew install pyenv-virtualenv"
+    echo "Install with: brew install pyenv-virtualenv (macOS)"
+    echo "See: https://github.com/pyenv/pyenv-virtualenv#installation"
     exit 1
 fi
 
@@ -31,7 +32,7 @@ INSTALLED_VERSION=$(pyenv versions --bare | grep "^${PYTHON_VERSION}" | sort -V 
 if [[ -z "$INSTALLED_VERSION" ]]; then
     echo "Python $PYTHON_VERSION is not installed."
     echo "Available versions matching $PYTHON_VERSION:"
-    pyenv install --list | grep "^\s*${PYTHON_VERSION}" | head -5
+    pyenv install --list | grep "^[[:space:]]*${PYTHON_VERSION}" | head -5
     echo ""
     echo "Install with: pyenv install $PYTHON_VERSION"
     exit 1
@@ -76,11 +77,11 @@ if [[ -f "pyproject.toml" ]]; then
     # Upgrade pip first
     pip install --upgrade pip || { echo "Error: Failed to upgrade pip." >&2; exit 1; }
 
-    # Install the project with dev dependencies
+    # Install the project with dev dependencies (non-editable since no Python source)
     if grep -Fq "[project.optional-dependencies]" pyproject.toml; then
-        pip install -e ".[dev]" || { echo "Error: Failed to install project with dev dependencies (.[dev])." >&2; exit 1; }
+        pip install ".[dev]" || { echo "Error: Failed to install project with dev dependencies (.[dev])." >&2; exit 1; }
     else
-        pip install -e . || { echo "Error: Failed to install project." >&2; exit 1; }
+        pip install . || { echo "Error: Failed to install project." >&2; exit 1; }
     fi
 fi
 
