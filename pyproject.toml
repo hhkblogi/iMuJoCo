@@ -1,0 +1,21 @@
+[project]
+name = "imujoco"
+version = "0.1.0"
+description = "iMuJoCo - MuJoCo simulation with network streaming"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "numpy>=1.26,<2.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# No Python packages at workspace root - dev dependencies only
+packages = []
