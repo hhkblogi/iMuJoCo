@@ -4,10 +4,33 @@
 
 set -e
 
+# Colors (disable if not interactive terminal)
+if [[ -t 1 ]]; then
+    GREEN='\033[0;32m'
+    YELLOW='\033[0;33m'
+    RED='\033[0;31m'
+    NC='\033[0m'
+else
+    GREEN=''
+    YELLOW=''
+    RED=''
+    NC=''
+fi
+
+log_info() { echo "${GREEN}[INFO]${NC} $1"; }
+log_warn() { echo "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo "${RED}[ERROR]${NC} $1" >&2; }
+
 # Configuration
 PYTHON_VERSION="3.14"
-REPO_DIR_NAME=$(basename "$(pwd)")
-VENV_NAME="${REPO_DIR_NAME}-venv"
+# Derive repository directory name, preferring git toplevel when available
+if command -v git &> /dev/null && git rev-parse --show-toplevel &> /dev/null 2>&1; then
+    REPO_DIR_NAME=$(basename "$(git rev-parse --show-toplevel)")
+else
+    REPO_DIR_NAME=$(basename "$(pwd)")
+fi
+# Allow overriding the virtualenv name via environment variable
+VENV_NAME="${VENV_NAME:-${REPO_DIR_NAME}-venv}"
 
 echo "=== Python Environment Setup ==="
 echo "Python version: $PYTHON_VERSION"
@@ -16,52 +39,51 @@ echo ""
 
 # Check if pyenv is available
 if ! command -v pyenv &> /dev/null; then
-    echo "Error: pyenv is not installed"
+    log_error "pyenv is not installed"
     exit 1
 fi
 
 # Check if pyenv-virtualenv is available
 if ! pyenv commands | grep -q virtualenv; then
-    echo "Error: pyenv-virtualenv is not installed"
-    echo "Install with: brew install pyenv-virtualenv (macOS)"
-    echo "See: https://github.com/pyenv/pyenv-virtualenv#installation"
+    log_error "pyenv-virtualenv is not installed"
+    log_info "On macOS: brew install pyenv-virtualenv"
+    log_info "Other platforms: https://github.com/pyenv/pyenv-virtualenv#installation"
     exit 1
 fi
 
 # Find matching Python version
 INSTALLED_VERSION=$(pyenv versions --bare | grep "^${PYTHON_VERSION}" | sort -V | tail -1)
 if [[ -z "$INSTALLED_VERSION" ]]; then
-    echo "Python $PYTHON_VERSION is not installed."
-    echo "Available versions matching $PYTHON_VERSION:"
+    log_error "Python $PYTHON_VERSION is not installed."
+    log_info "Available versions matching $PYTHON_VERSION:"
     pyenv install --list | grep "^[[:space:]]*${PYTHON_VERSION}" | head -5
-    echo ""
-    echo "Install with: pyenv install $PYTHON_VERSION"
+    log_info "Install with: pyenv install $PYTHON_VERSION"
     exit 1
 fi
-echo "Using Python: $INSTALLED_VERSION"
+log_info "Using Python: $INSTALLED_VERSION"
 
 # Check if virtualenv already exists
 if pyenv versions --bare | grep -q "^${VENV_NAME}$"; then
-    echo "Virtualenv '$VENV_NAME' already exists."
+    log_info "Virtualenv '$VENV_NAME' already exists."
 
     # Check if .python-version is set correctly
     if [[ -f ".python-version" ]] && [[ "$(cat .python-version)" == "$VENV_NAME" ]]; then
-        echo "Local Python version already set to '$VENV_NAME'."
+        log_info "Local Python version already set to '$VENV_NAME'."
         echo ""
         echo "=== Already Set Up ==="
-        echo "To recreate, run: pyenv virtualenv-delete $VENV_NAME && ./setup.sh"
+        log_info "To recreate, run: pyenv virtualenv-delete $VENV_NAME && ./setup.sh"
         exit 0
     else
-        echo "Setting local Python version to: $VENV_NAME"
+        log_info "Setting local Python version to: $VENV_NAME"
         pyenv local "$VENV_NAME"
     fi
 else
     # Create virtualenv
-    echo "Creating virtualenv: $VENV_NAME"
+    log_info "Creating virtualenv: $VENV_NAME"
     pyenv virtualenv "$INSTALLED_VERSION" "$VENV_NAME"
 
     # Set local Python version
-    echo "Setting local Python version to: $VENV_NAME"
+    log_info "Setting local Python version to: $VENV_NAME"
     pyenv local "$VENV_NAME"
 fi
 
@@ -70,29 +92,35 @@ export PYENV_VERSION="$VENV_NAME"
 eval "$(pyenv init -)"
 eval "$(pyenv virtualenv-init -)"
 
+# Verify we're using the correct Python
+CURRENT_PYTHON=$(which python)
+if [[ "$CURRENT_PYTHON" != *"$VENV_NAME"* ]]; then
+    log_warn "Python may not be from virtualenv: $CURRENT_PYTHON"
+fi
+
 # Install packages from pyproject.toml if it exists
 if [[ -f "pyproject.toml" ]]; then
     echo ""
-    echo "Installing packages from pyproject.toml..."
+    log_info "Installing packages from pyproject.toml..."
 
     # Upgrade pip first
-    pip install --upgrade pip || { echo "Error: Failed to upgrade pip." >&2; exit 1; }
+    pip install --upgrade pip || { log_error "Failed to upgrade pip."; exit 1; }
 
     # Install dev dependencies if defined (no Python packages in this workspace)
     if grep -Fq "[project.optional-dependencies]" pyproject.toml; then
-        pip install ".[dev]" || { echo "Error: Failed to install dev dependencies." >&2; exit 1; }
+        pip install ".[dev]" || { log_error "Failed to install dev dependencies."; exit 1; }
     else
-        echo "No [project.optional-dependencies] found; skipping dependency installation."
+        log_info "No [project.optional-dependencies] found; skipping dependency installation."
     fi
 fi
 
 echo ""
 echo "=== Setup Complete ==="
-echo "Virtualenv '$VENV_NAME' is now active."
-echo "Python: $(python --version)"
-echo "Location: $(which python)"
+log_info "Virtualenv '$VENV_NAME' is now active."
+log_info "Python: $(python --version)"
+log_info "Location: $(which python)"
 echo ""
-echo "The virtualenv will auto-activate when you cd into this directory."
-echo "Note: Ensure pyenv is initialized in your shell config (~/.zshrc):"
+log_info "The virtualenv will auto-activate when you cd into this directory."
+log_info "Note: Ensure pyenv is initialized in your shell config (~/.zshrc):"
 echo "  eval \"\$(pyenv init -)\""
 echo "  eval \"\$(pyenv virtualenv-init -)\""
