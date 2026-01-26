@@ -1,6 +1,6 @@
 #!/bin/zsh
 # setup.sh - Set up Python environment using pyenv + virtualenv
-# Requires: zsh (uses zsh-specific features)
+# Compatible with zsh and bash (uses [[ ]] test construct)
 
 set -e
 
