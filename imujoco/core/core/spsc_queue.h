@@ -6,8 +6,9 @@
 //
 // Thread Safety:
 //   - Producer thread: begin_write(), end_write()
-//   - Consumer thread: wait_for_item(), get_latest(), get_sequence()
-//   - Any thread: signal_exit(), reset_exit_signal()
+//   - Consumer thread: wait_for_item(), get_latest(), get_sequence(), get_item_count()
+//   - Any thread: signal_exit()
+//   - Any thread (when no waiters): reset_exit_signal()
 //
 // Memory Model:
 //   - Uses acquire/release semantics for correct synchronization
@@ -109,27 +110,29 @@ public:
     // =========================================================================
 
     /// Wait for a new item to be available.
-    /// @param last_sequence The sequence value from the last successful read
+    /// @param last_item_count The item count from the last successful read (from get_item_count())
     /// @return Pointer to the latest item, or nullptr if exit was signaled
-    /// @note Blocks until sequence > last_sequence or exit is signaled.
+    /// @note Blocks until item_count > last_item_count or exit is signaled.
     ///       The returned pointer is valid only until the producer wraps around
     ///       and overwrites this slot. Copy data out immediately.
-    const T* wait_for_item(uint64_t last_sequence) {
+    const T* wait_for_item(uint64_t last_item_count) {
         // Loop to handle spurious wakeups per C++ spec
         for (;;) {
             // Check exit first to avoid unnecessary waiting
             if (exit_signaled_.load(std::memory_order_acquire)) {
                 return nullptr;
             }
-            // Check if sequence has advanced AND at least one item was written.
-            // This guards against the case where signal_exit() increments sequence_
-            // without writing an item, and then reset_exit_signal() is called.
-            uint64_t current = sequence_.load(std::memory_order_acquire);
-            if (current > last_sequence && item_count_.load(std::memory_order_acquire) > 0) {
+            // Check if a NEW item has been written since last_item_count.
+            // We use item_count_ (not sequence_) because signal_exit() increments
+            // sequence_ but not item_count_, so using sequence_ could cause
+            // wait_for_item to return an already-consumed item after exit/reset.
+            uint64_t current_items = item_count_.load(std::memory_order_acquire);
+            if (current_items > last_item_count) {
                 return &buffers_[read_index_.load(std::memory_order_acquire)];
             }
-            // Wait for change (may wake spuriously)
-            sequence_.wait(current, std::memory_order_acquire);
+            // Wait for sequence change (may wake spuriously from exit signal too)
+            uint64_t current_seq = sequence_.load(std::memory_order_acquire);
+            sequence_.wait(current_seq, std::memory_order_acquire);
         }
     }
 

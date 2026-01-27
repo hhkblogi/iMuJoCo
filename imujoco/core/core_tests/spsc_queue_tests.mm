@@ -204,6 +204,70 @@ struct TestData {
                    @"Multiple exit signals should only increment sequence once");
 }
 
+- (void)test_wait_for_item_after_exit_reset_on_nonempty_queue {
+    // Regression test: wait_for_item() must not return an already-consumed item
+    // after signal_exit()/reset_exit_signal() on a non-empty queue.
+    // This tests that we compare against item_count_, not sequence_.
+    SpscQueue<TestData, 3> queue;
+
+    // Write some items
+    for (int i = 1; i <= 3; i++) {
+        auto* slot = queue.begin_write();
+        slot->value = i * 10;
+        slot->sequence = i;
+        queue.end_write();
+    }
+
+    // Consumer reads latest item
+    uint64_t last_item_count = queue.get_item_count();  // = 3
+    XCTAssertEqual(last_item_count, 3ULL);
+
+    const auto* item = queue.get_latest();
+    XCTAssertNotEqual(item, nullptr);
+    XCTAssertEqual(item->value, 30, @"Latest item should have value 30");
+
+    // Now signal_exit() (increments sequence_ to 4, item_count_ stays 3)
+    queue.signal_exit();
+    XCTAssertEqual(queue.get_sequence(), 4ULL);
+    XCTAssertEqual(queue.get_item_count(), 3ULL);
+
+    // Reset for "reuse"
+    queue.reset_exit_signal();
+
+    // Consumer calls wait_for_item(3) - should block because no NEW items
+    // were written (item_count_ is still 3, not > 3)
+    std::atomic<bool> consumer_returned{false};
+    std::atomic<int> received_value{0};
+
+    std::thread consumer([&]() {
+        const auto* new_item = queue.wait_for_item(last_item_count);
+        consumer_returned = true;
+        if (new_item) {
+            received_value = new_item->value;
+        }
+    });
+
+    // Give consumer time to potentially (incorrectly) return the old item
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    // Consumer should still be blocked - no new items written
+    XCTAssertFalse(consumer_returned.load(),
+                   @"Consumer should block - no new items since last_item_count=3");
+
+    // Write a NEW item (value=40)
+    auto* slot = queue.begin_write();
+    slot->value = 40;
+    slot->sequence = 4;
+    queue.end_write();
+
+    // Wait for consumer
+    consumer.join();
+
+    XCTAssertTrue(consumer_returned, @"Consumer should return after new write");
+    XCTAssertEqual(received_value.load(), 40,
+                   @"Consumer should receive NEW item (40), not old item (30)");
+}
+
 #pragma mark - Threading Tests
 
 - (void)test_producer_consumer_basic {
@@ -218,19 +282,18 @@ struct TestData {
 
     // Consumer thread
     std::thread consumer([&]() {
-        uint64_t last_seq = 0;
+        uint64_t last_item_count = 0;
         int last_value = 0;
 
         // Signal that consumer is ready before entering the wait loop
         consumer_ready.store(true, std::memory_order_release);
 
         while (true) {
-            const auto* item = queue.wait_for_item(last_seq);
+            const auto* item = queue.wait_for_item(last_item_count);
             if (!item) break;  // Exit signaled
 
-            // Update last_seq based on the item we received, not queue's current
-            // sequence which may have advanced further due to concurrent writes
-            last_seq = item->sequence;
+            // Update last_item_count from the queue's actual item count
+            last_item_count = queue.get_item_count();
 
             // Verify ordering (values should be monotonically increasing)
             if (item->value > last_value) {

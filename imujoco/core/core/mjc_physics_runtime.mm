@@ -476,9 +476,9 @@ public:
     }
 
     MJFrameData* WaitForFrame() {
-        thread_local uint64_t last_read_frame = 0;
-        const MJFrameDataStorage* storage = ring_buffer_.wait_for_item(last_read_frame);
-        last_read_frame = ring_buffer_.get_sequence();
+        thread_local uint64_t last_item_count = 0;
+        const MJFrameDataStorage* storage = ring_buffer_.wait_for_item(last_item_count);
+        last_item_count = ring_buffer_.get_item_count();
         return AllocateFrameView(storage);
     }
 
