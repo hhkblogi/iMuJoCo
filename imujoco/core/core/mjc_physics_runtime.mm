@@ -477,12 +477,12 @@ public:
     MJFrameData* WaitForFrame() {
         thread_local uint64_t last_read_frame = 0;
         const MJFrameDataStorage* storage = ring_buffer_.wait_for_item(last_read_frame);
-        last_read_frame = ring_buffer_.get_count();
+        last_read_frame = ring_buffer_.get_sequence();
         return AllocateFrameView(storage);
     }
 
     uint64_t GetFrameCount() const {
-        return ring_buffer_.get_count();
+        return ring_buffer_.get_sequence();
     }
 
     // Camera
@@ -704,7 +704,7 @@ private:
 
         frame->simulationTime = data_->time;
         frame->stepsPerSecond = sps;
-        frame->frameNumber = ring_buffer_.get_count() + 1;
+        frame->frameNumber = ring_buffer_.get_sequence() + 1;
 
         ring_buffer_.end_write();
     }
