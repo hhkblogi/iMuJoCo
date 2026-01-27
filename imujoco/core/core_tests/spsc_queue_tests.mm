@@ -431,9 +431,17 @@ struct TestData {
         queue.end_write();
     }
 
-    // Use signal_exit() as fallback to prevent deadlock if consumer misses final item
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    queue.signal_exit();
+    // Use signal_exit() as fallback to prevent deadlock if consumer misses final item.
+    // Wait up to a bounded deadline for the consumer to observe the final value.
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(5000);
+    while (max_received.load(std::memory_order_relaxed) != kNumItems &&
+           std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    if (max_received.load(std::memory_order_relaxed) != kNumItems) {
+        queue.signal_exit();
+    }
     consumer.join();
 
     XCTAssertEqual(max_received.load(), kNumItems,

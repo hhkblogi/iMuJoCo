@@ -5,8 +5,10 @@
 // scenarios. Uses C++20 atomic wait/notify for efficient blocking waits.
 //
 // Thread Safety:
-//   - Producer thread: begin_write(), end_write()
-//   - Consumer thread: wait_for_item(), get_latest(), get_sequence(), get_item_count()
+//   - Producer thread (single): begin_write(), end_write()
+//   - Consumer thread(s): wait_for_item(), get_latest(), get_sequence(), get_item_count()
+//     Multiple threads may call wait_for_item() concurrently if each maintains its own
+//     last_item_count state. All concurrent readers will receive the same latest item.
 //   - Any thread: signal_exit()
 //   - Any thread (when no threads are blocked in wait_for_item()): reset_exit_signal()
 //
