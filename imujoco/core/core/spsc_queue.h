@@ -15,13 +15,13 @@
 //
 // Pointer Lifetime:
 //   Pointers returned by get_latest() and wait_for_item() are valid only until
-//   the next call to begin_write() that would overwrite that slot. Because the
-//   queue uses a fixed ring buffer of N slots, a pointer becomes invalid after
-//   N-1 subsequent writes. Consumers should copy data out immediately and not
-//   retain pointers across multiple read operations.
+//   the producer wraps around and overwrites that slot. Because the queue uses
+//   a fixed ring buffer of N slots, a pointer remains valid through N-1
+//   subsequent end_write() calls. After N writes, the slot is overwritten.
+//   Consumers should copy data out promptly and not retain pointers.
 
-#ifndef IMUJOCO_CORE_SPSC_QUEUE_H_
-#define IMUJOCO_CORE_SPSC_QUEUE_H_
+#ifndef spsc_queue_h
+#define spsc_queue_h
 
 #include <array>
 #include <atomic>
@@ -40,9 +40,9 @@ namespace imujoco {
 /// with a third slot available to absorb timing variations.
 ///
 /// @warning Pointers returned by get_latest() and wait_for_item() point into
-/// the internal ring buffer. They remain valid only until the producer wraps
-/// around and overwrites that slot (after N-1 writes). Consumers must copy
-/// data out promptly and not cache these pointers.
+/// the internal ring buffer. They remain valid through N-1 subsequent writes;
+/// after N writes, the slot is overwritten. Consumers must copy data out
+/// promptly and not cache these pointers.
 ///
 /// Example usage:
 /// @code
@@ -192,4 +192,4 @@ private:
 
 }  // namespace imujoco
 
-#endif  // IMUJOCO_CORE_SPSC_QUEUE_H_
+#endif  // spsc_queue_h
