@@ -11,7 +11,22 @@ namespace py = pybind11;
 using namespace imujoco::driver;
 
 PYBIND11_MODULE(_imujoco_driver, m) {
-    m.doc() = "iMuJoCo Driver - Thread-safe UDP client for iMuJoCo simulation";
+    m.doc() = R"doc(iMuJoCo Driver - Thread-safe UDP client for iMuJoCo simulation.
+
+Threading Model:
+  - TX (send_control): Runs on caller's thread, GIL released during send
+  - RX (callbacks): Runs on dedicated RX thread, GIL acquired for Python callbacks
+  - All public methods are thread-safe
+
+Important: State callbacks run on the RX thread. Keep callbacks lightweight
+or dispatch work to your own thread to avoid blocking state reception.
+)doc";
+
+#ifdef VERSION_INFO
+    m.attr("__version__") = VERSION_INFO;
+#else
+    m.attr("__version__") = "dev";
+#endif
 
     // DriverConfig
     py::class_<DriverConfig>(m, "DriverConfig")
