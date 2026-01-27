@@ -192,7 +192,7 @@ public:
     // Legacy API (for compatibility during migration)
     // =========================================================================
 
-    /// @deprecated Use get_sequence() instead
+    /// Legacy alias for get_sequence().
     [[deprecated("Use get_sequence() instead")]]
     uint64_t get_count() const { return get_sequence(); }
 

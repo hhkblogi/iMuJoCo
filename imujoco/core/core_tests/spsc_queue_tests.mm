@@ -103,6 +103,30 @@ struct TestData {
     XCTAssertTrue(queue.is_exit_signaled(), @"Exit should be signaled");
 }
 
+- (void)test_get_latest_nullptr_after_exit_on_empty_queue {
+    // Regression test: get_latest() must return nullptr on an empty queue
+    // even after signal_exit() increments the sequence counter.
+    SpscQueue<TestData, 3> queue;
+
+    // Verify empty state before exit
+    XCTAssertTrue(queue.get_latest() == nullptr,
+                  @"get_latest should return nullptr on empty queue");
+    XCTAssertEqual(queue.get_item_count(), 0ULL,
+                   @"item_count should be 0 before any writes");
+
+    // Signal exit (this increments sequence_ but NOT item_count_)
+    queue.signal_exit();
+
+    // get_latest() must still return nullptr because no items were written
+    XCTAssertTrue(queue.get_latest() == nullptr,
+                  @"get_latest must return nullptr after signal_exit on empty queue");
+    XCTAssertEqual(queue.get_item_count(), 0ULL,
+                   @"item_count should remain 0 after signal_exit");
+    // sequence_ is incremented by signal_exit, but that's for wakeup only
+    XCTAssertEqual(queue.get_sequence(), 1ULL,
+                   @"sequence should be 1 after signal_exit");
+}
+
 - (void)test_exit_signal_reset {
     SpscQueue<TestData, 3> queue;
 
@@ -187,14 +211,16 @@ struct TestData {
         }
     }
 
-    // Wait with timeout for consumer to observe final item, then signal exit
-    // as a fallback to prevent deadlock if consumer misses the exact final value
+    // Wait with timeout for consumer to observe final item.
+    // signal_exit() is only used as a deadlock-avoidance fallback.
     constexpr int kTimeoutMs = 5000;
+    bool timeout_triggered = false;
     auto start = std::chrono::steady_clock::now();
     while (!consumer_done.load(std::memory_order_acquire)) {
         auto elapsed = std::chrono::steady_clock::now() - start;
         if (elapsed > std::chrono::milliseconds(kTimeoutMs)) {
-            // Timeout: signal exit to unblock consumer
+            // Timeout: signal exit to unblock consumer and prevent test hang
+            timeout_triggered = true;
             queue.signal_exit();
             break;
         }
@@ -203,6 +229,8 @@ struct TestData {
 
     consumer.join();
 
+    XCTAssertFalse(timeout_triggered,
+                   @"Test should not timeout - consumer should observe final item");
     XCTAssertTrue(consumer_done, @"Consumer should complete");
     XCTAssertGreaterThan(received_values.size(), 0UL, @"Should have received some values");
     XCTAssertEqual(max_observed.load(), kNumItems,

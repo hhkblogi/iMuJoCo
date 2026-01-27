@@ -705,7 +705,8 @@ private:
 
         frame->simulationTime = data_->time;
         frame->stepsPerSecond = sps;
-        frame->frameNumber = ring_buffer_.get_sequence() + 1;
+        // Use get_item_count() for actual frame count (not affected by signal_exit())
+        frame->frameNumber = ring_buffer_.get_item_count() + 1;
 
         ring_buffer_.end_write();
     }
