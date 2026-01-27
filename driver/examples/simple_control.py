@@ -109,10 +109,20 @@ def main():
     # Print stats
     stats = driver.get_stats()
     elapsed = time.time() - start_time
+
+    # Avoid division by zero for very short runs
+    if elapsed > 0:
+        tx_rate = stats.packets_sent / elapsed
+        rx_rate = stats.packets_received / elapsed
+        ctrl_rate = control_count / elapsed
+    else:
+        tx_rate = rx_rate = ctrl_rate = 0.0
+
     print(f"\nStats:")
     print(f"  Duration: {elapsed:.1f}s")
-    print(f"  TX packets: {stats.packets_sent} ({stats.packets_sent/elapsed:.1f}/s)")
-    print(f"  RX packets: {stats.packets_received} ({stats.packets_received/elapsed:.1f}/s)")
+    print(f"  Controls sent: {control_count} ({ctrl_rate:.1f}/s)")
+    print(f"  TX packets: {stats.packets_sent} ({tx_rate:.1f}/s)")
+    print(f"  RX packets: {stats.packets_received} ({rx_rate:.1f}/s)")
     print(f"  TX errors: {stats.send_errors}")
     print(f"  RX errors: {stats.receive_errors}")
 

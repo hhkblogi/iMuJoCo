@@ -6,6 +6,7 @@ Downloads FlatBuffers headers if not present.
 """
 
 import hashlib
+import shutil
 import sys
 import tarfile
 import urllib.request
@@ -22,6 +23,13 @@ FLATBUFFERS_SHA256 = "4157c5cacdb59737c5d627e47ac26b140e9ee28b1102f812b36068aab7
 HERE = Path(__file__).parent.resolve()
 VENDOR_DIR = HERE / "vendor"
 FLATBUFFERS_INCLUDE = VENDOR_DIR / "flatbuffers" / "include"
+GENERATED_DIR = HERE / "generated"
+
+# Required generated headers
+REQUIRED_GENERATED_HEADERS = [
+    "control_generated.h",
+    "state_generated.h",
+]
 
 
 def verify_checksum(filepath: Path, expected_sha256: str) -> bool:
@@ -33,6 +41,22 @@ def verify_checksum(filepath: Path, expected_sha256: str) -> bool:
     return sha256.hexdigest() == expected_sha256
 
 
+def check_generated_headers():
+    """Verify that required pre-generated FlatBuffers headers exist."""
+    missing = []
+    for header in REQUIRED_GENERATED_HEADERS:
+        if not (GENERATED_DIR / header).exists():
+            missing.append(header)
+
+    if missing:
+        print("Error: Required generated headers are missing:", file=sys.stderr)
+        for header in missing:
+            print(f"  - generated/{header}", file=sys.stderr)
+        print("\nTo generate these headers, run from the workspace root:", file=sys.stderr)
+        print("  flatc --cpp --gen-object-api -o driver/generated/ schema/control.fbs schema/state.fbs", file=sys.stderr)
+        raise SystemExit(1)
+
+
 def ensure_flatbuffers():
     """Download FlatBuffers headers if not present."""
     if (FLATBUFFERS_INCLUDE / "flatbuffers" / "flatbuffers.h").exists():
@@ -42,6 +66,7 @@ def ensure_flatbuffers():
     VENDOR_DIR.mkdir(parents=True, exist_ok=True)
 
     tarball_path = VENDOR_DIR / f"flatbuffers-{FLATBUFFERS_VERSION}.tar.gz"
+    extract_dir = VENDOR_DIR / "flatbuffers"
 
     try:
         # Download
@@ -61,15 +86,31 @@ def ensure_flatbuffers():
     try:
         # Extract only the include directory
         with tarfile.open(tarball_path, "r:gz") as tar:
-            extract_dir = VENDOR_DIR / "flatbuffers"
             extract_dir.mkdir(parents=True, exist_ok=True)
 
             prefix = f"flatbuffers-{FLATBUFFERS_VERSION}/include/"
             for member in tar.getmembers():
                 if member.name.startswith(prefix):
-                    member.name = member.name[len(f"flatbuffers-{FLATBUFFERS_VERSION}/"):]
+                    # Compute the relative path after stripping the prefix
+                    relative_path = member.name[len(f"flatbuffers-{FLATBUFFERS_VERSION}/"):]
+                    target_path = (extract_dir / relative_path).resolve()
+
+                    # Path traversal protection: ensure target is within extract_dir
+                    if not str(target_path).startswith(str(extract_dir.resolve())):
+                        print(f"Error: Path traversal detected in archive: {member.name}", file=sys.stderr)
+                        raise SystemExit(1)
+
+                    member.name = relative_path
                     tar.extract(member, extract_dir)
+    except SystemExit:
+        # Clean up partial extraction on failure
+        if extract_dir.exists():
+            shutil.rmtree(extract_dir)
+        raise
     except Exception as e:
+        # Clean up partial extraction on failure
+        if extract_dir.exists():
+            shutil.rmtree(extract_dir)
         print(f"Error extracting FlatBuffers: {e}", file=sys.stderr)
         raise SystemExit(1)
     finally:
@@ -79,6 +120,10 @@ def ensure_flatbuffers():
     print(f"FlatBuffers headers installed to {FLATBUFFERS_INCLUDE}")
 
 
+# Check generated headers exist before building
+check_generated_headers()
+
+# Download FlatBuffers runtime headers
 ensure_flatbuffers()
 
 cpp_sources = [
