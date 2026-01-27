@@ -100,15 +100,14 @@ public:
         read_index_.store(idx, std::memory_order_release);
         // Advance to next write slot
         write_index_.store((idx + 1) % N, std::memory_order_relaxed);
-        // Increment sequence (for legacy API compatibility)
-        sequence_.fetch_add(1, std::memory_order_release);
-        // Increment item count and notify waiting consumers.
-        // We wait/notify on item_count_ (not sequence_) to ensure the
-        // notification is tied to the predicate checked in wait_for_item().
-        // Use notify_all() to support wrappers that may have multiple waiters
-        // (even though SpscQueue itself is single-consumer by design).
+        // Increment item count (tracks actual writes)
         item_count_.fetch_add(1, std::memory_order_release);
-        item_count_.notify_all();
+        // Increment sequence and notify waiting consumers.
+        // We wait/notify on sequence_ because it's modified by BOTH end_write()
+        // and signal_exit(), avoiding missed-wakeup deadlocks.
+        // Use notify_all() to support wrappers that may have multiple waiters.
+        sequence_.fetch_add(1, std::memory_order_release);
+        sequence_.notify_all();
     }
 
     // =========================================================================
@@ -133,9 +132,12 @@ public:
             if (current_items > last_item_count) {
                 return &buffers_[read_index_.load(std::memory_order_acquire)];
             }
-            // Wait on item_count_ directly to avoid missed-wakeup issues.
-            // We wait/notify on the same atomic as our predicate check.
-            item_count_.wait(current_items, std::memory_order_acquire);
+            // Wait on sequence_ (not item_count_) because sequence_ is modified
+            // by BOTH end_write() and signal_exit(). This avoids missed-wakeup
+            // deadlocks where signal_exit() notifies between our predicate check
+            // and the wait call.
+            uint64_t current_seq = sequence_.load(std::memory_order_acquire);
+            sequence_.wait(current_seq, std::memory_order_acquire);
         }
     }
 
@@ -153,13 +155,11 @@ public:
     }
 
     /// Get the current synchronization sequence number.
-    /// @return Monotonically increasing value used internally to wake waiters.
-    ///         Increments on each end_write() and on signal_exit() to ensure
-    ///         threads blocked in wait_for_item() are notified.
-    /// @note This is a synchronization sequence used for sleeping/waking
-    ///       consumers (including exit notifications), not a pure "items
-    ///       written" counter. For detecting new data availability, callers
-    ///       should compare get_item_count() against their own last_item_count.
+    /// @return Monotonically increasing value incremented on end_write() and signal_exit().
+    /// @note This is the atomic used for wait/notify in wait_for_item(). It increments
+    ///       on both writes and exit signals to ensure waiters are always woken.
+    ///       For detecting new data availability, compare get_item_count() against
+    ///       your own last_item_count value.
     uint64_t get_sequence() const {
         return sequence_.load(std::memory_order_acquire);
     }
@@ -180,14 +180,13 @@ public:
 
     /// Signal consumers to exit.
     /// Wakes up any threads blocked in wait_for_item().
-    /// @note Notifies on item_count_ to wake waiters (does not increment item_count_).
+    /// @note Increments and notifies on sequence_ to wake waiters.
     void signal_exit() {
         bool expected = false;
         if (exit_signaled_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-            // Increment sequence for legacy API compatibility
+            // Increment sequence and notify to wake consumers blocked in wait_for_item()
             sequence_.fetch_add(1, std::memory_order_release);
-            // Notify on item_count_ to wake consumers blocked in wait_for_item()
-            item_count_.notify_all();
+            sequence_.notify_all();
         }
     }
 

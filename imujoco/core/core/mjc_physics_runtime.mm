@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstring>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 // Network includes
@@ -476,11 +477,12 @@ public:
     }
 
     MJFrameData* WaitForFrame() {
-        // Use per-instance state (not thread_local) to avoid cross-instance issues
-        // when the same thread calls WaitForFrame() on different runtime instances.
-        uint64_t last = last_wait_item_count_.load(std::memory_order_acquire);
+        // Use per-thread-per-instance state to support multiple threads calling
+        // WaitForFrame() on the same or different runtime instances without interference.
+        thread_local std::unordered_map<const MJSimulationRuntimeImpl*, uint64_t> last_item_counts;
+        uint64_t& last = last_item_counts[this];
         const MJFrameDataStorage* storage = ring_buffer_.wait_for_item(last);
-        last_wait_item_count_.store(ring_buffer_.get_item_count(), std::memory_order_release);
+        last = ring_buffer_.get_item_count();
         return AllocateFrameView(storage);
     }
 
@@ -729,7 +731,6 @@ private:
     mjvOption option_;
 
     imujoco::SpscQueue<MJFrameDataStorage, kFrameQueueCapacity> ring_buffer_;
-    std::atomic<uint64_t> last_wait_item_count_{0};  // Per-instance state for WaitForFrame()
     UDPServer udp_server_;
 
     std::thread physics_thread_;
