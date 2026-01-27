@@ -11,7 +11,7 @@
 #include <thread>
 #include <vector>
 
-// Use explicit namespace prefix per Google C++ Style Guide
+// Import only the specific type needed (avoids broad `using namespace`)
 using imujoco::SpscQueue;
 
 // Simple test struct

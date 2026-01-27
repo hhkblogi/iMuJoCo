@@ -37,6 +37,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 namespace imujoco {
 
@@ -77,6 +78,8 @@ template <typename T, std::size_t N = 3>
 class SpscQueue {
 public:
     static_assert(N >= 2, "Queue must have at least 2 slots");
+    static_assert(std::is_default_constructible_v<T>,
+                  "T must be default-constructible (storage uses std::array<T, N>)");
 
     SpscQueue()
         : write_index_(0),

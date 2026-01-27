@@ -532,22 +532,37 @@ public:
     }
 
     MJFrameData* WaitForFrame() {
-        // Use per-thread-per-instance state to support multiple threads calling
-        // WaitForFrame() on the same or different runtime instances without interference.
-        // Key by unique_id_ (monotonic counter) instead of `this` to avoid stale entries
-        // when an instance is destroyed and a new one is allocated at the same address.
-        thread_local std::unordered_map<uint64_t, uint64_t> last_item_counts;
+        // Per-thread-per-instance state for tracking last item count.
+        // Optimized for the common case: single instance per thread.
+        // Uses a 1-entry cache + fallback map to minimize overhead on hot path.
+        struct PerThreadState {
+            uint64_t cached_id = 0;
+            uint64_t cached_count = 0;
+            std::unordered_map<uint64_t, uint64_t> overflow;
+        };
+        thread_local PerThreadState state;
 
-        // Periodically clean up stale entries from destroyed instances to prevent
-        // unbounded memory growth in long-lived threads.
-        constexpr size_t kCleanupThreshold = 16;
-        if (last_item_counts.size() > kCleanupThreshold) {
-            ActiveInstanceRegistry::Instance().CleanupStaleEntries(last_item_counts);
+        uint64_t* last_ptr;
+        if (state.cached_id == unique_id_) {
+            // Fast path: cache hit (common case - single instance per thread)
+            last_ptr = &state.cached_count;
+        } else if (state.cached_id == 0) {
+            // First use on this thread - populate cache
+            state.cached_id = unique_id_;
+            state.cached_count = 0;
+            last_ptr = &state.cached_count;
+        } else {
+            // Slow path: multiple instances on same thread - use overflow map
+            last_ptr = &state.overflow[unique_id_];
+            // Periodically clean up stale entries
+            constexpr size_t kCleanupThreshold = 16;
+            if (state.overflow.size() > kCleanupThreshold) {
+                ActiveInstanceRegistry::Instance().CleanupStaleEntries(state.overflow);
+            }
         }
 
-        uint64_t& last = last_item_counts[unique_id_];
-        const MJFrameDataStorage* storage = ring_buffer_.wait_for_item(last);
-        last = ring_buffer_.get_item_count();
+        const MJFrameDataStorage* storage = ring_buffer_.wait_for_item(*last_ptr);
+        *last_ptr = ring_buffer_.get_item_count();
         return AllocateFrameView(storage);
     }
 
