@@ -121,9 +121,11 @@ public:
             if (exit_signaled_.load(std::memory_order_acquire)) {
                 return nullptr;
             }
-            // Check if sequence has advanced
+            // Check if sequence has advanced AND at least one item was written.
+            // This guards against the case where signal_exit() increments sequence_
+            // without writing an item, and then reset_exit_signal() is called.
             uint64_t current = sequence_.load(std::memory_order_acquire);
-            if (current > last_sequence) {
+            if (current > last_sequence && item_count_.load(std::memory_order_acquire) > 0) {
                 return &buffers_[read_index_.load(std::memory_order_acquire)];
             }
             // Wait for change (may wake spuriously)

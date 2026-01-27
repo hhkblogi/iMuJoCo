@@ -483,7 +483,8 @@ public:
     }
 
     uint64_t GetFrameCount() const {
-        return ring_buffer_.get_sequence();
+        // Return the true number of frames produced, excluding exit signals.
+        return ring_buffer_.get_item_count();
     }
 
     // Camera

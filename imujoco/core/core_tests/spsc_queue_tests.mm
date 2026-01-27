@@ -137,6 +137,58 @@ struct TestData {
     XCTAssertFalse(queue.is_exit_signaled(), @"Exit signal should be reset");
 }
 
+- (void)test_wait_for_item_after_exit_reset_on_empty_queue {
+    // Regression test: wait_for_item() must not return a pointer to uninitialized
+    // data when signal_exit() followed by reset_exit_signal() is called on an
+    // empty queue. The sequence_ is incremented by signal_exit(), so after reset
+    // the `current > last_sequence` check could pass without any items written.
+    SpscQueue<TestData, 3> queue;
+
+    // Signal exit on empty queue (increments sequence_ to 1)
+    queue.signal_exit();
+    XCTAssertEqual(queue.get_sequence(), 1ULL);
+    XCTAssertEqual(queue.get_item_count(), 0ULL, @"No items written yet");
+
+    // Reset exit signal for "reuse"
+    queue.reset_exit_signal();
+    XCTAssertFalse(queue.is_exit_signaled());
+
+    // Now wait_for_item(0) should block (not return uninitialized data)
+    // because item_count_ is still 0, even though sequence_ > 0.
+    // We test this by having a consumer thread that should block until we
+    // either write an item or signal exit again.
+    std::atomic<bool> consumer_returned{false};
+    std::atomic<bool> got_valid_item{false};
+
+    std::thread consumer([&]() {
+        const auto* item = queue.wait_for_item(0);
+        consumer_returned = true;
+        // If we got an item (not nullptr from exit), record it
+        if (item != nullptr) {
+            got_valid_item = true;
+        }
+    });
+
+    // Give consumer time to potentially (incorrectly) return
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+    // Consumer should still be blocked because no items were written
+    XCTAssertFalse(consumer_returned.load(),
+                   @"Consumer should be blocked waiting - no items written yet");
+
+    // Now write an actual item
+    auto* slot = queue.begin_write();
+    slot->value = 42;
+    slot->sequence = 1;
+    queue.end_write();
+
+    // Wait for consumer to return
+    consumer.join();
+
+    XCTAssertTrue(consumer_returned, @"Consumer should have returned after write");
+    XCTAssertTrue(got_valid_item, @"Consumer should have received valid item, not nullptr");
+}
+
 - (void)test_exit_signal_idempotent {
     SpscQueue<TestData, 3> queue;
 
