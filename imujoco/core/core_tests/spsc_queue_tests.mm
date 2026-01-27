@@ -186,8 +186,8 @@ struct TestData {
     // Wait for consumer to return
     consumer.join();
 
-    XCTAssertTrue(consumer_returned, @"Consumer should have returned after write");
-    XCTAssertTrue(got_valid_item, @"Consumer should have received valid item, not nullptr");
+    XCTAssertTrue(consumer_returned.load(), @"Consumer should have returned after write");
+    XCTAssertTrue(got_valid_item.load(), @"Consumer should have received valid item, not nullptr");
 }
 
 - (void)test_exit_signal_idempotent {
@@ -264,7 +264,7 @@ struct TestData {
     // Wait for consumer
     consumer.join();
 
-    XCTAssertTrue(consumer_returned, @"Consumer should return after new write");
+    XCTAssertTrue(consumer_returned.load(), @"Consumer should return after new write");
     XCTAssertEqual(received_value.load(), 40,
                    @"Consumer should receive NEW item (40), not old item (30)");
 }
@@ -351,7 +351,7 @@ struct TestData {
 
     XCTAssertFalse(timeout_triggered,
                    @"Test should not timeout - consumer should observe final item");
-    XCTAssertTrue(consumer_done, @"Consumer should complete");
+    XCTAssertTrue(consumer_done.load(), @"Consumer should complete");
     XCTAssertGreaterThan(received_values.size(), 0UL, @"Should have received some values");
     XCTAssertEqual(max_observed.load(), kNumItems,
                    @"Consumer should have observed final value");
@@ -372,25 +372,25 @@ struct TestData {
 
     // Consumer thread that waits
     std::thread consumer([&]() {
-        consumer_started = true;
+        consumer_started.store(true, std::memory_order_release);
         result = queue.wait_for_item(0);
-        consumer_exited = true;
+        consumer_exited.store(true, std::memory_order_release);
     });
 
     // Wait for consumer to start waiting
-    while (!consumer_started) {
+    while (!consumer_started.load(std::memory_order_acquire)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    XCTAssertFalse(consumer_exited, @"Consumer should be blocked waiting");
+    XCTAssertFalse(consumer_exited.load(), @"Consumer should be blocked waiting");
 
     // Signal exit
     queue.signal_exit();
 
     consumer.join();
 
-    XCTAssertTrue(consumer_exited, @"Consumer should have exited");
+    XCTAssertTrue(consumer_exited.load(), @"Consumer should have exited");
     XCTAssertTrue(result == nullptr, @"wait_for_item should return nullptr on exit");
 }
 

@@ -13,7 +13,6 @@
 #include <cstring>
 #include <mutex>
 #include <thread>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -268,9 +267,9 @@ struct ActiveInstanceRegistry {
         ids.erase(id);
     }
 
-    // Note: CleanupStaleEntries removed - cleanup is now done lazily
-    // during Unregister() via thread-local invalidation, avoiding
-    // mutex acquisition on the consumer (real-time) path.
+    // Note: CleanupStaleEntries was removed. Stale entries in the per-thread
+    // fixed-size cache (WaitForFrame) are evicted via LRU replacement, so no
+    // explicit cleanup is needed.
 };
 
 class MJSimulationRuntimeImpl {
@@ -288,7 +287,7 @@ public:
         , exit_requested_(false)
         , speed_changed_(false) {
 
-        // Register this instance ID for thread_local cleanup tracking
+        // Register this instance ID in the active instance registry
         ActiveInstanceRegistry::Instance().Register(unique_id_);
 
         os_log_info(OS_LOG_DEFAULT, "Creating instance %d (SPSC queue, UDP port %u)",
@@ -318,7 +317,7 @@ public:
         if (scene_.maxgeom > 0) {
             mjv_freeScene(&scene_);
         }
-        // Unregister this instance ID so thread_local maps can clean up stale entries
+        // Unregister this instance ID from the active instance registry
         ActiveInstanceRegistry::Instance().Unregister(unique_id_);
         os_log_info(OS_LOG_DEFAULT, "Instance %d destroyed", instance_index_);
     }
