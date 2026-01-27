@@ -7,9 +7,20 @@
 // All readers observe the same latest item - this is NOT a work-stealing queue.
 // Semantically, this is an SPMR (Single-Producer Multi-Reader) "latest value" queue.
 //
-// A fixed-size ring buffer optimized for single-producer, multi-reader scenarios.
-// Multiple reader threads may call wait_for_item() concurrently if each maintains
-// its own last_item_count state. Uses C++20 atomic wait/notify.
+// INTENDED USE CASE:
+//   This queue is designed for real-time scenarios where consumers want the LATEST
+//   value, not every value. Typical use cases include:
+//   - Physics simulation → Renderer (consumer wants latest frame, skipping is OK)
+//   - Sensor data → Processing (consumer wants freshest reading)
+//   - Game state → Network sync (consumer wants current state)
+//
+//   If you need every item delivered (no skipping), use a traditional FIFO queue.
+//
+// DESIGN RATIONALE:
+//   - Zero-copy for minimal latency: returns pointers into internal buffer
+//   - Lock-free for real-time guarantees: no blocking on mutexes
+//   - Fixed-size for predictable memory: no allocations after construction
+//   - "Latest value" semantics: slow consumers skip to newest data
 //
 // Thread Safety:
 //   - Producer thread (single): begin_write(), end_write()
@@ -21,14 +32,23 @@
 //
 // Memory Model:
 //   - Uses acquire/release semantics for correct synchronization
+//   - Producer's end_write() releases; consumer's wait_for_item() acquires
+//   - This guarantees all writes to the slot are visible before the pointer is returned
 //   - Cache-line aligned atomics to prevent false sharing
 //
-// Pointer Lifetime:
-//   Pointers returned by get_latest() and wait_for_item() are valid only until
-//   the producer wraps around and overwrites that slot. Because the queue uses
-//   a fixed ring buffer of N slots, a pointer remains valid through N-1
-//   subsequent end_write() calls. After N writes, the slot is overwritten.
-//   Consumers should copy data out promptly and not retain pointers.
+// Pointer Lifetime & Safety Contract:
+//   Pointers returned by get_latest() and wait_for_item() point into the internal
+//   ring buffer. They are guaranteed valid through N-1 subsequent end_write() calls.
+//   After N writes, the slot is overwritten and the pointer becomes invalid.
+//
+//   CONSUMER RESPONSIBILITY: Copy data out promptly after receiving a pointer.
+//   The queue cannot enforce this - it's a contract. For a 3-slot queue (N=3),
+//   you have 2 writes of safety margin. For real-time frame delivery at 60Hz
+//   consumer / 1000Hz producer, use N >= 16 to provide adequate margin.
+//
+//   This is inherent to zero-copy ring buffer design. If you need automatic
+//   lifetime management, consider a different data structure (e.g., shared_ptr
+//   per slot), but that adds overhead inappropriate for real-time use.
 
 #ifndef spsc_queue_h
 #define spsc_queue_h

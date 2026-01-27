@@ -268,11 +268,6 @@ struct ActiveInstanceRegistry {
         ids.erase(id);
     }
 
-    bool Contains(uint64_t id) {
-        std::lock_guard<std::mutex> lock(mutex);
-        return ids.find(id) != ids.end();
-    }
-
     void CleanupStaleEntries(std::unordered_map<uint64_t, uint64_t>& map) {
         std::lock_guard<std::mutex> lock(mutex);
         for (auto it = map.begin(); it != map.end(); ) {
@@ -533,8 +528,8 @@ public:
 
     MJFrameData* WaitForFrame() {
         // Per-thread-per-instance state for tracking last item count.
-        // Optimized for the common case: single instance per thread.
-        // Uses a 1-entry cache + fallback map to minimize overhead on hot path.
+        // Uses a 1-entry cache for the common case (single instance per thread)
+        // with LRU replacement: cache miss promotes the new instance to cache.
         struct PerThreadState {
             uint64_t cached_id = 0;
             uint64_t cached_count = 0;
@@ -544,7 +539,7 @@ public:
 
         uint64_t* last_ptr;
         if (state.cached_id == unique_id_) {
-            // Fast path: cache hit (common case - single instance per thread)
+            // Fast path: cache hit
             last_ptr = &state.cached_count;
         } else if (state.cached_id == 0) {
             // First use on this thread - populate cache
@@ -552,9 +547,22 @@ public:
             state.cached_count = 0;
             last_ptr = &state.cached_count;
         } else {
-            // Slow path: multiple instances on same thread - use overflow map
-            last_ptr = &state.overflow[unique_id_];
-            // Periodically clean up stale entries
+            // Cache miss: swap current cache entry with overflow, promote this id to cache.
+            // This implements LRU - most recently used instance stays in cache.
+            if (state.overflow.count(unique_id_)) {
+                // Swap: demote cached entry, promote this one
+                state.overflow[state.cached_id] = state.cached_count;
+                state.cached_count = state.overflow[unique_id_];
+                state.overflow.erase(unique_id_);
+            } else {
+                // New instance: demote cached entry, start fresh
+                state.overflow[state.cached_id] = state.cached_count;
+                state.cached_count = 0;
+            }
+            state.cached_id = unique_id_;
+            last_ptr = &state.cached_count;
+
+            // Periodically clean up stale entries from destroyed instances
             constexpr size_t kCleanupThreshold = 16;
             if (state.overflow.size() > kCleanupThreshold) {
                 ActiveInstanceRegistry::Instance().CleanupStaleEntries(state.overflow);
