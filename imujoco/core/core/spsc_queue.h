@@ -1,9 +1,10 @@
 // spsc_queue.h
-// Single Producer Multiple Consumer (SPMC) lock-free queue
+// Single Producer Single Consumer (SPSC) lock-free queue with multi-reader support
 //
-// A fixed-size ring buffer with single producer and support for multiple
-// concurrent readers. Uses C++20 atomic wait/notify for efficient blocking waits.
-// Named "SPSC" historically but supports multiple readers with independent state.
+// A fixed-size ring buffer optimized for single producer scenarios. While named
+// "SPSC", multiple reader threads may call wait_for_item() concurrently if each
+// maintains its own last_item_count state. All readers observe the same latest
+// item (this is NOT a work-stealing queue). Uses C++20 atomic wait/notify.
 //
 // Thread Safety:
 //   - Producer thread (single): begin_write(), end_write()
@@ -34,14 +35,15 @@
 
 namespace imujoco {
 
-/// Single Producer Single Consumer lock-free queue.
+/// Single Producer lock-free queue with multi-reader support.
 ///
 /// @tparam T The element type stored in the queue
 /// @tparam N The capacity of the queue (number of slots)
 ///
 /// This queue uses a ring buffer with triple buffering by default (N=3).
-/// The producer writes to one slot while the consumer reads from another,
-/// with a third slot available to absorb timing variations.
+/// Multiple reader threads may call wait_for_item() concurrently if each
+/// maintains its own last_item_count state. All readers observe the same
+/// latest item (this is NOT a work-stealing queue).
 ///
 /// @warning Pointers returned by get_latest() and wait_for_item() point into
 /// the internal ring buffer. They remain valid through N-1 subsequent writes;
@@ -73,7 +75,6 @@ public:
 
     SpscQueue()
         : write_index_(0),
-          read_index_(0),
           sequence_(0),
           item_count_(0),
           exit_signaled_(false) {}
@@ -98,12 +99,12 @@ public:
     /// Complete writing and publish the slot to consumers.
     /// @note Makes the written data visible to the consumer thread
     void end_write() {
-        std::size_t idx = write_index_.load(std::memory_order_relaxed);
-        // Publish the written slot to consumers
-        read_index_.store(idx, std::memory_order_release);
         // Advance to next write slot
+        std::size_t idx = write_index_.load(std::memory_order_relaxed);
         write_index_.store((idx + 1) % N, std::memory_order_relaxed);
-        // Increment item count (tracks actual writes)
+        // Increment item count (tracks actual writes).
+        // Consumers derive the read index from item_count_ to ensure consistency:
+        // latest_index = (item_count - 1) % N
         item_count_.fetch_add(1, std::memory_order_release);
         // Increment sequence and notify waiting consumers.
         // We wait/notify on sequence_ because it's modified by BOTH end_write()
@@ -133,7 +134,10 @@ public:
             // Check if a NEW item has been written since last_item_count.
             uint64_t current_items = item_count_.load(std::memory_order_acquire);
             if (current_items > last_item_count) {
-                return &buffers_[read_index_.load(std::memory_order_acquire)];
+                // Derive read index from item_count to ensure consistency.
+                // This guarantees the returned pointer corresponds to the observed write.
+                std::size_t read_idx = static_cast<std::size_t>((current_items - 1) % N);
+                return &buffers_[read_idx];
             }
             // Wait on sequence_ (not item_count_) because sequence_ is modified
             // by BOTH end_write() and signal_exit(). This avoids missed-wakeup
@@ -151,10 +155,13 @@ public:
     /// @note Returns nullptr only when no items have been written via end_write().
     ///       This check is independent of signal_exit() which only affects sequence_.
     const T* get_latest() const {
-        if (item_count_.load(std::memory_order_acquire) == 0) {
+        uint64_t count = item_count_.load(std::memory_order_acquire);
+        if (count == 0) {
             return nullptr;
         }
-        return &buffers_[read_index_.load(std::memory_order_acquire)];
+        // Derive read index from item_count to ensure consistency
+        std::size_t read_idx = static_cast<std::size_t>((count - 1) % N);
+        return &buffers_[read_idx];
     }
 
     /// Get the current synchronization sequence number.
@@ -217,12 +224,11 @@ private:
 
     // Cache-line aligned to prevent false sharing between producer and consumer
     alignas(64) std::atomic<std::size_t> write_index_;
-    alignas(64) std::atomic<std::size_t> read_index_;
     alignas(64) std::atomic<uint64_t> sequence_;
     // Tracks actual items written (not incremented by signal_exit)
     alignas(64) std::atomic<uint64_t> item_count_;
 
-    std::atomic<bool> exit_signaled_;
+    alignas(64) std::atomic<bool> exit_signaled_;
 };
 
 }  // namespace imujoco

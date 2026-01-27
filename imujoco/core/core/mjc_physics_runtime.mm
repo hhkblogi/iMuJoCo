@@ -9,8 +9,10 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <mutex>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 // Network includes
@@ -243,6 +245,10 @@ private:
 // Monotonic counter for generating unique instance IDs that survive object reuse
 static std::atomic<uint64_t> g_next_instance_id{1};
 
+// Track active instance IDs to allow cleanup of stale thread_local entries
+static std::mutex g_active_ids_mutex;
+static std::unordered_set<uint64_t> g_active_ids;
+
 class MJSimulationRuntimeImpl {
 public:
     explicit MJSimulationRuntimeImpl(const MJRuntimeConfig& config)
@@ -257,6 +263,12 @@ public:
         , data_(nullptr)
         , exit_requested_(false)
         , speed_changed_(false) {
+
+        // Register this instance ID for thread_local cleanup tracking
+        {
+            std::lock_guard<std::mutex> lock(g_active_ids_mutex);
+            g_active_ids.insert(unique_id_);
+        }
 
         os_log_info(OS_LOG_DEFAULT, "Creating instance %d (SPSC queue, UDP port %u)",
                     config.instanceIndex, udp_port_);
@@ -284,6 +296,11 @@ public:
         Unload();
         if (scene_.maxgeom > 0) {
             mjv_freeScene(&scene_);
+        }
+        // Unregister this instance ID so thread_local maps can clean up stale entries
+        {
+            std::lock_guard<std::mutex> lock(g_active_ids_mutex);
+            g_active_ids.erase(unique_id_);
         }
         os_log_info(OS_LOG_DEFAULT, "Instance %d destroyed", instance_index_);
     }
@@ -486,6 +503,21 @@ public:
         // Key by unique_id_ (monotonic counter) instead of `this` to avoid stale entries
         // when an instance is destroyed and a new one is allocated at the same address.
         thread_local std::unordered_map<uint64_t, uint64_t> last_item_counts;
+
+        // Periodically clean up stale entries from destroyed instances to prevent
+        // unbounded memory growth in long-lived threads.
+        constexpr size_t kCleanupThreshold = 16;
+        if (last_item_counts.size() > kCleanupThreshold) {
+            std::lock_guard<std::mutex> lock(g_active_ids_mutex);
+            for (auto it = last_item_counts.begin(); it != last_item_counts.end(); ) {
+                if (g_active_ids.find(it->first) == g_active_ids.end()) {
+                    it = last_item_counts.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+
         uint64_t& last = last_item_counts[unique_id_];
         const MJFrameDataStorage* storage = ring_buffer_.wait_for_item(last);
         last = ring_buffer_.get_item_count();
