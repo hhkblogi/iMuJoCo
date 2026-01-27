@@ -1,6 +1,6 @@
 // mjc_physics_runtime.mm
 // C++ implementation of MuJoCo physics simulation runtime
-// Uses lock-free ring buffer with C++20 atomic wait/notify for lowest latency
+// Uses SpscQueue (lock-free SPSC queue) with C++20 atomic wait/notify for lowest latency
 
 #include "mjc_physics_runtime.h"
 #include <mujoco/mujoco.h>
@@ -32,11 +32,13 @@
 // Fragment support
 #include "mjc_fragment.h"
 
+// SPSC queue for lock-free frame passing
+#include "spsc_queue.h"
+
 // MARK: - Constants
 
 namespace {
 
-constexpr int kRingBufferSize = 3;      // Triple buffering
 constexpr int kErrorLength = 1024;      // Error buffer size
 constexpr int kMaxPacketsPerLoop = 100; // Max UDP packets to process per physics step
 constexpr int kMaxActuators = 256;      // Maximum actuators for control buffer
@@ -49,64 +51,6 @@ using Clock = std::chrono::steady_clock;
 using Seconds = std::chrono::duration<double>;
 
 }  // namespace
-
-// MARK: - LockFreeRingBuffer
-
-class LockFreeRingBuffer {
-public:
-    LockFreeRingBuffer() : write_index_(0), read_index_(0), frame_count_(0) {}
-
-    MJFrameDataStorage* BeginWrite() {
-        return &buffers_[write_index_.load(std::memory_order_relaxed)];
-    }
-
-    void EndWrite() {
-        int idx = write_index_.load(std::memory_order_relaxed);
-        read_index_.store(idx, std::memory_order_release);
-        write_index_.store((idx + 1) % kRingBufferSize, std::memory_order_relaxed);
-        frame_count_.fetch_add(1, std::memory_order_release);
-        frame_count_.notify_one();
-    }
-
-    const MJFrameDataStorage* WaitForFrame(uint64_t last_frame) {
-        frame_count_.wait(last_frame, std::memory_order_acquire);
-        if (exit_signaled_.load(std::memory_order_acquire)) {
-            return nullptr;
-        }
-        return &buffers_[read_index_.load(std::memory_order_acquire)];
-    }
-
-    const MJFrameDataStorage* GetLatestFrame() const {
-        // Return nullptr if no frames have been written yet
-        if (frame_count_.load(std::memory_order_acquire) == 0) {
-            return nullptr;
-        }
-        return &buffers_[read_index_.load(std::memory_order_acquire)];
-    }
-
-    uint64_t GetFrameCount() const {
-        return frame_count_.load(std::memory_order_acquire);
-    }
-
-    void SignalExit() {
-        bool expected = false;
-        if (exit_signaled_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-            frame_count_.fetch_add(1, std::memory_order_release);
-            frame_count_.notify_all();
-        }
-    }
-
-    void ResetForRestart() {
-        exit_signaled_.store(false, std::memory_order_release);
-    }
-
-private:
-    std::array<MJFrameDataStorage, kRingBufferSize> buffers_;
-    alignas(64) std::atomic<int> write_index_;
-    alignas(64) std::atomic<int> read_index_;
-    alignas(64) std::atomic<uint64_t> frame_count_;
-    std::atomic<bool> exit_signaled_{false};
-};
 
 // MARK: - UDPServer
 
@@ -308,7 +252,7 @@ public:
         , exit_requested_(false)
         , speed_changed_(false) {
 
-        os_log_info(OS_LOG_DEFAULT, "Creating instance %d (lock-free ring buffer, UDP port %u)",
+        os_log_info(OS_LOG_DEFAULT, "Creating instance %d (SPSC queue, UDP port %u)",
                     config.instanceIndex, udp_port_);
 
         mjv_defaultCamera(&camera_);
@@ -441,7 +385,7 @@ public:
         state_ = MJRuntimeState::Running;
         exit_requested_ = false;
         speed_changed_ = true;
-        ring_buffer_.ResetForRestart();
+        ring_buffer_.reset_exit_signal();
 
         physics_thread_ = std::thread(&MJSimulationRuntimeImpl::PhysicsLoop, this);
     }
@@ -454,7 +398,7 @@ public:
 
     void Stop() {
         exit_requested_ = true;
-        ring_buffer_.SignalExit();
+        ring_buffer_.signal_exit();
 
         if (physics_thread_.joinable()) {
             physics_thread_.join();
@@ -485,7 +429,7 @@ public:
     MJRuntimeState GetState() const { return state_; }
 
     MJRuntimeStats GetStats() const {
-        const MJFrameDataStorage* storage = ring_buffer_.GetLatestFrame();
+        const MJFrameDataStorage* storage = ring_buffer_.get_latest();
         MJRuntimeStats stats;
         stats.simulationTime = storage ? storage->simulationTime : 0.0;
         stats.measuredSlowdown = 1.0;
@@ -526,19 +470,19 @@ public:
     }
 
     MJFrameData* GetLatestFrame() {
-        const MJFrameDataStorage* storage = ring_buffer_.GetLatestFrame();
+        const MJFrameDataStorage* storage = ring_buffer_.get_latest();
         return AllocateFrameView(storage);
     }
 
     MJFrameData* WaitForFrame() {
         thread_local uint64_t last_read_frame = 0;
-        const MJFrameDataStorage* storage = ring_buffer_.WaitForFrame(last_read_frame);
-        last_read_frame = ring_buffer_.GetFrameCount();
+        const MJFrameDataStorage* storage = ring_buffer_.wait_for_item(last_read_frame);
+        last_read_frame = ring_buffer_.get_count();
         return AllocateFrameView(storage);
     }
 
     uint64_t GetFrameCount() const {
-        return ring_buffer_.GetFrameCount();
+        return ring_buffer_.get_count();
     }
 
     // Camera
@@ -711,7 +655,7 @@ private:
     }
 
     void WriteFrameToBuffer(int32_t sps = 0) {
-        MJFrameDataStorage* frame = ring_buffer_.BeginWrite();
+        MJFrameDataStorage* frame = ring_buffer_.begin_write();
 
         mjv_updateScene(model_, data_, &option_, nullptr, &camera_, mjCAT_ALL, &scene_);
 
@@ -760,9 +704,9 @@ private:
 
         frame->simulationTime = data_->time;
         frame->stepsPerSecond = sps;
-        frame->frameNumber = ring_buffer_.GetFrameCount() + 1;
+        frame->frameNumber = ring_buffer_.get_count() + 1;
 
-        ring_buffer_.EndWrite();
+        ring_buffer_.end_write();
     }
 
     int32_t instance_index_;
@@ -779,7 +723,7 @@ private:
     mjvCamera camera_;
     mjvOption option_;
 
-    LockFreeRingBuffer ring_buffer_;
+    imujoco::SpscQueue<MJFrameDataStorage, 3> ring_buffer_;
     UDPServer udp_server_;
 
     std::thread physics_thread_;
