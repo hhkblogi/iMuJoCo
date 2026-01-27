@@ -292,18 +292,22 @@ struct TestData {
             const auto* item = queue.wait_for_item(last_item_count);
             if (!item) break;  // Exit signaled
 
+            // IMPORTANT: Copy item immediately to avoid data race.
+            // The producer may overwrite this slot after N-1 more writes.
+            TestData local_copy = *item;
+
             // Update last_item_count from the queue's actual item count
             last_item_count = queue.get_item_count();
 
             // Verify ordering (values should be monotonically increasing)
-            if (item->value > last_value) {
-                received_values.push_back(item->value);
-                last_value = item->value;
-                max_observed.store(item->value, std::memory_order_release);
+            if (local_copy.value > last_value) {
+                received_values.push_back(local_copy.value);
+                last_value = local_copy.value;
+                max_observed.store(local_copy.value, std::memory_order_release);
             }
 
             // Exit once we've observed the final item
-            if (item->value == kNumItems) break;
+            if (local_copy.value == kNumItems) break;
         }
         consumer_done = true;
     });

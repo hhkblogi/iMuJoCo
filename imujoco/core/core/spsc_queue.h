@@ -1,10 +1,10 @@
 // spsc_queue.h
-// Single Producer Single Consumer (SPSC) lock-free queue with multi-reader support
+// Single-Producer Multi-Reader (SPMR) "latest value" lock-free queue
 //
-// A fixed-size ring buffer optimized for single producer scenarios. While named
-// "SPSC", multiple reader threads may call wait_for_item() concurrently if each
-// maintains its own last_item_count state. All readers observe the same latest
-// item (this is NOT a work-stealing queue). Uses C++20 atomic wait/notify.
+// A fixed-size ring buffer optimized for single-producer, multi-reader scenarios
+// where all readers observe the same latest item (NOT a work-stealing queue).
+// Multiple reader threads may call wait_for_item() concurrently if each maintains
+// its own last_item_count state. Uses C++20 atomic wait/notify.
 //
 // Thread Safety:
 //   - Producer thread (single): begin_write(), end_write()
@@ -35,7 +35,7 @@
 
 namespace imujoco {
 
-/// Single Producer lock-free queue with multi-reader support.
+/// Single-Producer Multi-Reader (SPMR) "latest value" lock-free queue.
 ///
 /// @tparam T The element type stored in the queue
 /// @tparam N The capacity of the queue (number of slots)
