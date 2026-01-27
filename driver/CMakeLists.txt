@@ -88,10 +88,10 @@ target_link_libraries(mujoco_driver
 # Python bindings
 if(MUJOCO_DRIVER_BUILD_PYTHON)
     set(MUJOCO_DRIVER_PY_BINDINGS
-        ${CMAKE_CURRENT_SOURCE_DIR}/python/mujoco_driver/bindings.cc
+        ${CMAKE_CURRENT_SOURCE_DIR}/python/bindings.cc
     )
     set(MUJOCO_DRIVER_PY_INIT
-        ${CMAKE_CURRENT_SOURCE_DIR}/python/mujoco_driver/__init__.py
+        ${CMAKE_CURRENT_SOURCE_DIR}/python/__init__.py
     )
 
     if(EXISTS "${MUJOCO_DRIVER_PY_BINDINGS}" AND EXISTS "${MUJOCO_DRIVER_PY_INIT}")
@@ -109,18 +109,18 @@ if(MUJOCO_DRIVER_BUILD_PYTHON)
         )
         FetchContent_MakeAvailable(pybind11)
 
-        pybind11_add_module(_mujoco_driver ${MUJOCO_DRIVER_PY_BINDINGS})
+        pybind11_add_module(_imujoco_driver ${MUJOCO_DRIVER_PY_BINDINGS})
 
-        target_include_directories(_mujoco_driver PRIVATE
+        target_include_directories(_imujoco_driver PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/cc/include
             ${GENERATED_DIR}
         )
 
-        target_link_libraries(_mujoco_driver PRIVATE mujoco_driver)
+        target_link_libraries(_imujoco_driver PRIVATE mujoco_driver)
 
         # Output Python module to build/driver/python directory
-        set(PYTHON_OUTPUT_DIR ${CMAKE_BINARY_DIR}/driver/python/mujoco_driver)
-        set_target_properties(_mujoco_driver PROPERTIES
+        set(PYTHON_OUTPUT_DIR ${CMAKE_BINARY_DIR}/driver/python/imujoco_driver)
+        set_target_properties(_imujoco_driver PROPERTIES
             LIBRARY_OUTPUT_DIRECTORY ${PYTHON_OUTPUT_DIR}
         )
 
