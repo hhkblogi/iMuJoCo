@@ -127,7 +127,14 @@ public:
     const T* wait_for_item(uint64_t last_item_count) {
         // Loop to handle spurious wakeups per C++ spec
         for (;;) {
-            // Check exit first to avoid unnecessary waiting
+            // CRITICAL: Capture sequence BEFORE checking predicates to avoid missed wakeup.
+            // If end_write()/signal_exit() increments sequence_ after this load but before
+            // our wait(), we'll see a stale expected_seq and wait() will return immediately
+            // (because current value != expected). This prevents the deadlock where we
+            // load an already-incremented sequence and block forever.
+            uint64_t expected_seq = sequence_.load(std::memory_order_acquire);
+
+            // Check exit signal
             if (exit_signaled_.load(std::memory_order_acquire)) {
                 return nullptr;
             }
@@ -139,12 +146,9 @@ public:
                 std::size_t read_idx = static_cast<std::size_t>((current_items - 1) % N);
                 return &buffers_[read_idx];
             }
-            // Wait on sequence_ (not item_count_) because sequence_ is modified
-            // by BOTH end_write() and signal_exit(). This avoids missed-wakeup
-            // deadlocks where signal_exit() notifies between our predicate check
-            // and the wait call.
-            uint64_t current_seq = sequence_.load(std::memory_order_acquire);
-            sequence_.wait(current_seq, std::memory_order_acquire);
+            // Wait on the sequence value captured BEFORE predicate checks.
+            // If sequence_ changed between our load and now, wait() returns immediately.
+            sequence_.wait(expected_seq, std::memory_order_acquire);
         }
     }
 
