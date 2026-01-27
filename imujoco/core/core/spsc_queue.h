@@ -8,7 +8,7 @@
 //   - Producer thread: begin_write(), end_write()
 //   - Consumer thread: wait_for_item(), get_latest(), get_sequence(), get_item_count()
 //   - Any thread: signal_exit()
-//   - Any thread (when no waiters): reset_exit_signal()
+//   - Any thread (when no threads are blocked in wait_for_item()): reset_exit_signal()
 //
 // Memory Model:
 //   - Uses acquire/release semantics for correct synchronization
@@ -55,8 +55,10 @@ namespace imujoco {
 /// queue.end_write();
 ///
 /// // Consumer thread
-/// auto* item = queue.wait_for_item(last_seq);
+/// uint64_t last_item_count = 0;
+/// auto* item = queue.wait_for_item(last_item_count);
 /// if (item) {
+///     last_item_count = queue.get_item_count();  // Update for next wait
 ///     FrameData copy = *item;  // Copy out immediately
 ///     process(copy);
 /// }
@@ -98,11 +100,13 @@ public:
         read_index_.store(idx, std::memory_order_release);
         // Advance to next write slot
         write_index_.store((idx + 1) % N, std::memory_order_relaxed);
-        // Increment item count (tracks actual writes, not exit signals)
-        item_count_.fetch_add(1, std::memory_order_release);
-        // Increment sequence and notify waiting consumers
+        // Increment sequence (for legacy API compatibility)
         sequence_.fetch_add(1, std::memory_order_release);
-        sequence_.notify_one();
+        // Increment item count and notify waiting consumers.
+        // We wait/notify on item_count_ (not sequence_) to ensure the
+        // notification is tied to the predicate checked in wait_for_item().
+        item_count_.fetch_add(1, std::memory_order_release);
+        item_count_.notify_one();
     }
 
     // =========================================================================
@@ -123,16 +127,13 @@ public:
                 return nullptr;
             }
             // Check if a NEW item has been written since last_item_count.
-            // We use item_count_ (not sequence_) because signal_exit() increments
-            // sequence_ but not item_count_, so using sequence_ could cause
-            // wait_for_item to return an already-consumed item after exit/reset.
             uint64_t current_items = item_count_.load(std::memory_order_acquire);
             if (current_items > last_item_count) {
                 return &buffers_[read_index_.load(std::memory_order_acquire)];
             }
-            // Wait for sequence change (may wake spuriously from exit signal too)
-            uint64_t current_seq = sequence_.load(std::memory_order_acquire);
-            sequence_.wait(current_seq, std::memory_order_acquire);
+            // Wait on item_count_ directly to avoid missed-wakeup issues.
+            // We wait/notify on the same atomic as our predicate check.
+            item_count_.wait(current_items, std::memory_order_acquire);
         }
     }
 
@@ -149,19 +150,24 @@ public:
         return &buffers_[read_index_.load(std::memory_order_acquire)];
     }
 
-    /// Get the current sequence number.
-    /// @return Monotonically increasing sequence used for synchronization.
-    ///         Increments on each end_write() and on signal_exit().
-    ///         Use with wait_for_item() to detect new data availability.
-    /// @note This is a synchronization sequence, not strictly "items written"
-    ///       since signal_exit() also increments it to wake waiting consumers.
+    /// Get the current synchronization sequence number.
+    /// @return Monotonically increasing value used internally to wake waiters.
+    ///         Increments on each end_write() and on signal_exit() to ensure
+    ///         threads blocked in wait_for_item() are notified.
+    /// @note This is a synchronization sequence used for sleeping/waking
+    ///       consumers (including exit notifications), not a pure "items
+    ///       written" counter. For detecting new data availability, callers
+    ///       should compare get_item_count() against their own last_item_count.
     uint64_t get_sequence() const {
         return sequence_.load(std::memory_order_acquire);
     }
 
     /// Get the number of items written.
     /// @return Number of completed end_write() calls since construction.
-    /// @note Unlike get_sequence(), this is not incremented by signal_exit().
+    /// @note Consumers should use this together with a caller-maintained
+    ///       last_item_count value to detect new data between calls to
+    ///       wait_for_item(). Unlike get_sequence(), this is not incremented
+    ///       by signal_exit().
     uint64_t get_item_count() const {
         return item_count_.load(std::memory_order_acquire);
     }
@@ -172,13 +178,14 @@ public:
 
     /// Signal consumers to exit.
     /// Wakes up any threads blocked in wait_for_item().
-    /// @note Increments sequence to ensure waiters wake up.
+    /// @note Notifies on item_count_ to wake waiters (does not increment item_count_).
     void signal_exit() {
         bool expected = false;
         if (exit_signaled_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-            // Increment sequence to wake up waiting consumers
+            // Increment sequence for legacy API compatibility
             sequence_.fetch_add(1, std::memory_order_release);
-            sequence_.notify_all();
+            // Notify on item_count_ to wake consumers blocked in wait_for_item()
+            item_count_.notify_all();
         }
     }
 
