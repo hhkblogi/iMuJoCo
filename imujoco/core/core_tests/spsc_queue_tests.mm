@@ -1,5 +1,5 @@
 // spsc_queue_tests.mm
-// Tests for SpscQueue (Single Producer Single Consumer lock-free queue)
+// Tests for SpscQueue (Single-Producer Multi-Reader "latest value" queue)
 
 #import <XCTest/XCTest.h>
 
@@ -11,7 +11,8 @@
 #include <thread>
 #include <vector>
 
-using namespace imujoco;
+// Use explicit namespace prefix per Google C++ Style Guide
+using imujoco::SpscQueue;
 
 // Simple test struct
 struct TestData {

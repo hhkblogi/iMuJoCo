@@ -1,8 +1,13 @@
 // spsc_queue.h
-// Single-Producer Multi-Reader (SPMR) "latest value" lock-free queue
+// Single-Producer "Latest Value" Lock-Free Queue
 //
-// A fixed-size ring buffer optimized for single-producer, multi-reader scenarios
-// where all readers observe the same latest item (NOT a work-stealing queue).
+// NAMING: The class is named SpscQueue for API compatibility with the original
+// single-consumer implementation. However, the current implementation supports
+// multiple concurrent readers (each maintaining independent last_item_count state).
+// All readers observe the same latest item - this is NOT a work-stealing queue.
+// Semantically, this is an SPMR (Single-Producer Multi-Reader) "latest value" queue.
+//
+// A fixed-size ring buffer optimized for single-producer, multi-reader scenarios.
 // Multiple reader threads may call wait_for_item() concurrently if each maintains
 // its own last_item_count state. Uses C++20 atomic wait/notify.
 //
@@ -35,7 +40,7 @@
 
 namespace imujoco {
 
-/// Single-Producer Multi-Reader (SPMR) "latest value" lock-free queue.
+/// Single-Producer "Latest Value" lock-free queue (supports multiple readers).
 ///
 /// @tparam T The element type stored in the queue
 /// @tparam N The capacity of the queue (number of slots)
@@ -174,7 +179,7 @@ public:
     ///       on both writes and exit signals to ensure waiters are always woken.
     ///       For detecting new data availability, compare get_item_count() against
     ///       your own last_item_count value.
-    uint64_t get_sequence() const {
+    uint64_t get_sequence() const noexcept {
         return sequence_.load(std::memory_order_acquire);
     }
 
@@ -184,7 +189,7 @@ public:
     ///       last_item_count value to detect new data between calls to
     ///       wait_for_item(). Unlike get_sequence(), this is not incremented
     ///       by signal_exit().
-    uint64_t get_item_count() const {
+    uint64_t get_item_count() const noexcept {
         return item_count_.load(std::memory_order_acquire);
     }
 
@@ -211,7 +216,7 @@ public:
     }
 
     /// Check if exit has been signaled.
-    bool is_exit_signaled() const {
+    bool is_exit_signaled() const noexcept {
         return exit_signaled_.load(std::memory_order_acquire);
     }
 

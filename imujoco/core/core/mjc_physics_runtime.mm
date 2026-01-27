@@ -1,10 +1,12 @@
 // mjc_physics_runtime.mm
 // C++ implementation of MuJoCo physics simulation runtime
-// Uses SpscQueue (lock-free SPSC queue) with C++20 atomic wait/notify for lowest latency
+// Uses SpscQueue (single-producer multi-reader "latest value" queue) with C++20 atomic
+// wait/notify for lowest latency. Multiple threads may call WaitForFrame() concurrently.
 
 #include "mjc_physics_runtime.h"
 #include <mujoco/mujoco.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -245,9 +247,43 @@ private:
 // Monotonic counter for generating unique instance IDs that survive object reuse
 static std::atomic<uint64_t> g_next_instance_id{1};
 
-// Track active instance IDs to allow cleanup of stale thread_local entries
-static std::mutex g_active_ids_mutex;
-static std::unordered_set<uint64_t> g_active_ids;
+// Track active instance IDs to allow cleanup of stale thread_local entries.
+// Uses Meyer's singleton pattern to avoid static initialization order issues.
+struct ActiveInstanceRegistry {
+    std::mutex mutex;
+    std::unordered_set<uint64_t> ids;
+
+    static ActiveInstanceRegistry& Instance() {
+        static ActiveInstanceRegistry instance;
+        return instance;
+    }
+
+    void Register(uint64_t id) {
+        std::lock_guard<std::mutex> lock(mutex);
+        ids.insert(id);
+    }
+
+    void Unregister(uint64_t id) {
+        std::lock_guard<std::mutex> lock(mutex);
+        ids.erase(id);
+    }
+
+    bool Contains(uint64_t id) {
+        std::lock_guard<std::mutex> lock(mutex);
+        return ids.find(id) != ids.end();
+    }
+
+    void CleanupStaleEntries(std::unordered_map<uint64_t, uint64_t>& map) {
+        std::lock_guard<std::mutex> lock(mutex);
+        for (auto it = map.begin(); it != map.end(); ) {
+            if (ids.find(it->first) == ids.end()) {
+                it = map.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+};
 
 class MJSimulationRuntimeImpl {
 public:
@@ -265,10 +301,7 @@ public:
         , speed_changed_(false) {
 
         // Register this instance ID for thread_local cleanup tracking
-        {
-            std::lock_guard<std::mutex> lock(g_active_ids_mutex);
-            g_active_ids.insert(unique_id_);
-        }
+        ActiveInstanceRegistry::Instance().Register(unique_id_);
 
         os_log_info(OS_LOG_DEFAULT, "Creating instance %d (SPSC queue, UDP port %u)",
                     config.instanceIndex, udp_port_);
@@ -298,10 +331,7 @@ public:
             mjv_freeScene(&scene_);
         }
         // Unregister this instance ID so thread_local maps can clean up stale entries
-        {
-            std::lock_guard<std::mutex> lock(g_active_ids_mutex);
-            g_active_ids.erase(unique_id_);
-        }
+        ActiveInstanceRegistry::Instance().Unregister(unique_id_);
         os_log_info(OS_LOG_DEFAULT, "Instance %d destroyed", instance_index_);
     }
 
@@ -408,6 +438,10 @@ public:
         state_ = MJRuntimeState::Running;
         exit_requested_ = false;
         speed_changed_ = true;
+        // IMPORTANT: reset_exit_signal() is only safe if no threads are blocked in
+        // WaitForFrame(). The caller must ensure all WaitForFrame() calls have returned
+        // (received nullptr from the previous Stop()) before calling Start() again.
+        // This is typically ensured by the application's shutdown/restart sequence.
         ring_buffer_.reset_exit_signal();
 
         physics_thread_ = std::thread(&MJSimulationRuntimeImpl::PhysicsLoop, this);
@@ -508,14 +542,7 @@ public:
         // unbounded memory growth in long-lived threads.
         constexpr size_t kCleanupThreshold = 16;
         if (last_item_counts.size() > kCleanupThreshold) {
-            std::lock_guard<std::mutex> lock(g_active_ids_mutex);
-            for (auto it = last_item_counts.begin(); it != last_item_counts.end(); ) {
-                if (g_active_ids.find(it->first) == g_active_ids.end()) {
-                    it = last_item_counts.erase(it);
-                } else {
-                    ++it;
-                }
-            }
+            ActiveInstanceRegistry::Instance().CleanupStaleEntries(last_item_counts);
         }
 
         uint64_t& last = last_item_counts[unique_id_];
