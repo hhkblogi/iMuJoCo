@@ -193,6 +193,7 @@ public:
     // =========================================================================
 
     /// @deprecated Use get_sequence() instead
+    [[deprecated("Use get_sequence() instead")]]
     uint64_t get_count() const { return get_sequence(); }
 
 private:

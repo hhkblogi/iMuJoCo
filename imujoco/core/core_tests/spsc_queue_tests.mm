@@ -134,7 +134,9 @@ struct TestData {
     SpscQueue<TestData, 3> queue;
 
     constexpr int kNumItems = 1000;
+    std::atomic<bool> consumer_ready{false};
     std::atomic<bool> consumer_done{false};
+    std::atomic<int> max_observed{0};
     std::vector<int> received_values;
     received_values.reserve(kNumItems);
 
@@ -142,6 +144,9 @@ struct TestData {
     std::thread consumer([&]() {
         uint64_t last_seq = 0;
         int last_value = 0;
+
+        // Signal that consumer is ready before entering the wait loop
+        consumer_ready.store(true, std::memory_order_release);
 
         while (true) {
             const auto* item = queue.wait_for_item(last_seq);
@@ -155,10 +160,19 @@ struct TestData {
             if (item->value > last_value) {
                 received_values.push_back(item->value);
                 last_value = item->value;
+                max_observed.store(item->value, std::memory_order_release);
             }
+
+            // Exit once we've observed the final item
+            if (item->value == kNumItems) break;
         }
         consumer_done = true;
     });
+
+    // Wait for consumer to be ready before producing
+    while (!consumer_ready.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+    }
 
     // Producer thread (main)
     for (int i = 1; i <= kNumItems; i++) {
@@ -173,14 +187,26 @@ struct TestData {
         }
     }
 
-    // Signal exit to ensure consumer doesn't deadlock waiting for more items
-    queue.signal_exit();
+    // Wait with timeout for consumer to observe final item, then signal exit
+    // as a fallback to prevent deadlock if consumer misses the exact final value
+    constexpr int kTimeoutMs = 5000;
+    auto start = std::chrono::steady_clock::now();
+    while (!consumer_done.load(std::memory_order_acquire)) {
+        auto elapsed = std::chrono::steady_clock::now() - start;
+        if (elapsed > std::chrono::milliseconds(kTimeoutMs)) {
+            // Timeout: signal exit to unblock consumer
+            queue.signal_exit();
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
 
     consumer.join();
 
     XCTAssertTrue(consumer_done, @"Consumer should complete");
     XCTAssertGreaterThan(received_values.size(), 0UL, @"Should have received some values");
-    XCTAssertEqual(received_values.back(), kNumItems, @"Should have received final value");
+    XCTAssertEqual(max_observed.load(), kNumItems,
+                   @"Consumer should have observed final value");
 
     // Verify monotonic ordering
     for (size_t i = 1; i < received_values.size(); i++) {
