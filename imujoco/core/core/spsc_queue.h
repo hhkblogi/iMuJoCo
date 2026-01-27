@@ -105,8 +105,10 @@ public:
         // Increment item count and notify waiting consumers.
         // We wait/notify on item_count_ (not sequence_) to ensure the
         // notification is tied to the predicate checked in wait_for_item().
+        // Use notify_all() to support wrappers that may have multiple waiters
+        // (even though SpscQueue itself is single-consumer by design).
         item_count_.fetch_add(1, std::memory_order_release);
-        item_count_.notify_one();
+        item_count_.notify_all();
     }
 
     // =========================================================================

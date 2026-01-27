@@ -390,24 +390,39 @@ struct TestData {
 }
 
 - (void)test_high_frequency_producer {
-    SpscQueue<TestData, 3> queue;
+    // Use a larger buffer to reduce wrap-around during stress test
+    SpscQueue<TestData, 16> queue;
 
     constexpr int kNumItems = 10000;
     std::atomic<int> max_received{0};
+    std::atomic<bool> consumer_ready{false};
 
-    // Consumer thread
+    // Consumer thread using wait_for_item() to avoid data races
     std::thread consumer([&]() {
+        uint64_t last_item_count = 0;
+        consumer_ready = true;
+
         while (true) {
-            const auto* item = queue.get_latest();
-            if (item && item->value > max_received) {
-                max_received = item->value;
+            const auto* item = queue.wait_for_item(last_item_count);
+            if (!item) break;  // Exit signaled
+
+            // Copy value immediately before it can be overwritten
+            int value = item->value;
+            last_item_count = queue.get_item_count();
+
+            if (value > max_received.load(std::memory_order_relaxed)) {
+                max_received.store(value, std::memory_order_relaxed);
             }
-            if (queue.is_exit_signaled() && max_received >= kNumItems) {
-                break;
-            }
-            std::this_thread::yield();
+
+            // Exit once we've observed the final item
+            if (value == kNumItems) break;
         }
     });
+
+    // Wait for consumer to be ready
+    while (!consumer_ready.load()) {
+        std::this_thread::yield();
+    }
 
     // High-frequency producer
     for (int i = 1; i <= kNumItems; i++) {
@@ -416,6 +431,8 @@ struct TestData {
         queue.end_write();
     }
 
+    // Use signal_exit() as fallback to prevent deadlock if consumer misses final item
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     queue.signal_exit();
     consumer.join();
 

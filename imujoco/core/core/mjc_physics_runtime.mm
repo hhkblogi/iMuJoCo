@@ -476,9 +476,11 @@ public:
     }
 
     MJFrameData* WaitForFrame() {
-        thread_local uint64_t last_item_count = 0;
-        const MJFrameDataStorage* storage = ring_buffer_.wait_for_item(last_item_count);
-        last_item_count = ring_buffer_.get_item_count();
+        // Use per-instance state (not thread_local) to avoid cross-instance issues
+        // when the same thread calls WaitForFrame() on different runtime instances.
+        uint64_t last = last_wait_item_count_.load(std::memory_order_acquire);
+        const MJFrameDataStorage* storage = ring_buffer_.wait_for_item(last);
+        last_wait_item_count_.store(ring_buffer_.get_item_count(), std::memory_order_release);
         return AllocateFrameView(storage);
     }
 
@@ -727,6 +729,7 @@ private:
     mjvOption option_;
 
     imujoco::SpscQueue<MJFrameDataStorage, kFrameQueueCapacity> ring_buffer_;
+    std::atomic<uint64_t> last_wait_item_count_{0};  // Per-instance state for WaitForFrame()
     UDPServer udp_server_;
 
     std::thread physics_thread_;
