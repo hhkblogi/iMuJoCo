@@ -268,16 +268,9 @@ struct ActiveInstanceRegistry {
         ids.erase(id);
     }
 
-    void CleanupStaleEntries(std::unordered_map<uint64_t, uint64_t>& map) {
-        std::lock_guard<std::mutex> lock(mutex);
-        for (auto it = map.begin(); it != map.end(); ) {
-            if (ids.find(it->first) == ids.end()) {
-                it = map.erase(it);
-            } else {
-                ++it;
-            }
-        }
-    }
+    // Note: CleanupStaleEntries removed - cleanup is now done lazily
+    // during Unregister() via thread-local invalidation, avoiding
+    // mutex acquisition on the consumer (real-time) path.
 };
 
 class MJSimulationRuntimeImpl {
@@ -528,45 +521,55 @@ public:
 
     MJFrameData* WaitForFrame() {
         // Per-thread-per-instance state for tracking last item count.
-        // Uses a 1-entry cache for the common case (single instance per thread)
-        // with LRU replacement: cache miss promotes the new instance to cache.
+        // Uses a fixed-capacity array for allocation-free operation on real-time threads.
+        // Capacity of 4 covers typical usage (1-2 instances per thread); excess entries
+        // are evicted LRU-style with their state reset on next access.
+        static constexpr size_t kMaxCachedInstances = 4;
+        struct CacheEntry {
+            uint64_t id = 0;
+            uint64_t count = 0;
+        };
         struct PerThreadState {
-            uint64_t cached_id = 0;
-            uint64_t cached_count = 0;
-            std::unordered_map<uint64_t, uint64_t> overflow;
+            std::array<CacheEntry, kMaxCachedInstances> entries{};
+            size_t size = 0;  // Number of valid entries
         };
         thread_local PerThreadState state;
 
-        uint64_t* last_ptr;
-        if (state.cached_id == unique_id_) {
-            // Fast path: cache hit
-            last_ptr = &state.cached_count;
-        } else if (state.cached_id == 0) {
-            // First use on this thread - populate cache
-            state.cached_id = unique_id_;
-            state.cached_count = 0;
-            last_ptr = &state.cached_count;
-        } else {
-            // Cache miss: swap current cache entry with overflow, promote this id to cache.
-            // This implements LRU - most recently used instance stays in cache.
-            if (state.overflow.count(unique_id_)) {
-                // Swap: demote cached entry, promote this one
-                state.overflow[state.cached_id] = state.cached_count;
-                state.cached_count = state.overflow[unique_id_];
-                state.overflow.erase(unique_id_);
-            } else {
-                // New instance: demote cached entry, start fresh
-                state.overflow[state.cached_id] = state.cached_count;
-                state.cached_count = 0;
+        // Linear search for this instance (fast for small N)
+        uint64_t* last_ptr = nullptr;
+        size_t found_idx = state.size;
+        for (size_t i = 0; i < state.size; ++i) {
+            if (state.entries[i].id == unique_id_) {
+                found_idx = i;
+                last_ptr = &state.entries[i].count;
+                break;
             }
-            state.cached_id = unique_id_;
-            last_ptr = &state.cached_count;
+        }
 
-            // Periodically clean up stale entries from destroyed instances
-            constexpr size_t kCleanupThreshold = 16;
-            if (state.overflow.size() > kCleanupThreshold) {
-                ActiveInstanceRegistry::Instance().CleanupStaleEntries(state.overflow);
+        if (!last_ptr) {
+            // Cache miss: need to add or evict
+            if (state.size < kMaxCachedInstances) {
+                // Space available: append
+                found_idx = state.size++;
+            } else {
+                // Full: evict oldest (index 0), shift entries, append at end
+                // This maintains LRU order: most recently used at the end
+                for (size_t i = 0; i + 1 < kMaxCachedInstances; ++i) {
+                    state.entries[i] = state.entries[i + 1];
+                }
+                found_idx = kMaxCachedInstances - 1;
             }
+            state.entries[found_idx].id = unique_id_;
+            state.entries[found_idx].count = 0;
+            last_ptr = &state.entries[found_idx].count;
+        } else if (found_idx + 1 < state.size) {
+            // Move-to-back for LRU: swap this entry toward the end
+            CacheEntry tmp = state.entries[found_idx];
+            for (size_t i = found_idx; i + 1 < state.size; ++i) {
+                state.entries[i] = state.entries[i + 1];
+            }
+            state.entries[state.size - 1] = tmp;
+            last_ptr = &state.entries[state.size - 1].count;
         }
 
         const MJFrameDataStorage* storage = ring_buffer_.wait_for_item(*last_ptr);
