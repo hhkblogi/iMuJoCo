@@ -119,9 +119,11 @@ PYBIND11_MODULE(_imujoco_driver, m) {
                     py::gil_scoped_acquire acquire;
                     try {
                         callback(state);
-                    } catch (py::error_already_set& e) {
+                    } catch (py::error_already_set&) {
                         // Log Python exception but don't crash
-                        py::print("Error in state callback:", e.what());
+                        // Use PyErr_Print for robust error handling
+                        PyErr_Print();
+                        PyErr_Clear();
                     }
                 };
                 return self.Subscribe(std::move(wrapped));
@@ -141,8 +143,10 @@ PYBIND11_MODULE(_imujoco_driver, m) {
                     py::gil_scoped_acquire acquire;
                     try {
                         callback(ec.value(), msg);
-                    } catch (py::error_already_set& e) {
-                        py::print("Error in error callback:", e.what());
+                    } catch (py::error_already_set&) {
+                        // Use PyErr_Print for robust error handling
+                        PyErr_Print();
+                        PyErr_Clear();
                     }
                 };
                 self.OnError(std::move(wrapped));

@@ -13,7 +13,7 @@ import math
 import threading
 import time
 
-from imujoco_driver import Driver, DriverConfig, ControlCommand
+from imujoco_driver import Driver, DriverConfig
 
 
 def main():
@@ -23,6 +23,11 @@ def main():
     parser.add_argument("--duration", type=float, default=5.0, help="Run duration in seconds")
     parser.add_argument("--rate", type=float, default=50.0, help="Control rate in Hz")
     args = parser.parse_args()
+
+    # Validate rate to prevent division by zero
+    if args.rate <= 0:
+        print("Error: --rate must be positive")
+        return 1
 
     # Configure driver
     config = DriverConfig()
