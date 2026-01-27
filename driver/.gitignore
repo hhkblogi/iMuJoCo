@@ -1,0 +1,29 @@
+# Downloaded dependencies (fetched during build)
+vendor/
+
+# Python build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+*.so
+*.pyd
+__pycache__/
+*.py[cod]
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
