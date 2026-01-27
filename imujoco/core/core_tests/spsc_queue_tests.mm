@@ -491,4 +491,86 @@ struct TestData {
     XCTAssertEqualWithAccuracy(item->values[500], 750.0, 0.001);
 }
 
+- (void)test_multiple_concurrent_readers {
+    // Test SPMR (Single-Producer Multi-Reader) behavior:
+    // Multiple consumer threads calling wait_for_item() concurrently.
+    // All readers should receive the same latest item, and notify_all()
+    // should wake all waiters.
+    SpscQueue<TestData, 8> queue;
+
+    constexpr int kNumReaders = 4;
+    constexpr int kNumItems = 100;
+
+    std::atomic<int> readers_ready{0};
+    std::atomic<int> readers_done{0};
+    std::array<std::atomic<int>, kNumReaders> max_observed{};
+    for (auto& m : max_observed) m.store(0);
+
+    // Launch multiple reader threads
+    std::vector<std::thread> readers;
+    for (int r = 0; r < kNumReaders; ++r) {
+        readers.emplace_back([&, r]() {
+            uint64_t last_item_count = 0;
+            readers_ready.fetch_add(1, std::memory_order_release);
+
+            while (true) {
+                const auto* item = queue.wait_for_item(last_item_count);
+                if (!item) break;  // Exit signaled
+
+                // Copy value immediately
+                int value = item->value;
+                last_item_count = queue.get_item_count();
+
+                if (value > max_observed[r].load(std::memory_order_relaxed)) {
+                    max_observed[r].store(value, std::memory_order_relaxed);
+                }
+
+                // Exit once we've seen the final item
+                if (value == kNumItems) break;
+            }
+            readers_done.fetch_add(1, std::memory_order_release);
+        });
+    }
+
+    // Wait for all readers to be ready
+    while (readers_ready.load(std::memory_order_acquire) < kNumReaders) {
+        std::this_thread::yield();
+    }
+
+    // Producer: write items
+    for (int i = 1; i <= kNumItems; ++i) {
+        auto* slot = queue.begin_write();
+        slot->value = i;
+        slot->sequence = i;
+        queue.end_write();
+
+        // Small delay to let readers process
+        if (i % 10 == 0) {
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
+        }
+    }
+
+    // Wait for readers with timeout
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (readers_done.load(std::memory_order_acquire) < kNumReaders &&
+           std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    // Signal exit as fallback
+    if (readers_done.load(std::memory_order_acquire) < kNumReaders) {
+        queue.signal_exit();
+    }
+
+    for (auto& t : readers) {
+        t.join();
+    }
+
+    // All readers should have observed the final value
+    for (int r = 0; r < kNumReaders; ++r) {
+        XCTAssertEqual(max_observed[r].load(), kNumItems,
+                       @"Reader %d should have observed final value", r);
+    }
+}
+
 @end
