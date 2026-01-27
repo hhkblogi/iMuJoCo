@@ -11,9 +11,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
-#include <mutex>
 #include <thread>
-#include <unordered_set>
 #include <vector>
 
 // Network includes
@@ -243,34 +241,9 @@ private:
 
 // MARK: - MJSimulationRuntimeImpl
 
-// Monotonic counter for generating unique instance IDs that survive object reuse
+// Monotonic counter for generating unique instance IDs that survive object reuse.
+// Used by WaitForFrame() to maintain per-thread-per-instance state.
 static std::atomic<uint64_t> g_next_instance_id{1};
-
-// Track active instance IDs to allow cleanup of stale thread_local entries.
-// Uses Meyer's singleton pattern to avoid static initialization order issues.
-struct ActiveInstanceRegistry {
-    std::mutex mutex;
-    std::unordered_set<uint64_t> ids;
-
-    static ActiveInstanceRegistry& Instance() {
-        static ActiveInstanceRegistry instance;
-        return instance;
-    }
-
-    void Register(uint64_t id) {
-        std::lock_guard<std::mutex> lock(mutex);
-        ids.insert(id);
-    }
-
-    void Unregister(uint64_t id) {
-        std::lock_guard<std::mutex> lock(mutex);
-        ids.erase(id);
-    }
-
-    // Note: CleanupStaleEntries was removed. Stale entries in the per-thread
-    // fixed-size cache (WaitForFrame) are evicted via LRU replacement, so no
-    // explicit cleanup is needed.
-};
 
 class MJSimulationRuntimeImpl {
 public:
@@ -286,9 +259,6 @@ public:
         , data_(nullptr)
         , exit_requested_(false)
         , speed_changed_(false) {
-
-        // Register this instance ID in the active instance registry
-        ActiveInstanceRegistry::Instance().Register(unique_id_);
 
         os_log_info(OS_LOG_DEFAULT, "Creating instance %d (SPSC queue, UDP port %u)",
                     config.instanceIndex, udp_port_);
@@ -317,8 +287,6 @@ public:
         if (scene_.maxgeom > 0) {
             mjv_freeScene(&scene_);
         }
-        // Unregister this instance ID from the active instance registry
-        ActiveInstanceRegistry::Instance().Unregister(unique_id_);
         os_log_info(OS_LOG_DEFAULT, "Instance %d destroyed", instance_index_);
     }
 
