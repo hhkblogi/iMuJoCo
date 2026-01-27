@@ -240,10 +240,14 @@ private:
 
 // MARK: - MJSimulationRuntimeImpl
 
+// Monotonic counter for generating unique instance IDs that survive object reuse
+static std::atomic<uint64_t> g_next_instance_id{1};
+
 class MJSimulationRuntimeImpl {
 public:
     explicit MJSimulationRuntimeImpl(const MJRuntimeConfig& config)
-        : instance_index_(config.instanceIndex)
+        : unique_id_(g_next_instance_id.fetch_add(1, std::memory_order_relaxed))
+        , instance_index_(config.instanceIndex)
         , target_fps_(config.targetFPS > 0 ? config.targetFPS : 60.0)
         , busy_wait_(config.busyWait)
         , udp_port_(config.udpPort > 0 ? config.udpPort : MJ_DEFAULT_UDP_PORT + config.instanceIndex)
@@ -479,8 +483,10 @@ public:
     MJFrameData* WaitForFrame() {
         // Use per-thread-per-instance state to support multiple threads calling
         // WaitForFrame() on the same or different runtime instances without interference.
-        thread_local std::unordered_map<const MJSimulationRuntimeImpl*, uint64_t> last_item_counts;
-        uint64_t& last = last_item_counts[this];
+        // Key by unique_id_ (monotonic counter) instead of `this` to avoid stale entries
+        // when an instance is destroyed and a new one is allocated at the same address.
+        thread_local std::unordered_map<uint64_t, uint64_t> last_item_counts;
+        uint64_t& last = last_item_counts[unique_id_];
         const MJFrameDataStorage* storage = ring_buffer_.wait_for_item(last);
         last = ring_buffer_.get_item_count();
         return AllocateFrameView(storage);
@@ -716,6 +722,7 @@ private:
         ring_buffer_.end_write();
     }
 
+    const uint64_t unique_id_;  // Monotonic ID for per-thread state keying (survives address reuse)
     int32_t instance_index_;
     double target_fps_;
     bool busy_wait_;

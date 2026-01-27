@@ -1,8 +1,9 @@
 // spsc_queue.h
-// Single Producer Single Consumer (SPSC) lock-free queue
+// Single Producer Multiple Consumer (SPMC) lock-free queue
 //
-// A fixed-size ring buffer optimized for single producer / single consumer
-// scenarios. Uses C++20 atomic wait/notify for efficient blocking waits.
+// A fixed-size ring buffer with single producer and support for multiple
+// concurrent readers. Uses C++20 atomic wait/notify for efficient blocking waits.
+// Named "SPSC" historically but supports multiple readers with independent state.
 //
 // Thread Safety:
 //   - Producer thread (single): begin_write(), end_write()
@@ -113,7 +114,7 @@ public:
     }
 
     // =========================================================================
-    // Consumer Interface (single thread only)
+    // Consumer Interface (multiple readers supported with independent state)
     // =========================================================================
 
     /// Wait for a new item to be available.
