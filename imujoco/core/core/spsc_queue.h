@@ -108,11 +108,20 @@ public:
     ///       The returned pointer is valid only until the producer wraps around
     ///       and overwrites this slot. Copy data out immediately.
     const T* wait_for_item(uint64_t last_sequence) {
-        sequence_.wait(last_sequence, std::memory_order_acquire);
-        if (exit_signaled_.load(std::memory_order_acquire)) {
-            return nullptr;
+        // Loop to handle spurious wakeups per C++ spec
+        for (;;) {
+            // Check exit first to avoid unnecessary waiting
+            if (exit_signaled_.load(std::memory_order_acquire)) {
+                return nullptr;
+            }
+            // Check if sequence has advanced
+            uint64_t current = sequence_.load(std::memory_order_acquire);
+            if (current > last_sequence) {
+                return &buffers_[read_index_.load(std::memory_order_acquire)];
+            }
+            // Wait for change (may wake spuriously)
+            sequence_.wait(current, std::memory_order_acquire);
         }
-        return &buffers_[read_index_.load(std::memory_order_acquire)];
     }
 
     /// Get the latest available item without blocking.

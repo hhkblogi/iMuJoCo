@@ -39,9 +39,10 @@
 
 namespace {
 
-constexpr int kErrorLength = 1024;      // Error buffer size
-constexpr int kMaxPacketsPerLoop = 100; // Max UDP packets to process per physics step
-constexpr int kMaxActuators = 256;      // Maximum actuators for control buffer
+constexpr std::size_t kFrameQueueCapacity = 3;  // Triple buffering for frame data
+constexpr int kErrorLength = 1024;              // Error buffer size
+constexpr int kMaxPacketsPerLoop = 100;         // Max UDP packets to process per physics step
+constexpr int kMaxActuators = 256;              // Maximum actuators for control buffer
 
 // Physics timing constants
 constexpr double kSyncMisalign = 0.1;          // Maximum acceptable drift
@@ -723,7 +724,7 @@ private:
     mjvCamera camera_;
     mjvOption option_;
 
-    imujoco::SpscQueue<MJFrameDataStorage, 3> ring_buffer_;
+    imujoco::SpscQueue<MJFrameDataStorage, kFrameQueueCapacity> ring_buffer_;
     UDPServer udp_server_;
 
     std::thread physics_thread_;

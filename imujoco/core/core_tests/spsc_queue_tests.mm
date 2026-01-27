@@ -30,7 +30,7 @@ struct TestData {
 - (void)test_initial_state {
     SpscQueue<TestData, 3> queue;
 
-    XCTAssertEqual(queue.get_sequence(), 0ULL, @"Initial count should be 0");
+    XCTAssertEqual(queue.get_sequence(), 0ULL, @"Initial sequence should be 0");
     XCTAssertTrue(queue.get_latest() == nullptr, @"get_latest should return nullptr when empty");
     XCTAssertFalse(queue.is_exit_signaled(), @"Exit should not be signaled initially");
 }
@@ -44,7 +44,7 @@ struct TestData {
     slot->sequence = 1;
     queue.end_write();
 
-    XCTAssertEqual(queue.get_sequence(), 1ULL, @"Count should be 1 after one write");
+    XCTAssertEqual(queue.get_sequence(), 1ULL, @"Sequence should be 1 after one write");
 
     // Read it back
     const auto* item = queue.get_latest();
@@ -64,7 +64,7 @@ struct TestData {
         queue.end_write();
     }
 
-    XCTAssertEqual(queue.get_sequence(), 10ULL, @"Count should be 10 after 10 writes");
+    XCTAssertEqual(queue.get_sequence(), 10ULL, @"Sequence should be 10 after 10 writes");
 
     // get_latest should return the most recent
     const auto* item = queue.get_latest();
@@ -84,7 +84,7 @@ struct TestData {
         queue.end_write();
     }
 
-    XCTAssertEqual(queue.get_sequence(), 100ULL, @"Count should track total writes");
+    XCTAssertEqual(queue.get_sequence(), 100ULL, @"Sequence should track total writes");
 
     const auto* item = queue.get_latest();
     XCTAssertNotEqual(item, nullptr);
@@ -116,16 +116,16 @@ struct TestData {
 - (void)test_exit_signal_idempotent {
     SpscQueue<TestData, 3> queue;
 
-    uint64_t count_before = queue.get_sequence();
+    uint64_t seq_before = queue.get_sequence();
 
     // Signal exit multiple times
     queue.signal_exit();
     queue.signal_exit();
     queue.signal_exit();
 
-    // Count should only increment by 1 (first signal)
-    XCTAssertEqual(queue.get_sequence(), count_before + 1,
-                   @"Multiple exit signals should only increment count once");
+    // Sequence should only increment by 1 (first signal)
+    XCTAssertEqual(queue.get_sequence(), seq_before + 1,
+                   @"Multiple exit signals should only increment sequence once");
 }
 
 #pragma mark - Threading Tests
@@ -140,14 +140,14 @@ struct TestData {
 
     // Consumer thread
     std::thread consumer([&]() {
-        uint64_t last_count = 0;
+        uint64_t last_seq = 0;
         int last_value = 0;
 
         while (true) {
-            const auto* item = queue.wait_for_item(last_count);
+            const auto* item = queue.wait_for_item(last_seq);
             if (!item) break;  // Exit signaled
 
-            last_count = queue.get_sequence();
+            last_seq = queue.get_sequence();
 
             // Verify ordering (values should be monotonically increasing)
             if (item->value > last_value) {
