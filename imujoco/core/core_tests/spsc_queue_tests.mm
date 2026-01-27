@@ -147,15 +147,15 @@ struct TestData {
             const auto* item = queue.wait_for_item(last_seq);
             if (!item) break;  // Exit signaled
 
-            last_seq = queue.get_sequence();
+            // Update last_seq based on the item we received, not queue's current
+            // sequence which may have advanced further due to concurrent writes
+            last_seq = item->sequence;
 
             // Verify ordering (values should be monotonically increasing)
             if (item->value > last_value) {
                 received_values.push_back(item->value);
                 last_value = item->value;
             }
-
-            if (item->value == kNumItems) break;
         }
         consumer_done = true;
     });
@@ -172,6 +172,9 @@ struct TestData {
             std::this_thread::sleep_for(std::chrono::microseconds(10));
         }
     }
+
+    // Signal exit to ensure consumer doesn't deadlock waiting for more items
+    queue.signal_exit();
 
     consumer.join();
 

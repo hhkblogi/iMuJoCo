@@ -65,7 +65,12 @@ class SpscQueue {
 public:
     static_assert(N >= 2, "Queue must have at least 2 slots");
 
-    SpscQueue() : write_index_(0), read_index_(0), sequence_(0), exit_signaled_(false) {}
+    SpscQueue()
+        : write_index_(0),
+          read_index_(0),
+          sequence_(0),
+          item_count_(0),
+          exit_signaled_(false) {}
 
     // Non-copyable, non-movable
     SpscQueue(const SpscQueue&) = delete;
@@ -92,6 +97,8 @@ public:
         read_index_.store(idx, std::memory_order_release);
         // Advance to next write slot
         write_index_.store((idx + 1) % N, std::memory_order_relaxed);
+        // Increment item count (tracks actual writes, not exit signals)
+        item_count_.fetch_add(1, std::memory_order_release);
         // Increment sequence and notify waiting consumers
         sequence_.fetch_add(1, std::memory_order_release);
         sequence_.notify_one();
@@ -128,8 +135,10 @@ public:
     /// @return Pointer to the latest item, or nullptr if no items written yet.
     ///         The returned pointer is valid only until the producer wraps around
     ///         and overwrites this slot. Copy data out immediately.
+    /// @note Returns nullptr only when no items have been written via end_write().
+    ///       This check is independent of signal_exit() which only affects sequence_.
     const T* get_latest() const {
-        if (sequence_.load(std::memory_order_acquire) == 0) {
+        if (item_count_.load(std::memory_order_acquire) == 0) {
             return nullptr;
         }
         return &buffers_[read_index_.load(std::memory_order_acquire)];
@@ -143,6 +152,13 @@ public:
     ///       since signal_exit() also increments it to wake waiting consumers.
     uint64_t get_sequence() const {
         return sequence_.load(std::memory_order_acquire);
+    }
+
+    /// Get the number of items written.
+    /// @return Number of completed end_write() calls since construction.
+    /// @note Unlike get_sequence(), this is not incremented by signal_exit().
+    uint64_t get_item_count() const {
+        return item_count_.load(std::memory_order_acquire);
     }
 
     // =========================================================================
@@ -186,6 +202,8 @@ private:
     alignas(64) std::atomic<std::size_t> write_index_;
     alignas(64) std::atomic<std::size_t> read_index_;
     alignas(64) std::atomic<uint64_t> sequence_;
+    // Tracks actual items written (not incremented by signal_exit)
+    alignas(64) std::atomic<uint64_t> item_count_;
 
     std::atomic<bool> exit_signaled_;
 };
