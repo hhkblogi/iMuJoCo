@@ -50,8 +50,8 @@
 //   lifetime management, consider a different data structure (e.g., shared_ptr
 //   per slot), but that adds overhead inappropriate for real-time use.
 
-#ifndef spsc_queue_h
-#define spsc_queue_h
+#ifndef IMUJOCO_CORE_SPSC_QUEUE_H_
+#define IMUJOCO_CORE_SPSC_QUEUE_H_
 
 #include <array>
 #include <atomic>
@@ -168,7 +168,10 @@ public:
     // =========================================================================
 
     /// Wait for a new item to be available.
-    /// @param last_item_count The item count from the last successful read (from get_item_count())
+    /// @param last_item_count The published item count from the last successful
+    ///        read. Must be a value in the item_count_ domain (i.e., from
+    ///        get_item_count(), or an equivalent value embedded in the item by
+    ///        the producer at publish time). Pass 0 on first call.
     /// @return Pointer to the latest item, or nullptr if exit was signaled
     /// @note Blocks until item_count > last_item_count or exit is signaled.
     ///       The returned pointer is valid only until the producer wraps around
@@ -286,4 +289,4 @@ private:
 
 }  // namespace imujoco
 
-#endif  // spsc_queue_h
+#endif  // IMUJOCO_CORE_SPSC_QUEUE_H_
