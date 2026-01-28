@@ -257,9 +257,15 @@ public:
     }
 
     /// Reset the exit signal for reuse.
-    /// @note Only call when no threads are waiting
+    /// Also advances sequence_ and notifies waiters so no threads remain
+    /// stranded in wait_for_item() across an exit/reset cycle.
     void reset_exit_signal() {
+        // Clear the exit flag first so waiters that wake see the new lifecycle state.
         exit_signaled_.store(false, std::memory_order_release);
+        // Advance sequence and notify to wake any consumers that might still be
+        // blocked in wait_for_item() from a previous lifecycle phase.
+        sequence_.fetch_add(1, std::memory_order_release);
+        sequence_.notify_all();
     }
 
     /// Check if exit has been signaled.
