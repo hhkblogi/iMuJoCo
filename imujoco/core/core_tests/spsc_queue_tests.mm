@@ -298,8 +298,10 @@ struct TestData {
             // The producer may overwrite this slot after N-1 more writes.
             TestData local_copy = *item;
 
-            // Update last_item_count from the queue's actual item count
-            last_item_count = queue.get_item_count();
+            // Update last_item_count using the item's sequence to avoid race with producer.
+            // Using get_item_count() here could race ahead if producer writes between
+            // wait_for_item() returning and this load.
+            last_item_count = local_copy.sequence;
 
             // Verify ordering (values should be monotonically increasing)
             if (local_copy.value > last_value) {
@@ -414,7 +416,9 @@ struct TestData {
 
             // Copy value immediately before it can be overwritten
             int value = item->value;
-            last_item_count = queue.get_item_count();
+            // Use value as item count since producer sets value = item number.
+            // Avoids race with get_item_count() which could skip ahead.
+            last_item_count = static_cast<uint64_t>(value);
 
             if (value > max_received.load(std::memory_order_relaxed)) {
                 max_received.store(value, std::memory_order_relaxed);
@@ -520,7 +524,8 @@ struct TestData {
 
                 // Copy value immediately
                 int value = item->value;
-                last_item_count = queue.get_item_count();
+                // Use value as item count since producer sets value = item number.
+                last_item_count = static_cast<uint64_t>(value);
 
                 if (value > max_observed[r].load(std::memory_order_relaxed)) {
                     max_observed[r].store(value, std::memory_order_relaxed);

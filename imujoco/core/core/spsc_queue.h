@@ -84,17 +84,22 @@ namespace imujoco {
 /// // Producer thread
 /// auto* slot = queue.begin_write();
 /// slot->data = compute_data();
+/// slot->sequence = producer_count++;  // Include sequence in item
 /// queue.end_write();
 ///
 /// // Consumer thread
 /// uint64_t last_item_count = 0;
 /// auto* item = queue.wait_for_item(last_item_count);
 /// if (item) {
-///     last_item_count = queue.get_item_count();  // Update for next wait
 ///     FrameData copy = *item;  // Copy out immediately
+///     last_item_count = copy.sequence;  // Use item's sequence to avoid race
 ///     process(copy);
 /// }
 /// @endcode
+///
+/// @note Updating last_item_count via get_item_count() after wait_for_item() can
+/// race with the producer, potentially skipping items. Prefer embedding a sequence
+/// number in the item itself and using that for cursor advancement.
 template <typename T, std::size_t N = 3>
 class SpscQueue {
 public:
