@@ -198,7 +198,7 @@ class MJSimulationRuntimeImpl;
 /// MuJoCo physics simulation runtime.
 ///
 /// This class manages a MuJoCo simulation running on a dedicated physics thread.
-/// It uses a mutex-free ring buffer for thread-safe frame access from the render thread.
+/// It uses a mutex-free ring buffer for thread-safe frame access from any thread.
 ///
 /// ## Thread Safety
 ///

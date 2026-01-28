@@ -34,7 +34,7 @@
 // Fragment support
 #include "mjc_fragment.h"
 
-// SPSC queue for lock-free frame passing
+// SPSC queue for mutex-free frame passing (producer is wait-free; consumers may block)
 #include "spsc_queue.h"
 
 // MARK: - Constants
@@ -393,10 +393,13 @@ public:
         state_ = MJRuntimeState::Running;
         exit_requested_ = false;
         speed_changed_ = true;
-        // IMPORTANT: reset_exit_signal() is only safe if no threads are blocked in
-        // WaitForFrame(). The caller must ensure all WaitForFrame() calls have returned
+        // IMPORTANT: reset_exit_signal() has a strict precondition: no threads may
+        // be blocked in WaitForFrame(). A thread woken by signal_exit() in Stop() may
+        // not yet have observed exit_signaled_ before this reset, causing it to block
+        // again or return a frame from the restarted run instead of nullptr.
+        // The caller must ensure all WaitForFrame() calls have fully returned
         // (received nullptr from the previous Stop()) before calling Start() again.
-        // This is typically ensured by the application's shutdown/restart sequence.
+        // This is enforced by the application's shutdown/restart sequence.
         ring_buffer_.reset_exit_signal();
 
         physics_thread_ = std::thread(&MJSimulationRuntimeImpl::PhysicsLoop, this);
