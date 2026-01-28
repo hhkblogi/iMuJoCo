@@ -5,6 +5,7 @@
 
 #include "spsc_queue.h"
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
