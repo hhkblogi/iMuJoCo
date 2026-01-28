@@ -393,13 +393,9 @@ public:
         state_ = MJRuntimeState::Running;
         exit_requested_ = false;
         speed_changed_ = true;
-        // IMPORTANT: reset_exit_signal() has a strict precondition: no threads may
-        // be blocked in WaitForFrame(). A thread woken by signal_exit() in Stop() may
-        // not yet have observed exit_signaled_ before this reset, causing it to block
-        // again or return a frame from the restarted run instead of nullptr.
-        // The caller must ensure all WaitForFrame() calls have fully returned
-        // (received nullptr from the previous Stop()) before calling Start() again.
-        // This is enforced by the application's shutdown/restart sequence.
+        // Safe to reset: any threads still blocked in WaitForFrame() from the
+        // previous run will detect the epoch change (advanced in Stop()) and
+        // return nullptr, regardless of the exit signal state.
         ring_buffer_.reset_exit_signal();
 
         physics_thread_ = std::thread(&MJSimulationRuntimeImpl::PhysicsLoop, this);
@@ -414,6 +410,9 @@ public:
     void Stop() {
         exit_requested_ = true;
         ring_buffer_.signal_exit();
+        // Advance epoch so stale WaitForFrame() callers from this run
+        // detect the generation change and return nullptr.
+        epoch_.fetch_add(1, std::memory_order_release);
 
         if (physics_thread_.joinable()) {
             physics_thread_.join();
@@ -546,7 +545,17 @@ public:
             last_ptr = &state.entries[state.size - 1].count;
         }
 
+        // Capture epoch before blocking. If Stop()/Start() cycles while we
+        // wait, the epoch will advance and we return nullptr instead of
+        // delivering a frame from a different run.
+        uint64_t epoch_before = epoch_.load(std::memory_order_acquire);
+
         const MJFrameDataStorage* storage = ring_buffer_.wait_for_item(*last_ptr);
+
+        // Check for stale wakeup from a previous run.
+        if (epoch_.load(std::memory_order_acquire) != epoch_before) {
+            return nullptr;
+        }
         if (storage) {
             // Use the item's frameNumber to avoid race with producer.
             // get_item_count() could race ahead if producer writes between
@@ -807,6 +816,9 @@ private:
     std::thread physics_thread_;
     std::atomic<bool> exit_requested_;
     std::atomic<bool> speed_changed_;
+    // Epoch counter: incremented on Stop() so stale WaitForFrame() callers
+    // from a previous run detect the generation change and return nullptr.
+    std::atomic<uint64_t> epoch_{0};
 };
 
 // MARK: - Version Info
