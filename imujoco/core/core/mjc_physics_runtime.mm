@@ -544,7 +544,12 @@ public:
         }
 
         const MJFrameDataStorage* storage = ring_buffer_.wait_for_item(*last_ptr);
-        *last_ptr = ring_buffer_.get_item_count();
+        if (storage) {
+            // Use the item's frameNumber to avoid race with producer.
+            // get_item_count() could race ahead if producer writes between
+            // wait_for_item() returning and this load.
+            *last_ptr = storage->frameNumber;
+        }
         return AllocateFrameView(storage);
     }
 
