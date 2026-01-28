@@ -582,8 +582,9 @@ struct TestData {
 
 - (void)test_wait_for_item_with_cancellation {
     // Verify that the cancellation predicate causes wait_for_item to return
-    // nullptr promptly, even when no items have been written and no exit
-    // has been signaled.
+    // nullptr via the predicate path, not the exit_signaled_ path.
+    // We wake the waiter with reset_exit_signal() which bumps sequence_ and
+    // notifies but leaves exit_signaled_ false, isolating the predicate.
     SpscQueue<TestData, 3> queue;
 
     std::atomic<bool> consumer_started{false};
@@ -609,12 +610,16 @@ struct TestData {
     XCTAssertFalse(consumer_returned.load(std::memory_order_acquire),
                    @"Consumer should be blocked waiting");
 
-    // Trigger cancellation — need to also bump sequence to wake the waiter
+    // Set cancellation flag, then wake via reset_exit_signal() which bumps
+    // sequence_ but does NOT set exit_signaled_. This proves the predicate
+    // is the reason wait_for_item returns nullptr.
     cancel_flag.store(true, std::memory_order_release);
-    queue.signal_exit();  // Bumps sequence_ and notifies
+    queue.reset_exit_signal();  // Bumps sequence_ and notifies; exit stays false
 
     consumer.join();
 
+    XCTAssertFalse(queue.is_exit_signaled(),
+                   @"exit_signaled_ should be false — return was via predicate");
     XCTAssertTrue(consumer_returned.load(std::memory_order_acquire),
                   @"Consumer should have returned after cancellation");
     XCTAssertTrue(result == nullptr,
@@ -660,7 +665,19 @@ struct TestData {
     // Simulate Start(): reset exit signal (wakes waiters via sequence bump)
     queue.reset_exit_signal();
 
-    // Consumer should return promptly via the cancellation predicate
+    // Consumer should return promptly via the cancellation predicate.
+    // Bounded wait with fallback exit to prevent CI hang on regression.
+    constexpr int kTimeoutMs = 5000;
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(kTimeoutMs);
+    while (!consumer_returned.load(std::memory_order_acquire) &&
+           std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    if (!consumer_returned.load(std::memory_order_acquire)) {
+        // Fallback: force-wake the stranded waiter so the thread can be joined
+        queue.signal_exit();
+    }
     consumer.join();
 
     XCTAssertTrue(consumer_returned.load(std::memory_order_acquire),

@@ -214,6 +214,14 @@ public:
     /// signal_exit() is followed by reset_exit_signal() while a thread is
     /// blocked inside the loop.
     ///
+    /// @note The predicate is evaluated only after the thread is woken by a
+    ///       sequence_ change (end_write, signal_exit, or reset_exit_signal).
+    ///       Callers must ensure that a wakeup occurs when the cancellation
+    ///       condition becomes true; otherwise the thread may block indefinitely.
+    ///       In practice this is satisfied by the Stop()/Start() lifecycle which
+    ///       calls signal_exit() and reset_exit_signal(), both of which bump
+    ///       sequence_ and notify waiters.
+    ///
     /// @param last_item_count Same semantics as the single-argument overload.
     /// @param cancelled       Nullary predicate returning true when the caller
     ///                        should abort the wait. Typically a single atomic
