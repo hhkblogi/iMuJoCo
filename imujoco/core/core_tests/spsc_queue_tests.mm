@@ -578,4 +578,95 @@ struct TestData {
     }
 }
 
+#pragma mark - Cancellation Predicate Tests
+
+- (void)test_wait_for_item_with_cancellation {
+    // Verify that the cancellation predicate causes wait_for_item to return
+    // nullptr promptly, even when no items have been written and no exit
+    // has been signaled.
+    SpscQueue<TestData, 3> queue;
+
+    std::atomic<bool> consumer_started{false};
+    std::atomic<bool> consumer_returned{false};
+    std::atomic<bool> cancel_flag{false};
+    const TestData* result = reinterpret_cast<const TestData*>(1);  // Sentinel
+
+    std::thread consumer([&]() {
+        consumer_started.store(true, std::memory_order_release);
+        result = queue.wait_for_item(0, [&] {
+            return cancel_flag.load(std::memory_order_acquire);
+        });
+        consumer_returned.store(true, std::memory_order_release);
+    });
+
+    // Wait for consumer to enter the wait loop
+    while (!consumer_started.load(std::memory_order_acquire)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+    // Consumer should still be blocked (no items, no exit, cancel=false)
+    XCTAssertFalse(consumer_returned.load(std::memory_order_acquire),
+                   @"Consumer should be blocked waiting");
+
+    // Trigger cancellation — need to also bump sequence to wake the waiter
+    cancel_flag.store(true, std::memory_order_release);
+    queue.signal_exit();  // Bumps sequence_ and notifies
+
+    consumer.join();
+
+    XCTAssertTrue(consumer_returned.load(std::memory_order_acquire),
+                  @"Consumer should have returned after cancellation");
+    XCTAssertTrue(result == nullptr,
+                  @"wait_for_item should return nullptr when cancelled");
+}
+
+- (void)test_exit_reset_does_not_strand_waiters {
+    // Reproduce the race: a thread blocks in wait_for_item, then
+    // signal_exit() → reset_exit_signal() runs. Without the cancellation
+    // predicate, the thread would re-block because exit_signaled_ is false
+    // again. With the predicate, it detects the epoch change and returns.
+    SpscQueue<TestData, 3> queue;
+    std::atomic<uint64_t> epoch{0};
+
+    std::atomic<bool> consumer_started{false};
+    std::atomic<bool> consumer_returned{false};
+    const TestData* result = reinterpret_cast<const TestData*>(1);  // Sentinel
+
+    uint64_t epoch_before = epoch.load(std::memory_order_acquire);
+
+    std::thread consumer([&]() {
+        consumer_started.store(true, std::memory_order_release);
+        result = queue.wait_for_item(0, [&] {
+            return epoch.load(std::memory_order_acquire) != epoch_before;
+        });
+        consumer_returned.store(true, std::memory_order_release);
+    });
+
+    // Wait for consumer to enter the wait loop
+    while (!consumer_started.load(std::memory_order_acquire)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+    // Consumer should be blocked
+    XCTAssertFalse(consumer_returned.load(std::memory_order_acquire),
+                   @"Consumer should be blocked waiting");
+
+    // Simulate Stop(): signal_exit + epoch advance
+    queue.signal_exit();
+    epoch.fetch_add(1, std::memory_order_release);
+
+    // Simulate Start(): reset exit signal (wakes waiters via sequence bump)
+    queue.reset_exit_signal();
+
+    // Consumer should return promptly via the cancellation predicate
+    consumer.join();
+
+    XCTAssertTrue(consumer_returned.load(std::memory_order_acquire),
+                  @"Consumer should have returned after Stop/Start cycle");
+    XCTAssertTrue(result == nullptr,
+                  @"wait_for_item should return nullptr when epoch changed");
+}
+
 @end

@@ -394,8 +394,10 @@ public:
         exit_requested_ = false;
         speed_changed_ = true;
         // Safe to reset: any threads still blocked in WaitForFrame() from the
-        // previous run will detect the epoch change (advanced in Stop()) and
-        // return nullptr, regardless of the exit signal state.
+        // previous run carry a cancellation predicate that checks the epoch
+        // counter. reset_exit_signal() wakes them, and the epoch change
+        // (advanced in Stop()) causes the predicate to return true, so they
+        // return nullptr without re-blocking.
         ring_buffer_.reset_exit_signal();
 
         physics_thread_ = std::thread(&MJSimulationRuntimeImpl::PhysicsLoop, this);
@@ -550,7 +552,9 @@ public:
         // delivering a frame from a different run.
         uint64_t epoch_before = epoch_.load(std::memory_order_acquire);
 
-        const MJFrameDataStorage* storage = ring_buffer_.wait_for_item(*last_ptr);
+        const MJFrameDataStorage* storage = ring_buffer_.wait_for_item(
+            *last_ptr,
+            [&] { return epoch_.load(std::memory_order_acquire) != epoch_before; });
 
         // Check for stale wakeup from a previous run.
         if (epoch_.load(std::memory_order_acquire) != epoch_before) {

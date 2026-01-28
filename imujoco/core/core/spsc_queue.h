@@ -28,7 +28,8 @@
 //     Multiple threads may call wait_for_item() concurrently if each maintains its own
 //     last_item_count state. All concurrent readers will receive the same latest item.
 //   - Any thread: signal_exit()
-//   - Any thread (when no threads are blocked in wait_for_item()): reset_exit_signal()
+//   - Any thread: reset_exit_signal() (wakes waiters; callers should use the
+//     cancellation-predicate overload of wait_for_item() to detect lifecycle changes)
 //
 // Memory Model:
 //   - Uses acquire/release semantics for correct synchronization
@@ -200,6 +201,39 @@ public:
             }
             // Wait on the sequence value captured BEFORE predicate checks.
             // If sequence_ changed between our load and now, wait() returns immediately.
+            sequence_.wait(expected_seq, std::memory_order_acquire);
+        }
+    }
+
+    /// Wait for a new item, with a caller-supplied cancellation predicate.
+    ///
+    /// Identical to wait_for_item(last_item_count) but also checks `cancelled()`
+    /// on every loop iteration after wakeup. Returns nullptr when cancelled.
+    /// This enables callers to inject lifecycle checks (e.g., epoch change)
+    /// directly into the wait loop, preventing stranded waiters when
+    /// signal_exit() is followed by reset_exit_signal() while a thread is
+    /// blocked inside the loop.
+    ///
+    /// @param last_item_count Same semantics as the single-argument overload.
+    /// @param cancelled       Nullary predicate returning true when the caller
+    ///                        should abort the wait. Typically a single atomic
+    ///                        load — zero allocation, zero indirection.
+    /// @return Pointer to the latest item, or nullptr if exit was signaled or
+    ///         the cancellation predicate returned true.
+    template <typename CancelFn>
+    const T* wait_for_item(uint64_t last_item_count, CancelFn&& cancelled) {
+        for (;;) {
+            uint64_t expected_seq = sequence_.load(std::memory_order_acquire);
+
+            if (cancelled()) return nullptr;
+            if (exit_signaled_.load(std::memory_order_acquire)) return nullptr;
+
+            uint64_t current_items = item_count_.load(std::memory_order_acquire);
+            if (current_items > last_item_count) {
+                std::size_t read_idx = static_cast<std::size_t>((current_items - 1) % N);
+                return &buffers_[read_idx];
+            }
+
             sequence_.wait(expected_seq, std::memory_order_acquire);
         }
     }
