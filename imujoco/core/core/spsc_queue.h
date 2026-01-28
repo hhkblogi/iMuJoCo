@@ -1,5 +1,5 @@
 // spsc_queue.h
-// Single-Producer "Latest Value" Lock-Free Queue
+// Single-Producer "Latest Value" Mutex-Free Queue
 //
 // NAMING: The class is named SpscQueue for API compatibility with the original
 // single-consumer implementation. However, the current implementation supports
@@ -18,7 +18,7 @@
 //
 // DESIGN RATIONALE:
 //   - Zero-copy for minimal latency: returns pointers into internal buffer
-//   - Lock-free for real-time guarantees: no blocking on mutexes
+//   - Mutex-free: no locks; producer is wait-free, consumers may block in wait_for_item()
 //   - Fixed-size for predictable memory: no allocations after construction
 //   - "Latest value" semantics: slow consumers skip to newest data
 //
@@ -61,12 +61,13 @@
 
 namespace imujoco {
 
-/// Single-Producer "Latest Value" lock-free queue (supports multiple readers).
+/// Single-Producer "Latest Value" mutex-free queue (supports multiple readers).
 ///
 /// @tparam T The element type stored in the queue
 /// @tparam N The capacity of the queue (number of slots)
 ///
 /// This queue uses a ring buffer with triple buffering by default (N=3).
+/// The producer is wait-free; consumers may block in wait_for_item() via atomic::wait.
 /// Multiple reader threads may call wait_for_item() concurrently if each
 /// maintains its own last_item_count state. All readers observe the same
 /// latest item (this is NOT a work-stealing queue).

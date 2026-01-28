@@ -527,9 +527,11 @@ public:
                 found_idx = kMaxCachedInstances - 1;
             }
             state.entries[found_idx].id = unique_id_;
-            // Initialize to current item_count so wait_for_item blocks until a NEW frame.
-            // This handles re-access after eviction correctly (won't return stale frame).
-            state.entries[found_idx].count = ring_buffer_.get_item_count();
+            // Initialize to (item_count - 1) so first call returns the latest existing frame
+            // immediately (preserving original semantics). For re-access after eviction,
+            // this returns the current latest frame which is acceptable.
+            uint64_t current = ring_buffer_.get_item_count();
+            state.entries[found_idx].count = (current > 0) ? (current - 1) : 0;
             last_ptr = &state.entries[found_idx].count;
         } else if (found_idx + 1 < state.size) {
             // Move-to-back for LRU: swap this entry toward the end
