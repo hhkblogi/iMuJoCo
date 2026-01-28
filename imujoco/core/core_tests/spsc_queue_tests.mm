@@ -334,22 +334,21 @@ struct TestData {
         }
     }
 
-    // Wait with timeout for consumer to observe final item.
-    // signal_exit() is only used as a deadlock-avoidance fallback.
+    // Wait for consumer to observe final item, with bounded timeout.
     constexpr int kTimeoutMs = 5000;
     bool timeout_triggered = false;
     auto start = std::chrono::steady_clock::now();
     while (!consumer_done.load(std::memory_order_acquire)) {
         auto elapsed = std::chrono::steady_clock::now() - start;
         if (elapsed > std::chrono::milliseconds(kTimeoutMs)) {
-            // Timeout: signal exit to unblock consumer and prevent test hang
             timeout_triggered = true;
-            queue.signal_exit();
             break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
+    // Always signal exit to unblock consumer and prevent CI hangs.
+    queue.signal_exit();
     consumer.join();
 
     XCTAssertFalse(timeout_triggered,

@@ -141,9 +141,17 @@ public:
         // latest_index = (item_count - 1) % N
         item_count_.fetch_add(1, std::memory_order_release);
         // Increment sequence and notify waiting consumers.
-        // We wait/notify on sequence_ because it's modified by BOTH end_write()
-        // and signal_exit(), avoiding missed-wakeup deadlocks.
-        // Use notify_all() to support wrappers that may have multiple waiters.
+        // We wait/notify on sequence_ (not item_count_) because sequence_ is
+        // incremented by BOTH end_write() and signal_exit(), ensuring waiters
+        // are woken for either event.
+        //
+        // Ordering guarantee: item_count_ release is sequenced-before sequence_
+        // release. When a consumer acquires sequence_ (via load or wait), the
+        // release on sequence_ transitively makes the prior item_count_ store
+        // visible. If the consumer's first iteration sees a stale item_count_,
+        // it re-enters wait() which returns immediately (sequence_ already
+        // changed), and the next iteration's acquire of sequence_ establishes
+        // the full happens-before chain guaranteeing item_count_ visibility.
         sequence_.fetch_add(1, std::memory_order_release);
         sequence_.notify_all();
     }
