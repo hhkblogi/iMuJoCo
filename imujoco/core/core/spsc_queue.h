@@ -145,13 +145,20 @@ public:
         // incremented by BOTH end_write() and signal_exit(), ensuring waiters
         // are woken for either event.
         //
-        // Ordering guarantee: item_count_ release is sequenced-before sequence_
-        // release. When a consumer acquires sequence_ (via load or wait), the
-        // release on sequence_ transitively makes the prior item_count_ store
-        // visible. If the consumer's first iteration sees a stale item_count_,
-        // it re-enters wait() which returns immediately (sequence_ already
-        // changed), and the next iteration's acquire of sequence_ establishes
-        // the full happens-before chain guaranteeing item_count_ visibility.
+        // Ordering guarantee: the release on item_count_ is sequenced-before
+        // the release on sequence_. When a consumer later acquires sequence_
+        // (via load or wait), that acquire observes the increment to sequence_
+        // and, via transitive happens-before, also makes the prior item_count_
+        // update and the written data visible.
+        //
+        // A typical pattern is:
+        //   - load current sequence_ value;
+        //   - call wait() on that value;
+        //   - on wakeup, reload sequence_ with acquire and then read item_count_.
+        // If the initial load saw an old sequence_ value, wait() may return
+        // immediately once the producer increments sequence_, and the subsequent
+        // acquire on sequence_ still establishes the full happens-before chain
+        // guaranteeing visibility of the corresponding item_count_ update.
         sequence_.fetch_add(1, std::memory_order_release);
         sequence_.notify_all();
     }
