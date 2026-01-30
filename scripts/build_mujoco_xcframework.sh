@@ -10,6 +10,9 @@
 
 set -e
 
+# Add Homebrew paths for Xcode build phase (Xcode doesn't source shell profile)
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
 # Clear Xcode environment variables that interfere with CMake cross-compilation
 # This is needed when running from Xcode's Run Script build phase
 unset SDKROOT
