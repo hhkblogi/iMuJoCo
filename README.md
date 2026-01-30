@@ -137,6 +137,10 @@ Build the project (Cmd+B). The `core` framework links against the MuJoCo XCFrame
 
 **Note:** For apps using the `core` framework, add `mujoco.xcframework` to "Frameworks, Libraries, and Embedded Content" with **Embed & Sign**.
 
+## TODO
+
+- [ ] Migrate to Bazel for build and package system
+
 ## Development Notes
 
 ### Future Refinements
