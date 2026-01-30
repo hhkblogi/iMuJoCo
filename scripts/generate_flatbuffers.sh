@@ -14,6 +14,9 @@
 
 set -e
 
+# Add Homebrew paths for Xcode build phase (Xcode doesn't source shell profile)
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
 SCRIPT_DIR="$(cd "$(dirname "${0}")" && pwd)"
 # Always use script location to find project root (works from Xcode or CLI)
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"

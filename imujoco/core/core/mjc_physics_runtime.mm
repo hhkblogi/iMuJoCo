@@ -1,10 +1,12 @@
 // mjc_physics_runtime.mm
 // C++ implementation of MuJoCo physics simulation runtime
-// Uses lock-free ring buffer with C++20 atomic wait/notify for lowest latency
+// Uses SpscQueue (single-producer multi-reader "latest value" queue) with C++20 atomic
+// wait/notify for lowest latency. Multiple threads may call WaitForFrame() concurrently.
 
 #include "mjc_physics_runtime.h"
 #include <mujoco/mujoco.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -32,14 +34,17 @@
 // Fragment support
 #include "mjc_fragment.h"
 
+// SPSC queue for mutex-free frame passing (producer is wait-free; consumers may block)
+#include "spsc_queue.h"
+
 // MARK: - Constants
 
 namespace {
 
-constexpr int kRingBufferSize = 3;      // Triple buffering
-constexpr int kErrorLength = 1024;      // Error buffer size
-constexpr int kMaxPacketsPerLoop = 100; // Max UDP packets to process per physics step
-constexpr int kMaxActuators = 256;      // Maximum actuators for control buffer
+constexpr std::size_t kFrameQueueCapacity = 3;  // Triple buffering for frame data
+constexpr int kErrorLength = 1024;              // Error buffer size
+constexpr int kMaxPacketsPerLoop = 100;         // Max UDP packets to process per physics step
+constexpr int kMaxActuators = 256;              // Maximum actuators for control buffer
 
 // Physics timing constants
 constexpr double kSyncMisalign = 0.1;          // Maximum acceptable drift
@@ -49,64 +54,6 @@ using Clock = std::chrono::steady_clock;
 using Seconds = std::chrono::duration<double>;
 
 }  // namespace
-
-// MARK: - LockFreeRingBuffer
-
-class LockFreeRingBuffer {
-public:
-    LockFreeRingBuffer() : write_index_(0), read_index_(0), frame_count_(0) {}
-
-    MJFrameDataStorage* BeginWrite() {
-        return &buffers_[write_index_.load(std::memory_order_relaxed)];
-    }
-
-    void EndWrite() {
-        int idx = write_index_.load(std::memory_order_relaxed);
-        read_index_.store(idx, std::memory_order_release);
-        write_index_.store((idx + 1) % kRingBufferSize, std::memory_order_relaxed);
-        frame_count_.fetch_add(1, std::memory_order_release);
-        frame_count_.notify_one();
-    }
-
-    const MJFrameDataStorage* WaitForFrame(uint64_t last_frame) {
-        frame_count_.wait(last_frame, std::memory_order_acquire);
-        if (exit_signaled_.load(std::memory_order_acquire)) {
-            return nullptr;
-        }
-        return &buffers_[read_index_.load(std::memory_order_acquire)];
-    }
-
-    const MJFrameDataStorage* GetLatestFrame() const {
-        // Return nullptr if no frames have been written yet
-        if (frame_count_.load(std::memory_order_acquire) == 0) {
-            return nullptr;
-        }
-        return &buffers_[read_index_.load(std::memory_order_acquire)];
-    }
-
-    uint64_t GetFrameCount() const {
-        return frame_count_.load(std::memory_order_acquire);
-    }
-
-    void SignalExit() {
-        bool expected = false;
-        if (exit_signaled_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-            frame_count_.fetch_add(1, std::memory_order_release);
-            frame_count_.notify_all();
-        }
-    }
-
-    void ResetForRestart() {
-        exit_signaled_.store(false, std::memory_order_release);
-    }
-
-private:
-    std::array<MJFrameDataStorage, kRingBufferSize> buffers_;
-    alignas(64) std::atomic<int> write_index_;
-    alignas(64) std::atomic<int> read_index_;
-    alignas(64) std::atomic<uint64_t> frame_count_;
-    std::atomic<bool> exit_signaled_{false};
-};
 
 // MARK: - UDPServer
 
@@ -294,10 +241,15 @@ private:
 
 // MARK: - MJSimulationRuntimeImpl
 
+// Monotonic counter for generating unique instance IDs that survive object reuse.
+// Used by WaitForFrame() to maintain per-thread-per-instance state.
+static std::atomic<uint64_t> g_next_instance_id{1};
+
 class MJSimulationRuntimeImpl {
 public:
     explicit MJSimulationRuntimeImpl(const MJRuntimeConfig& config)
-        : instance_index_(config.instanceIndex)
+        : unique_id_(g_next_instance_id.fetch_add(1, std::memory_order_relaxed))
+        , instance_index_(config.instanceIndex)
         , target_fps_(config.targetFPS > 0 ? config.targetFPS : 60.0)
         , busy_wait_(config.busyWait)
         , udp_port_(config.udpPort > 0 ? config.udpPort : MJ_DEFAULT_UDP_PORT + config.instanceIndex)
@@ -308,7 +260,7 @@ public:
         , exit_requested_(false)
         , speed_changed_(false) {
 
-        os_log_info(OS_LOG_DEFAULT, "Creating instance %d (lock-free ring buffer, UDP port %u)",
+        os_log_info(OS_LOG_DEFAULT, "Creating instance %d (SPSC queue, UDP port %u)",
                     config.instanceIndex, udp_port_);
 
         mjv_defaultCamera(&camera_);
@@ -441,7 +393,12 @@ public:
         state_ = MJRuntimeState::Running;
         exit_requested_ = false;
         speed_changed_ = true;
-        ring_buffer_.ResetForRestart();
+        // Safe to reset: any threads still blocked in WaitForFrame() from the
+        // previous run carry a cancellation predicate that checks the epoch
+        // counter. reset_exit_signal() wakes them, and the epoch change
+        // (advanced in Stop()) causes the predicate to return true, so they
+        // return nullptr without re-blocking.
+        ring_buffer_.reset_exit_signal();
 
         physics_thread_ = std::thread(&MJSimulationRuntimeImpl::PhysicsLoop, this);
     }
@@ -454,7 +411,10 @@ public:
 
     void Stop() {
         exit_requested_ = true;
-        ring_buffer_.SignalExit();
+        ring_buffer_.signal_exit();
+        // Advance epoch so stale WaitForFrame() callers from this run
+        // detect the generation change and return nullptr.
+        epoch_.fetch_add(1, std::memory_order_release);
 
         if (physics_thread_.joinable()) {
             physics_thread_.join();
@@ -485,7 +445,7 @@ public:
     MJRuntimeState GetState() const { return state_; }
 
     MJRuntimeStats GetStats() const {
-        const MJFrameDataStorage* storage = ring_buffer_.GetLatestFrame();
+        const MJFrameDataStorage* storage = ring_buffer_.get_latest();
         MJRuntimeStats stats;
         stats.simulationTime = storage ? storage->simulationTime : 0.0;
         stats.measuredSlowdown = 1.0;
@@ -526,19 +486,92 @@ public:
     }
 
     MJFrameData* GetLatestFrame() {
-        const MJFrameDataStorage* storage = ring_buffer_.GetLatestFrame();
+        const MJFrameDataStorage* storage = ring_buffer_.get_latest();
         return AllocateFrameView(storage);
     }
 
     MJFrameData* WaitForFrame() {
-        thread_local uint64_t last_read_frame = 0;
-        const MJFrameDataStorage* storage = ring_buffer_.WaitForFrame(last_read_frame);
-        last_read_frame = ring_buffer_.GetFrameCount();
+        // Per-thread-per-instance state for tracking last item count.
+        // Uses a fixed-capacity array for allocation-free operation on real-time threads.
+        // Capacity of 4 covers typical usage (1-2 instances per thread); excess entries
+        // are evicted LRU-style with their state reset on next access.
+        static constexpr size_t kMaxCachedInstances = 4;
+        struct CacheEntry {
+            uint64_t id = 0;
+            uint64_t count = 0;
+        };
+        struct PerThreadState {
+            std::array<CacheEntry, kMaxCachedInstances> entries{};
+            size_t size = 0;  // Number of valid entries
+        };
+        thread_local PerThreadState state;
+
+        // Linear search for this instance (fast for small N)
+        uint64_t* last_ptr = nullptr;
+        size_t found_idx = state.size;
+        for (size_t i = 0; i < state.size; ++i) {
+            if (state.entries[i].id == unique_id_) {
+                found_idx = i;
+                last_ptr = &state.entries[i].count;
+                break;
+            }
+        }
+
+        if (!last_ptr) {
+            // Cache miss: need to add or evict
+            if (state.size < kMaxCachedInstances) {
+                // Space available: append
+                found_idx = state.size++;
+            } else {
+                // Full: evict oldest (index 0), shift entries, append at end
+                // This maintains LRU order: most recently used at the end
+                for (size_t i = 0; i + 1 < kMaxCachedInstances; ++i) {
+                    state.entries[i] = state.entries[i + 1];
+                }
+                found_idx = kMaxCachedInstances - 1;
+            }
+            state.entries[found_idx].id = unique_id_;
+            // Initialize to (item_count - 1) so first call returns the latest existing frame
+            // immediately (preserving original semantics). For re-access after eviction,
+            // this returns the current latest frame which is acceptable.
+            uint64_t current = ring_buffer_.get_item_count();
+            state.entries[found_idx].count = (current > 0) ? (current - 1) : 0;
+            last_ptr = &state.entries[found_idx].count;
+        } else if (found_idx + 1 < state.size) {
+            // Move-to-back for LRU: swap this entry toward the end
+            CacheEntry tmp = state.entries[found_idx];
+            for (size_t i = found_idx; i + 1 < state.size; ++i) {
+                state.entries[i] = state.entries[i + 1];
+            }
+            state.entries[state.size - 1] = tmp;
+            last_ptr = &state.entries[state.size - 1].count;
+        }
+
+        // Capture epoch before blocking. If Stop()/Start() cycles while we
+        // wait, the epoch will advance and we return nullptr instead of
+        // delivering a frame from a different run.
+        uint64_t epoch_before = epoch_.load(std::memory_order_acquire);
+
+        const MJFrameDataStorage* storage = ring_buffer_.wait_for_item(
+            *last_ptr,
+            [&] { return epoch_.load(std::memory_order_acquire) != epoch_before; });
+
+        // Check for stale wakeup from a previous run.
+        if (epoch_.load(std::memory_order_acquire) != epoch_before) {
+            return nullptr;
+        }
+        if (storage) {
+            // Use the item's frameNumber to avoid race with producer.
+            // get_item_count() could race ahead if producer writes between
+            // wait_for_item() returning and this load.
+            *last_ptr = storage->frameNumber;
+        }
         return AllocateFrameView(storage);
     }
 
     uint64_t GetFrameCount() const {
-        return ring_buffer_.GetFrameCount();
+        // Return the true number of frames produced, excluding exit signals.
+        return ring_buffer_.get_item_count();
     }
 
     // Camera
@@ -711,7 +744,7 @@ private:
     }
 
     void WriteFrameToBuffer(int32_t sps = 0) {
-        MJFrameDataStorage* frame = ring_buffer_.BeginWrite();
+        MJFrameDataStorage* frame = ring_buffer_.begin_write();
 
         mjv_updateScene(model_, data_, &option_, nullptr, &camera_, mjCAT_ALL, &scene_);
 
@@ -760,11 +793,13 @@ private:
 
         frame->simulationTime = data_->time;
         frame->stepsPerSecond = sps;
-        frame->frameNumber = ring_buffer_.GetFrameCount() + 1;
+        // Use get_item_count() for actual frame count (not affected by signal_exit())
+        frame->frameNumber = ring_buffer_.get_item_count() + 1;
 
-        ring_buffer_.EndWrite();
+        ring_buffer_.end_write();
     }
 
+    const uint64_t unique_id_;  // Monotonic ID for per-thread state keying (survives address reuse)
     int32_t instance_index_;
     double target_fps_;
     bool busy_wait_;
@@ -779,12 +814,15 @@ private:
     mjvCamera camera_;
     mjvOption option_;
 
-    LockFreeRingBuffer ring_buffer_;
+    imujoco::SpscQueue<MJFrameDataStorage, kFrameQueueCapacity> ring_buffer_;
     UDPServer udp_server_;
 
     std::thread physics_thread_;
     std::atomic<bool> exit_requested_;
     std::atomic<bool> speed_changed_;
+    // Epoch counter: incremented on Stop() so stale WaitForFrame() callers
+    // from a previous run detect the generation change and return nullptr.
+    std::atomic<uint64_t> epoch_{0};
 };
 
 // MARK: - Version Info

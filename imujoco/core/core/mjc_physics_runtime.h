@@ -1,6 +1,6 @@
 // mjc_physics_runtime.h
 // C++ interface for MuJoCo physics simulation runtime
-// Uses lock-free ring buffer with C++20 atomic wait/notify for lowest latency
+// Uses mutex-free ring buffer with C++20 atomic wait/notify for lowest latency
 
 #ifndef mjc_physics_runtime_h
 #define mjc_physics_runtime_h
@@ -117,11 +117,10 @@ struct MJFrameDataStorage {
 // on a given thread is guaranteed valid. It becomes invalid on the next call to either
 // function on that thread. Do not cache or store these pointers across function calls.
 //
-// The underlying ring buffer uses lock-free triple buffering with a fixed-size storage
-// array. Storage slots are never deallocated during the runtime's lifetime, so the
-// storage_ pointer inside MJFrameData remains valid. However, the storage contents
-// may be overwritten by the physics thread, which is why callers should use frame
-// data promptly within a single render pass.
+// The underlying ring buffer uses a fixed-size N-slot array. Storage slots are never
+// deallocated during the runtime's lifetime. However, the storage contents may be
+// overwritten by the physics thread after N-1 subsequent writes. Callers should copy
+// frame data promptly within a single render pass.
 
 class SWIFT_IMMORTAL_REFERENCE MJFrameData {
 public:
@@ -199,12 +198,12 @@ class MJSimulationRuntimeImpl;
 /// MuJoCo physics simulation runtime.
 ///
 /// This class manages a MuJoCo simulation running on a dedicated physics thread.
-/// It uses a lock-free ring buffer for thread-safe frame access from the render thread.
+/// It uses a mutex-free ring buffer for thread-safe frame access from any thread.
 ///
 /// ## Thread Safety
 ///
 /// **Thread-safe (can be called from any thread):**
-/// - `getLatestFrame()`, `waitForFrame()`, `getFrameCount()` - lock-free ring buffer
+/// - `getLatestFrame()`, `waitForFrame()`, `getFrameCount()` - mutex-free ring buffer
 /// - `getState()`, `getStats()` - atomic reads
 ///
 /// **Single-thread only (call from owner thread):**
@@ -285,7 +284,7 @@ public:
 
     // MARK: - Frame Access
     // Thread-safe: Each thread gets its own view object via thread-local storage.
-    // The underlying ring buffer storage is lock-free for producer/consumer access.
+    // The underlying ring buffer storage is mutex-free for producer/consumer access.
 
     /// Get the latest available frame (non-blocking, thread-safe).
     /// @return Pointer to frame view, or nullptr if no frames have been written
