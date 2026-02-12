@@ -105,7 +105,7 @@ struct FullscreenSimulationView: View {
                     .font(.headline)
                     .foregroundColor(.white)
 
-                Text("Port \(instance.port)")
+                Text(verbatim: "Port \(instance.port)")
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.7))
             }
