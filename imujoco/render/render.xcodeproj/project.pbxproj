@@ -12,7 +12,6 @@
 		56C22C6F2F1E10E50083660B /* mjc_metal_render.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C22C6A2F1E10E50083660B /* mjc_metal_render.swift */; };
 		56C22C702F1E10E50083660B /* mjc_metal_view.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C22C6B2F1E10E50083660B /* mjc_metal_view.swift */; };
 		56C22C712F1E10E50083660B /* mujoco_shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = 56C22C6C2F1E10E50083660B /* mujoco_shaders.metal */; };
-		56C22C722F1E10E50083660B /* render.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C22C6D2F1E10E50083660B /* render.swift */; };
 		56C22C802F1E20000083660B /* render_tests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56C22C672F1E10130083660B /* render_tests.swift */; };
 		56C22C812F1E20000083660B /* render.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 56C22C552F1E0F240083660B /* render.framework */; };
 /* End PBXBuildFile section */
@@ -48,7 +47,6 @@
 		56C22C6A2F1E10E50083660B /* mjc_metal_render.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = mjc_metal_render.swift; sourceTree = "<group>"; };
 		56C22C6B2F1E10E50083660B /* mjc_metal_view.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = mjc_metal_view.swift; sourceTree = "<group>"; };
 		56C22C6C2F1E10E50083660B /* mujoco_shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = mujoco_shaders.metal; sourceTree = "<group>"; };
-		56C22C6D2F1E10E50083660B /* render.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = render.swift; sourceTree = "<group>"; };
 		56C22C732F1E20000083660B /* render.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = render.xcconfig; sourceTree = "<group>"; };
 		56C22C7F2F1E20000083660B /* render_tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = render_tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -115,7 +113,6 @@
 				56C22C6A2F1E10E50083660B /* mjc_metal_render.swift */,
 				56C22C6B2F1E10E50083660B /* mjc_metal_view.swift */,
 				56C22C6C2F1E10E50083660B /* mujoco_shaders.metal */,
-				56C22C6D2F1E10E50083660B /* render.swift */,
 			);
 			path = render;
 			sourceTree = "<group>";
@@ -238,7 +235,6 @@
 				56C22C6F2F1E10E50083660B /* mjc_metal_render.swift in Sources */,
 				56C22C702F1E10E50083660B /* mjc_metal_view.swift in Sources */,
 				56C22C712F1E10E50083660B /* mujoco_shaders.metal in Sources */,
-				56C22C722F1E10E50083660B /* render.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
