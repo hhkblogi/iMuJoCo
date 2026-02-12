@@ -85,10 +85,10 @@ iMuJoCo/
 
 | Platform | Min Version | Architecture |
 |----------|-------------|--------------|
-| iOS      | 18.0        | arm64        |
-| iPadOS   | 18.0        | arm64        |
-| tvOS     | 18.0        | arm64        |
-| macOS    | 15.0        | arm64        |
+| iOS      | 26.0        | arm64        |
+| iPadOS   | 26.0        | arm64        |
+| tvOS     | 26.0        | arm64        |
+| macOS    | 26.0        | arm64        |
 
 ## Getting Started
 
