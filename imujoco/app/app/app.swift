@@ -12,9 +12,9 @@ struct MuJoCoApp: App {
                     switch newPhase {
                     case .background:
                         gridManager.beginBackgroundExecution()
-                    case .active:
+                    case .inactive, .active:
                         gridManager.endBackgroundExecution()
-                    default:
+                    @unknown default:
                         break
                     }
                 }

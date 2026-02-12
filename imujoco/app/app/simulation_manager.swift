@@ -392,6 +392,7 @@ final class SimulationGridManager: @unchecked Sendable {
     #if os(iOS)
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
 
+    @MainActor
     func beginBackgroundExecution() {
         guard backgroundTaskID == .invalid else { return }
 
@@ -404,8 +405,10 @@ final class SimulationGridManager: @unchecked Sendable {
         backgroundTaskID = UIApplication.shared.beginBackgroundTask(
             withName: "iMuJoCo Physics"
         ) { [weak self] in
-            logger.info("Background task expiring")
-            self?.endBackgroundExecution()
+            Task { @MainActor in
+                logger.info("Background task expiring")
+                self?.endBackgroundExecution()
+            }
         }
 
         if backgroundTaskID != .invalid {
@@ -413,6 +416,7 @@ final class SimulationGridManager: @unchecked Sendable {
         }
     }
 
+    @MainActor
     func endBackgroundExecution() {
         guard backgroundTaskID != .invalid else { return }
         UIApplication.shared.endBackgroundTask(backgroundTaskID)
