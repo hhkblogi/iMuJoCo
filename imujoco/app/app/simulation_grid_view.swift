@@ -182,11 +182,6 @@ struct SimulationGridView: View {
                 Text(deviceIP)
                     .font(.system(.subheadline, design: .monospaced))
                     .foregroundColor(.white)
-
-                // Port range
-                Text("UDP :8888-8891")
-                    .font(.caption)
-                    .foregroundColor(.white.opacity(0.7))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 6)

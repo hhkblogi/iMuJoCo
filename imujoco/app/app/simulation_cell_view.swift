@@ -68,7 +68,7 @@ struct SimulationCellView: View {
 
                     Spacer()
 
-                    Text(":\(instance.port)")
+                    Text(verbatim: ":\(instance.port)")
                         .font(.caption2)
                         .fontWeight(.medium)
                         .foregroundColor(.white.opacity(0.7))
