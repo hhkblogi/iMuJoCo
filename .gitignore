@@ -66,3 +66,6 @@ build/
 # Local settings (contains DEVELOPMENT_TEAM, etc.)
 local.xcconfig
 .python-version
+
+# VS Code
+.vscode/
