@@ -71,6 +71,9 @@ local.xcconfig
 # VS Code
 .vscode/
 
+# Claude Code
+.claude/
+
 # Bazel
 bazel-*
 .bazel/
