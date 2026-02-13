@@ -4,6 +4,9 @@ cc_library(
     name = "qhullstatic_r",
     srcs = glob(["src/libqhull_r/*.c"]),
     hdrs = glob(["src/libqhull_r/*.h"]),
+    copts = [
+        "-Wno-unused-but-set-variable",
+    ],
     includes = [
         "src",
         "src/libqhull_r",

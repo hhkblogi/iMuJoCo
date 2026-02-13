@@ -39,24 +39,24 @@ genrule(
     outs = ["default.metallib"],
     cmd = select({
         ":cpu_ios_sim_arm64": " && ".join([
-            "xcrun metal -c -target air64-apple-ios26.0-simulator $(location render/mujoco_shaders.metal) -o $(@D)/mujoco_shaders.air",
-            "xcrun metallib $(@D)/mujoco_shaders.air -o $@",
+            "xcrun -sdk iphonesimulator metal -c -target air64-apple-ios26.0-simulator $(location render/mujoco_shaders.metal) -o $(@D)/mujoco_shaders.air",
+            "xcrun -sdk iphonesimulator metallib $(@D)/mujoco_shaders.air -o $@",
         ]),
         ":cpu_ios_arm64": " && ".join([
-            "xcrun metal -c -target air64-apple-ios26.0 $(location render/mujoco_shaders.metal) -o $(@D)/mujoco_shaders.air",
-            "xcrun metallib $(@D)/mujoco_shaders.air -o $@",
+            "xcrun -sdk iphoneos metal -c -target air64-apple-ios26.0 $(location render/mujoco_shaders.metal) -o $(@D)/mujoco_shaders.air",
+            "xcrun -sdk iphoneos metallib $(@D)/mujoco_shaders.air -o $@",
         ]),
         ":cpu_darwin_arm64": " && ".join([
-            "xcrun metal -c -target air64-apple-macos26.0 $(location render/mujoco_shaders.metal) -o $(@D)/mujoco_shaders.air",
-            "xcrun metallib $(@D)/mujoco_shaders.air -o $@",
+            "xcrun -sdk macosx metal -c -target air64-apple-macos26.0 $(location render/mujoco_shaders.metal) -o $(@D)/mujoco_shaders.air",
+            "xcrun -sdk macosx metallib $(@D)/mujoco_shaders.air -o $@",
         ]),
         ":cpu_tvos_arm64": " && ".join([
-            "xcrun metal -c -target air64-apple-tvos26.0 $(location render/mujoco_shaders.metal) -o $(@D)/mujoco_shaders.air",
-            "xcrun metallib $(@D)/mujoco_shaders.air -o $@",
+            "xcrun -sdk appletvos metal -c -target air64-apple-tvos26.0 $(location render/mujoco_shaders.metal) -o $(@D)/mujoco_shaders.air",
+            "xcrun -sdk appletvos metallib $(@D)/mujoco_shaders.air -o $@",
         ]),
         ":cpu_tvos_sim_arm64": " && ".join([
-            "xcrun metal -c -target air64-apple-tvos26.0-simulator $(location render/mujoco_shaders.metal) -o $(@D)/mujoco_shaders.air",
-            "xcrun metallib $(@D)/mujoco_shaders.air -o $@",
+            "xcrun -sdk appletvsimulator metal -c -target air64-apple-tvos26.0-simulator $(location render/mujoco_shaders.metal) -o $(@D)/mujoco_shaders.air",
+            "xcrun -sdk appletvsimulator metallib $(@D)/mujoco_shaders.air -o $@",
         ]),
     }),
     tags = ["no-sandbox"],

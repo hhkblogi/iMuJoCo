@@ -37,6 +37,9 @@ cc_library(
         "src/ccd/quat.h",
         "src/ccd/vec3.h",
     ],
+    copts = [
+        "-Wno-unused-parameter",
+    ],
     includes = ["src"],
     local_defines = [
         "CCD_STATIC_DEFINE",
