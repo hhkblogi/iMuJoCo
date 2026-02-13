@@ -1,4 +1,5 @@
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+load("@rules_python//python:defs.bzl", "py_binary")
 
 # ============================================================================
 # Core driver library
@@ -67,4 +68,15 @@ cc_binary(
         ":mujoco_driver",
         "@flatbuffers//:runtime_cc",
     ],
+)
+
+# ============================================================================
+# Python examples
+# ============================================================================
+
+py_binary(
+    name = "simple_control_py",
+    srcs = ["examples/simple_control.py"],
+    main = "examples/simple_control.py",
+    deps = ["//driver/imujoco_driver"],
 )

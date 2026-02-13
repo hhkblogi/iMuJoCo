@@ -127,7 +127,7 @@ check_generated_headers()
 ensure_flatbuffers()
 
 cpp_sources = [
-    "python/bindings.cc",
+    "imujoco_driver/bindings.cc",
     "cc/src/driver.cc",
     "cc/src/fragment.cc",
 ]

@@ -39,7 +39,6 @@ dev = [
 
 [tool.setuptools]
 packages = ["imujoco_driver"]
-package-dir = {"imujoco_driver" = "python"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
