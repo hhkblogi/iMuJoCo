@@ -304,6 +304,7 @@ final class SimulationGridManager: @unchecked Sendable {
 
     // MARK: - Model Loading
 
+    @MainActor
     func loadModel(at index: Int, fromFile path: String) async throws {
         guard let instance = instance(at: index) else { return }
         try await instance.loadModel(fromFile: path)

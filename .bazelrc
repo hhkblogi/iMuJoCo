@@ -1,0 +1,46 @@
+# iMuJoCo Bazel Configuration
+
+# Python bootstrap: use legacy "script" mode to fix rules_apple tool imports
+# (system_python bootstrap breaks `from tools.wrapper_common import execute`)
+build --@@rules_python+//python/config_settings:bootstrap_impl=script
+
+# C/C++ standards
+build --cxxopt=-std=c++20
+build --conlyopt=-std=c11
+
+# Compiler warnings
+build --copt=-Wall
+build --copt=-Wextra
+build --copt=-fvisibility=hidden
+
+# NOTE: Swift C++ interop (-cxx-interoperability-mode=default) is set per-target
+# in swift_library copts, not globally, because --swiftcopt is not a native flag.
+
+# ============================================================================
+# Platform configurations
+# ============================================================================
+
+# iOS device (arm64)
+build:ios_device --apple_platform_type=ios
+build:ios_device --ios_minimum_os_version=26.0
+build:ios_device --cpu=ios_arm64
+
+# iOS simulator (arm64)
+build:ios_sim --apple_platform_type=ios
+build:ios_sim --ios_minimum_os_version=26.0
+build:ios_sim --cpu=ios_sim_arm64
+
+# macOS (arm64)
+build:macos --apple_platform_type=macos
+build:macos --macos_minimum_os_version=26.0
+build:macos --cpu=darwin_arm64
+
+# tvOS device (arm64)
+build:tvos_device --apple_platform_type=tvos
+build:tvos_device --tvos_minimum_os_version=26.0
+build:tvos_device --cpu=tvos_arm64
+
+# tvOS simulator (arm64)
+build:tvos_sim --apple_platform_type=tvos
+build:tvos_sim --tvos_minimum_os_version=26.0
+build:tvos_sim --cpu=tvos_sim_arm64

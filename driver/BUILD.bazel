@@ -1,0 +1,70 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
+
+# ============================================================================
+# Core driver library
+# ============================================================================
+
+cc_library(
+    name = "mujoco_driver",
+    srcs = [
+        "cc/src/driver.cc",
+        "cc/src/fragment.cc",
+        "cc/src/fragment.h",
+        "cc/src/udp_socket.h",
+    ],
+    hdrs = ["cc/include/imujoco/driver/driver.h"],
+    includes = [
+        "cc/include",
+        "cc/src",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//schema:driver_schemas",
+        "@flatbuffers//:runtime_cc",
+    ],
+)
+
+# ============================================================================
+# Tests
+# ============================================================================
+
+cc_test(
+    name = "driver_test",
+    srcs = [
+        "cc/tests/driver_test.cc",
+        "cc/tests/fragment_test.cc",
+    ],
+    includes = [
+        "cc/include",
+        "cc/src",
+    ],
+    deps = [
+        ":mujoco_driver",
+        "//schema:driver_schemas",
+        "@flatbuffers//:runtime_cc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+# ============================================================================
+# Examples
+# ============================================================================
+
+cc_binary(
+    name = "simple_control",
+    srcs = ["cc/examples/simple_control.cc"],
+    deps = [":mujoco_driver"],
+)
+
+cc_binary(
+    name = "echo_server",
+    srcs = ["cc/examples/echo_server.cc"],
+    includes = [
+        "cc/include",
+        "cc/src",
+    ],
+    deps = [
+        ":mujoco_driver",
+        "@flatbuffers//:runtime_cc",
+    ],
+)

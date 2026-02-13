@@ -14,49 +14,46 @@ iMuJoCo brings the [MuJoCo](https://github.com/google-deepmind/mujoco) physics s
 
 ```
 iMuJoCo/
-├── app/                            # SwiftUI Application
-│   ├── app/
-│   │   ├── app.swift               # App entry point
-│   │   ├── content_view.swift      # Main UI view
-│   │   └── Assets.xcassets/        # App icons, colors
-│   ├── app_tests/                  # Unit tests
-│   └── app_ui_tests/               # UI tests
+├── imujoco/
+│   ├── app/                           # SwiftUI Application
+│   │   ├── app/
+│   │   │   ├── app.swift              # App entry point
+│   │   │   ├── content_view.swift     # Main UI view
+│   │   │   └── Assets.xcassets/       # App icons, colors
+│   │   └── BUILD.bazel                # iOS/macOS/tvOS app targets
+│   │
+│   ├── core/                          # Core Runtime Library
+│   │   ├── core/
+│   │   │   ├── core.swift             # Swift interface to C++ runtime
+│   │   │   ├── mjc_physics_runtime.mm # C++ physics runtime
+│   │   │   └── module.modulemap       # Swift-C++ interop module
+│   │   └── BUILD.bazel                # objc_library + swift_library
+│   │
+│   └── render/                        # Metal Rendering Library
+│       ├── render/
+│       │   ├── mjc_metal_render.swift  # Metal render engine
+│       │   └── mujoco_shaders.metal   # Metal shaders
+│       └── BUILD.bazel                # Metal compilation + swift_library
 │
-├── core/                           # Core Runtime Library (Static)
-│   ├── core/
-│   │   └── core.swift              # Swift interface to C++ runtime
-│   └── core_tests/                 # Unit tests
-│   # Future:
-│   # ├── include/                  # Public C/C++ headers
-│   # ├── src/                      # C++23 implementation
-│   # │   ├── runtime/              # MuJoCo simulation runtime
-│   # │   ├── network/              # Network IO for remote sim
-│   # │   └── metal/                # Metal rendering helpers
-│   # └── swift/                    # Swift wrappers
+├── driver/                            # C++ Driver Library
+│   ├── cc/                            # C++ source and tests
+│   ├── python/                        # Python bindings
+│   └── BUILD.bazel                    # cc_library + cc_test
 │
-├── third_party/                    # External dependencies (submodules)
-│   ├── mujoco/                     # MuJoCo physics engine (v3.4.0)
-│   └── .../                        # Future: ROS, etc.
+├── schema/                            # FlatBuffers Schemas
+│   ├── control.fbs                    # Control packet schema
+│   ├── state.fbs                      # State packet schema
+│   └── BUILD.bazel                    # FlatBuffers codegen
 │
-├── build/                          # Build output (gitignored)
-│   ├── mujoco/
-│   │   ├── ios/
-│   │   ├── tvos/
-│   │   └── macos/
-│   └── .../
+├── third_party/                       # External Dependencies
+│   ├── mujoco.BUILD                   # cc_library for MuJoCo
+│   ├── *.BUILD                        # BUILD files for MuJoCo C deps
+│   └── patches/                       # Patches for Bazel 9 compatibility
 │
-├── cmake/                          # CMake configurations
-│   ├── mujoco/
-│   │   └── CMakeLists.txt          # MuJoCo build config
-│   └── toolchains/                 # Shared toolchain files
-│       ├── ios.toolchain.cmake
-│       ├── tvos.toolchain.cmake
-│       └── macos.toolchain.cmake
-│
-├── scripts/                        # Build automation
-│   └── build_mujoco_xcframework.sh # Build MuJoCo XCFramework for all platforms
-│
-└── imujoco.xcworkspace/            # Xcode workspace (all projects)
+├── MODULE.bazel                       # Bazel module config (bzlmod)
+├── BUILD.bazel                        # Root: xcodeproj generation
+├── extensions.bzl                     # Module extension for C deps
+└── .bazelrc                           # Build flags + platform configs
 ```
 
 ## Architecture
@@ -94,60 +91,73 @@ iMuJoCo/
 
 ### Prerequisites
 
+- [Bazel 9.0+](https://bazel.build/install) (or [Bazelisk](https://github.com/bazelbuild/bazelisk))
 - Xcode 16.0+
-- CMake 3.24+
 - macOS 15.0+ (for development)
 
 ### Clone
 
 ```bash
-git clone --recurse-submodules https://github.com/hhkblogi/iMuJoCo.git
+git clone https://github.com/hhkblogi/iMuJoCo.git
 cd iMuJoCo
-```
-
-### Setup Git Hooks
-
-Enable the pre-commit hook to prevent accidental commits of Apple Developer Team IDs:
-
-```bash
-git config core.hooksPath .githooks
 ```
 
 ### Build
 
-**Step 1: Build MuJoCo XCFramework**
+**Build the iOS app:**
 
 ```bash
-# Build MuJoCo dynamic XCFramework (includes all platforms: macOS, iOS, tvOS)
-./scripts/build_mujoco_xcframework.sh
-
-# Or build static version (optional)
-./scripts/build_mujoco_xcframework.sh --static
+bazel build //imujoco/app:app
 ```
 
-This creates `build/frameworks/mujoco.xcframework` - a dynamic framework with all dependencies bundled inside.
-
-**Step 2: Open and Build in Xcode**
+**Run driver tests:**
 
 ```bash
-open imujoco.xcworkspace
+bazel test //driver:driver_test
 ```
 
-Build the project (Cmd+B). The `core` framework links against the MuJoCo XCFramework via `MuJoCoFramework.xcconfig`.
+**Build individual components:**
 
-**Note:** For apps using the `core` framework, add `mujoco.xcframework` to "Frameworks, Libraries, and Embedded Content" with **Embed & Sign**.
+```bash
+bazel build @mujoco//:mujoco           # MuJoCo library
+bazel build //schema:core_schemas       # FlatBuffers codegen
+bazel build //imujoco/core              # Core framework
+bazel build //imujoco/render            # Render framework
+```
 
-## TODO
+### Xcode Development
 
-- [ ] Migrate to Bazel for build and package system
+Generate an Xcode project for development and debugging:
 
-## Development Notes
+```bash
+bazel run //:xcodeproj
+open imujoco.xcodeproj
+```
 
-### Future Refinements
+Build, run, and debug normally from Xcode.
 
-- **Swift wrapper necessity**: `mjc_runtime.swift` wraps the C interface for Swift-idiomatic API (properties, throws, deinit). However, Swift can call C directly via the `MJCPhysicsRuntime` module. Consider whether the wrapper adds enough value or if direct C calls would be leaner.
+#### Device Deployment
 
-- **Custom logging subsystem**: Currently using `OS_LOG_DEFAULT` for simplicity. For production, consider using `os_log_create()` with custom subsystem/category (e.g., `"com.mujoco.core"`, `"UDPServer"`) to enable filtering in Console.app and per-component log retention policies.
+To deploy to a physical iOS device, set up your Apple Developer Team ID:
+
+```bash
+cp imujoco/app/team_config.bzl.template imujoco/app/team_config.bzl
+# Edit team_config.bzl and set TEAM_ID to your Apple Developer Team ID
+bazel run //:xcodeproj
+```
+
+Then select your device in Xcode and build. Xcode handles automatic code signing.
+
+### Platform Configs
+
+Build for different platforms using named configs:
+
+```bash
+bazel build //imujoco/app:app --config=ios_device      # iOS device
+bazel build //imujoco/app:app --config=ios_sim          # iOS simulator
+bazel build //imujoco/app:app_macos --config=macos      # macOS
+bazel build //imujoco/app:app_tvos --config=tvos_device # tvOS device
+```
 
 ## License
 

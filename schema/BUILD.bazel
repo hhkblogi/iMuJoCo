@@ -1,0 +1,65 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+# ============================================================================
+# Driver schemas (with Object API for mutable types)
+# ============================================================================
+
+genrule(
+    name = "driver_schemas_gen",
+    srcs = [
+        "control.fbs",
+        "state.fbs",
+    ],
+    outs = [
+        "driver/control_generated.h",
+        "driver/state_generated.h",
+    ],
+    cmd = " && ".join([
+        "$(execpath @flatbuffers//:flatc) --cpp --gen-object-api --scoped-enums -o $(@D)/driver $(location control.fbs)",
+        "$(execpath @flatbuffers//:flatc) --cpp --gen-object-api --scoped-enums -o $(@D)/driver $(location state.fbs)",
+    ]),
+    tools = ["@flatbuffers//:flatc"],
+)
+
+cc_library(
+    name = "driver_schemas",
+    hdrs = [
+        "driver/control_generated.h",
+        "driver/state_generated.h",
+    ],
+    includes = ["driver"],
+    visibility = ["//driver:__pkg__"],
+    deps = ["@flatbuffers//:runtime_cc"],
+)
+
+# ============================================================================
+# Core schemas (scoped enums only, namespace-mirrored output)
+# ============================================================================
+
+genrule(
+    name = "core_schemas_gen",
+    srcs = [
+        "control.fbs",
+        "state.fbs",
+    ],
+    outs = [
+        "imujoco/schema/control_generated.h",
+        "imujoco/schema/state_generated.h",
+    ],
+    cmd = " && ".join([
+        "$(execpath @flatbuffers//:flatc) --cpp --scoped-enums -o $(@D)/imujoco/schema $(location control.fbs)",
+        "$(execpath @flatbuffers//:flatc) --cpp --scoped-enums -o $(@D)/imujoco/schema $(location state.fbs)",
+    ]),
+    tools = ["@flatbuffers//:flatc"],
+)
+
+cc_library(
+    name = "core_schemas",
+    hdrs = [
+        "imujoco/schema/control_generated.h",
+        "imujoco/schema/state_generated.h",
+    ],
+    includes = ["."],
+    visibility = ["//imujoco/core:__pkg__"],
+    deps = ["@flatbuffers//:runtime_cc"],
+)

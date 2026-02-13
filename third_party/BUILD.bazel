@@ -1,0 +1,17 @@
+# Package marker for third_party directory.
+# Individual BUILD files for external deps are referenced by extensions.bzl.
+
+exports_files(
+    [
+        "mujoco.BUILD",
+        "flatbuffers.BUILD",
+        "lodepng.BUILD",
+        "tinyxml2.BUILD",
+        "tinyobjloader.BUILD",
+        "qhull.BUILD",
+        "ccd.BUILD",
+        "MarchingCubeCpp.BUILD",
+        "TriangleMeshDistance.BUILD",
+    ],
+    visibility = ["//visibility:public"],
+)

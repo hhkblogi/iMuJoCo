@@ -1,0 +1,117 @@
+load("@build_bazel_rules_swift//swift:swift.bzl", "swift_library")
+load("@rules_apple//apple:apple.bzl", "local_provisioning_profile")
+load("@rules_apple//apple:ios.bzl", "ios_application")
+load("@rules_apple//apple:macos.bzl", "macos_application")
+load("@rules_apple//apple:tvos.bzl", "tvos_application")
+load("@rules_xcodeproj//xcodeproj:xcode_provisioning_profile.bzl", "xcode_provisioning_profile")
+load(":team_config.bzl", "TEAM_ID")
+
+# ============================================================================
+# App Swift library
+# ============================================================================
+
+swift_library(
+    name = "app_lib",
+    srcs = [
+        "app/app.swift",
+        "app/content_view.swift",
+        "app/fullscreen_simulation_view.swift",
+        "app/simulation_cell_view.swift",
+        "app/simulation_grid_view.swift",
+        "app/simulation_manager.swift",
+    ],
+    copts = ["-cxx-interoperability-mode=default"],
+    module_name = "app",
+    deps = [
+        "//imujoco/core",
+        "//imujoco/core:core_cpp",
+        "//imujoco/render",
+        "@mujoco//:mujoco",
+    ],
+)
+
+# ============================================================================
+# Provisioning profile (for device deployment via Xcode)
+# ============================================================================
+
+local_provisioning_profile(
+    name = "local_profile",
+    profile_name = "iOS Team Provisioning Profile: *",
+    team_id = TEAM_ID,
+)
+
+xcode_provisioning_profile(
+    name = "xcode_profile",
+    managed_by_xcode = True,
+    provisioning_profile = ":local_profile",
+    team_id = TEAM_ID,
+)
+
+# ============================================================================
+# iOS application
+# ============================================================================
+
+ios_application(
+    name = "app",
+    bundle_id = "com.hhkblogi.imujoco.app",
+    entitlements = "app_ios.entitlements",
+    families = [
+        "iphone",
+        "ipad",
+    ],
+    infoplists = ["Info.plist"],
+    minimum_os_version = "26.0",
+    provisioning_profile = ":xcode_profile",
+    resources = [
+        "app/Assets.xcassets",
+        "app/PrivacyInfo.xcprivacy",
+        "app/Resources/Models/humanoid.xml",
+        "app/Resources/Models/pendulum.xml",
+        "app/Resources/Models/simple_pendulum.xml",
+        "//imujoco/render:mujoco_metallib",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [":app_lib"],
+)
+
+# ============================================================================
+# macOS application (optional)
+# ============================================================================
+
+macos_application(
+    name = "app_macos",
+    bundle_id = "com.hhkblogi.imujoco.app",
+    entitlements = "app.entitlements",
+    infoplists = ["Info.plist"],
+    minimum_os_version = "26.0",
+    resources = [
+        "app/Assets.xcassets",
+        "app/PrivacyInfo.xcprivacy",
+        "app/Resources/Models/humanoid.xml",
+        "app/Resources/Models/pendulum.xml",
+        "app/Resources/Models/simple_pendulum.xml",
+        "//imujoco/render:mujoco_metallib",
+    ],
+    deps = [":app_lib"],
+)
+
+# ============================================================================
+# tvOS application (optional)
+# ============================================================================
+
+tvos_application(
+    name = "app_tvos",
+    bundle_id = "com.hhkblogi.imujoco.app",
+    entitlements = "app_ios.entitlements",
+    infoplists = ["Info.plist"],
+    minimum_os_version = "26.0",
+    resources = [
+        "app/Assets.xcassets",
+        "app/PrivacyInfo.xcprivacy",
+        "app/Resources/Models/humanoid.xml",
+        "app/Resources/Models/pendulum.xml",
+        "app/Resources/Models/simple_pendulum.xml",
+        "//imujoco/render:mujoco_metallib",
+    ],
+    deps = [":app_lib"],
+)

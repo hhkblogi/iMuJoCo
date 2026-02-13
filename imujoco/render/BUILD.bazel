@@ -1,0 +1,85 @@
+load("@build_bazel_rules_swift//swift:swift.bzl", "swift_library")
+
+# ============================================================================
+# Platform config settings for Metal shader compilation
+# ============================================================================
+
+config_setting(
+    name = "cpu_ios_sim_arm64",
+    values = {"cpu": "ios_sim_arm64"},
+)
+
+config_setting(
+    name = "cpu_ios_arm64",
+    values = {"cpu": "ios_arm64"},
+)
+
+config_setting(
+    name = "cpu_darwin_arm64",
+    values = {"cpu": "darwin_arm64"},
+)
+
+config_setting(
+    name = "cpu_tvos_arm64",
+    values = {"cpu": "tvos_arm64"},
+)
+
+config_setting(
+    name = "cpu_tvos_sim_arm64",
+    values = {"cpu": "tvos_sim_arm64"},
+)
+
+# ============================================================================
+# Metal shader compilation
+# ============================================================================
+
+genrule(
+    name = "mujoco_metallib",
+    srcs = ["render/mujoco_shaders.metal"],
+    outs = ["default.metallib"],
+    cmd = select({
+        ":cpu_ios_sim_arm64": " && ".join([
+            "xcrun -sdk iphonesimulator metal -c -target air64-apple-ios26.0-simulator $(location render/mujoco_shaders.metal) -o $(@D)/mujoco_shaders.air",
+            "xcrun -sdk iphonesimulator metallib $(@D)/mujoco_shaders.air -o $@",
+        ]),
+        ":cpu_ios_arm64": " && ".join([
+            "xcrun -sdk iphoneos metal -c -target air64-apple-ios26.0 $(location render/mujoco_shaders.metal) -o $(@D)/mujoco_shaders.air",
+            "xcrun -sdk iphoneos metallib $(@D)/mujoco_shaders.air -o $@",
+        ]),
+        ":cpu_darwin_arm64": " && ".join([
+            "xcrun -sdk macosx metal -c -target air64-apple-macos26.0 $(location render/mujoco_shaders.metal) -o $(@D)/mujoco_shaders.air",
+            "xcrun -sdk macosx metallib $(@D)/mujoco_shaders.air -o $@",
+        ]),
+        ":cpu_tvos_arm64": " && ".join([
+            "xcrun -sdk appletvos metal -c -target air64-apple-tvos26.0 $(location render/mujoco_shaders.metal) -o $(@D)/mujoco_shaders.air",
+            "xcrun -sdk appletvos metallib $(@D)/mujoco_shaders.air -o $@",
+        ]),
+        ":cpu_tvos_sim_arm64": " && ".join([
+            "xcrun -sdk appletvsimulator metal -c -target air64-apple-tvos26.0-simulator $(location render/mujoco_shaders.metal) -o $(@D)/mujoco_shaders.air",
+            "xcrun -sdk appletvsimulator metallib $(@D)/mujoco_shaders.air -o $@",
+        ]),
+    }),
+    tags = ["no-sandbox"],
+    visibility = ["//visibility:public"],
+)
+
+# ============================================================================
+# Render Swift library
+# ============================================================================
+
+swift_library(
+    name = "render",
+    srcs = [
+        "render/mjc_metal_render.swift",
+        "render/mjc_metal_view.swift",
+    ],
+    copts = ["-cxx-interoperability-mode=default"],
+    data = [":mujoco_metallib"],
+    module_name = "render",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//imujoco/core",
+        "//imujoco/core:core_cpp",
+        "@mujoco//:mujoco",
+    ],
+)
