@@ -46,10 +46,9 @@ iMuJoCo/
 │   └── BUILD.bazel                    # FlatBuffers codegen
 │
 ├── third_party/                       # External Dependencies
-│   ├── mujoco/                        # MuJoCo physics engine (submodule)
-│   ├── flatbuffers/                   # FlatBuffers (submodule)
 │   ├── mujoco.BUILD                   # cc_library for MuJoCo
-│   └── *.BUILD                        # BUILD files for MuJoCo C deps
+│   ├── *.BUILD                        # BUILD files for MuJoCo C deps
+│   └── patches/                       # Patches for Bazel 9 compatibility
 │
 ├── MODULE.bazel                       # Bazel module config (bzlmod)
 ├── BUILD.bazel                        # Root: xcodeproj generation
@@ -99,16 +98,8 @@ iMuJoCo/
 ### Clone
 
 ```bash
-git clone --recurse-submodules https://github.com/hhkblogi/iMuJoCo.git
+git clone https://github.com/hhkblogi/iMuJoCo.git
 cd iMuJoCo
-```
-
-### Setup Git Hooks
-
-Enable the pre-commit hook to prevent accidental commits of Apple Developer Team IDs:
-
-```bash
-git config core.hooksPath .githooks
 ```
 
 ### Build
@@ -116,7 +107,7 @@ git config core.hooksPath .githooks
 **Build the iOS app:**
 
 ```bash
-bazel build //imujoco/app:app --config=ios_device
+bazel build //imujoco/app:app
 ```
 
 **Run driver tests:**
@@ -128,10 +119,10 @@ bazel test //driver:driver_test
 **Build individual components:**
 
 ```bash
-bazel build //third_party/mujoco          # MuJoCo library
-bazel build //schema:core_schemas          # FlatBuffers codegen
-bazel build //imujoco/core                 # Core framework
-bazel build //imujoco/render               # Render framework
+bazel build @mujoco//:mujoco           # MuJoCo library
+bazel build //schema:core_schemas       # FlatBuffers codegen
+bazel build //imujoco/core              # Core framework
+bazel build //imujoco/render            # Render framework
 ```
 
 ### Xcode Development
@@ -140,29 +131,33 @@ Generate an Xcode project for development and debugging:
 
 ```bash
 bazel run //:xcodeproj
-open iMuJoCo.xcodeproj
+open imujoco.xcodeproj
 ```
 
-Build, run, and debug normally from Xcode. Code signing uses Xcode's automatic signing in `build_mode = "xcode"`.
+Build, run, and debug normally from Xcode.
+
+#### Device Deployment
+
+To deploy to a physical iOS device, set up your Apple Developer Team ID:
+
+```bash
+cp imujoco/app/team_config.bzl.template imujoco/app/team_config.bzl
+# Edit team_config.bzl and set TEAM_ID to your Apple Developer Team ID
+bazel run //:xcodeproj
+```
+
+Then select your device in Xcode and build. Xcode handles automatic code signing.
 
 ### Platform Configs
 
 Build for different platforms using named configs:
 
 ```bash
-bazel build //imujoco/app:app --config=ios_device     # iOS device
-bazel build //imujoco/app:app --config=ios_sim         # iOS simulator
-bazel build //imujoco/app:app_macos --config=macos     # macOS
+bazel build //imujoco/app:app --config=ios_device      # iOS device
+bazel build //imujoco/app:app --config=ios_sim          # iOS simulator
+bazel build //imujoco/app:app_macos --config=macos      # macOS
 bazel build //imujoco/app:app_tvos --config=tvos_device # tvOS device
 ```
-
-## Development Notes
-
-### Future Refinements
-
-- **Swift wrapper necessity**: `mjc_runtime.swift` wraps the C interface for Swift-idiomatic API (properties, throws, deinit). However, Swift can call C directly via the `MJCPhysicsRuntime` module. Consider whether the wrapper adds enough value or if direct C calls would be leaner.
-
-- **Custom logging subsystem**: Currently using `OS_LOG_DEFAULT` for simplicity. For production, consider using `os_log_create()` with custom subsystem/category (e.g., `"com.mujoco.core"`, `"UDPServer"`) to enable filtering in Console.app and per-component log retention policies.
 
 ## License
 
