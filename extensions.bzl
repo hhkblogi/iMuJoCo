@@ -1,16 +1,16 @@
 """Module extension for MuJoCo and its third-party C dependencies."""
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
-load("@bazel_tools//tools/build_defs/repo:local.bzl", "new_local_repository")
 
 def _mujoco_deps_impl(_ctx):
-    """Fetch MuJoCo (local submodule) and its C dependencies."""
+    """Fetch MuJoCo and its C dependencies."""
 
-    # MuJoCo physics engine (local submodule)
-    new_local_repository(
+    # MuJoCo physics engine
+    http_archive(
         name = "mujoco",
         build_file = "//:third_party/mujoco.BUILD",
-        path = "third_party/mujoco",
+        strip_prefix = "mujoco-3.4.0",
+        urls = ["https://github.com/google-deepmind/mujoco/archive/refs/tags/3.4.0.tar.gz"],
     )
 
     # FlatBuffers (C++ runtime + flatc compiler only — avoids rules_swift dependency)
