@@ -81,4 +81,4 @@ bazel-*
 MODULE.bazel.lock
 
 # Generated Xcode project (created by `bazel run //:xcodeproj`)
-iMuJoCo.xcodeproj/
+imujoco.xcodeproj/
