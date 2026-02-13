@@ -7,6 +7,9 @@ import os.log
 import core
 import render
 import MJCPhysicsRuntime
+#if canImport(UIKit)
+import UIKit
+#endif
 
 private let logger = Logger(subsystem: "com.mujoco.app", category: "SimulationManager")
 
@@ -383,4 +386,44 @@ final class SimulationGridManager: @unchecked Sendable {
     var firstAvailableIndex: Int? {
         instances.firstIndex { !$0.isActive }
     }
+
+    // MARK: - Background Execution
+
+    #if os(iOS)
+    private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+
+    @MainActor
+    func beginBackgroundExecution() {
+        guard backgroundTaskID == .invalid else { return }
+
+        let hasRunning = instances.contains { $0.state == .running }
+        guard hasRunning else {
+            logger.debug("No running simulations, skipping background task")
+            return
+        }
+
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(
+            withName: "iMuJoCo Physics"
+        ) { [weak self] in
+            Task { @MainActor in
+                logger.info("Background task expiring")
+                self?.endBackgroundExecution()
+            }
+        }
+
+        if backgroundTaskID != .invalid {
+            logger.info("Background task started")
+        }
+    }
+
+    @MainActor
+    func endBackgroundExecution() {
+        guard backgroundTaskID != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTaskID)
+        backgroundTaskID = .invalid
+    }
+    #else
+    func beginBackgroundExecution() {}
+    func endBackgroundExecution() {}
+    #endif
 }

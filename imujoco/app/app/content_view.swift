@@ -4,7 +4,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var gridManager = SimulationGridManager()
+    var gridManager: SimulationGridManager
 
     var body: some View {
         ZStack {
@@ -34,6 +34,6 @@ struct ContentView: View {
 
 #if DEBUG
 #Preview {
-    ContentView()
+    ContentView(gridManager: SimulationGridManager())
 }
 #endif

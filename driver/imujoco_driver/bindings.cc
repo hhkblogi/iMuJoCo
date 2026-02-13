@@ -4,6 +4,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/functional.h>
+#include <memory>
 
 #include "imujoco/driver/driver.h"
 
@@ -129,14 +130,20 @@ or dispatch work to your own thread to avoid blocking state reception.
         // Subscribe - with GIL handling for Python callbacks
         .def("subscribe",
             [](Driver& self, py::function callback) {
-                // Wrap Python callback to acquire GIL when called from C++ thread
-                auto wrapped = [callback = std::move(callback)](const SimulationState& state) {
+                // Store in shared_ptr with GIL-aware deleter so lambda copies
+                // only touch atomic refcount (no GIL needed), and the Python
+                // object is destroyed under the GIL.
+                auto shared_cb = std::shared_ptr<py::function>(
+                    new py::function(std::move(callback)),
+                    [](py::function* fn) {
+                        py::gil_scoped_acquire acquire;
+                        delete fn;
+                    });
+                auto wrapped = [shared_cb](const SimulationState& state) {
                     py::gil_scoped_acquire acquire;
                     try {
-                        callback(state);
+                        (*shared_cb)(state);
                     } catch (py::error_already_set&) {
-                        // Log Python exception but don't crash
-                        // Use PyErr_Print for robust error handling
                         PyErr_Print();
                         PyErr_Clear();
                     }
@@ -154,12 +161,17 @@ or dispatch work to your own thread to avoid blocking state reception.
         // Error callback
         .def("on_error",
             [](Driver& self, py::function callback) {
-                auto wrapped = [callback = std::move(callback)](std::error_code ec, const std::string& msg) {
+                auto shared_cb = std::shared_ptr<py::function>(
+                    new py::function(std::move(callback)),
+                    [](py::function* fn) {
+                        py::gil_scoped_acquire acquire;
+                        delete fn;
+                    });
+                auto wrapped = [shared_cb](std::error_code ec, const std::string& msg) {
                     py::gil_scoped_acquire acquire;
                     try {
-                        callback(ec.value(), msg);
+                        (*shared_cb)(ec.value(), msg);
                     } catch (py::error_already_set&) {
-                        // Use PyErr_Print for robust error handling
                         PyErr_Print();
                         PyErr_Clear();
                     }

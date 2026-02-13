@@ -1,0 +1,17 @@
+load("@pybind11_bazel//:build_defs.bzl", "pybind_extension")
+load("@rules_python//python:defs.bzl", "py_library")
+
+pybind_extension(
+    name = "_imujoco_driver",
+    srcs = ["bindings.cc"],
+    defines = ["VERSION_INFO=\\\"0.1.0\\\""],
+    deps = ["//driver:mujoco_driver"],
+)
+
+py_library(
+    name = "imujoco_driver",
+    srcs = ["__init__.py"],
+    data = [":_imujoco_driver"],
+    imports = [".."],
+    visibility = ["//visibility:public"],
+)
