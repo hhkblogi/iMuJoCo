@@ -1,0 +1,12 @@
+load("@rules_xcodeproj//xcodeproj:defs.bzl", "top_level_target", "xcodeproj")
+
+xcodeproj(
+    name = "xcodeproj",
+    project_name = "iMuJoCo",
+    top_level_targets = [
+        top_level_target(
+            "//imujoco/app:app",
+            target_environments = ["device", "simulator"],
+        ),
+    ],
+)

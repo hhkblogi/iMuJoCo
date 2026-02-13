@@ -65,7 +65,17 @@ build/
 
 # Local settings (contains DEVELOPMENT_TEAM, etc.)
 local.xcconfig
+**/team_config.bzl
 .python-version
 
 # VS Code
 .vscode/
+
+# Bazel
+bazel-*
+.bazel/
+.bazelrc.user
+MODULE.bazel.lock
+
+# Generated Xcode project (created by `bazel run //:xcodeproj`)
+iMuJoCo.xcodeproj/

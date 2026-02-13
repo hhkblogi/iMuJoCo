@@ -1,0 +1,84 @@
+Bazel 9: CcInfo moved from builtin to rules_cc. Import it explicitly.
+
+diff --git a/MODULE.bazel b/MODULE.bazel
+--- a/MODULE.bazel
++++ b/MODULE.bazel
+@@ -19,6 +19,7 @@
+     repo_name = "build_bazel_rules_apple",
+ )
+ bazel_dep(name = "rules_python", version = "0.27.1")
++bazel_dep(name = "rules_cc", version = "0.1.0")
+
+ internal = use_extension("//xcodeproj:extensions.bzl", "internal")
+ use_repo(internal, "rules_xcodeproj_generated")
+diff --git a/xcodeproj/automatic_target_info.bzl b/xcodeproj/automatic_target_info.bzl
+--- a/xcodeproj/automatic_target_info.bzl
++++ b/xcodeproj/automatic_target_info.bzl
+@@ -1,5 +1,6 @@
+ """Functions for calculating automatic target info."""
+
++load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
+ load(
+     "@build_bazel_rules_apple//apple:providers.bzl",
+     "AppleBundleInfo",
+diff --git a/xcodeproj/internal/processed_targets/library_targets.bzl b/xcodeproj/internal/processed_targets/library_targets.bzl
+--- a/xcodeproj/internal/processed_targets/library_targets.bzl
++++ b/xcodeproj/internal/processed_targets/library_targets.bzl
+@@ -1,5 +1,6 @@
+ """Functions for processing library targets."""
+
++load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
+ load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
+ load("@build_bazel_rules_apple//apple:providers.bzl", "AppleDebugOutputsInfo")
+ load("@build_bazel_rules_swift//swift:swift.bzl", "SwiftInfo", "SwiftProtoInfo")
+diff --git a/xcodeproj/internal/processed_targets/top_level_targets.bzl b/xcodeproj/internal/processed_targets/top_level_targets.bzl
+--- a/xcodeproj/internal/processed_targets/top_level_targets.bzl
++++ b/xcodeproj/internal/processed_targets/top_level_targets.bzl
+@@ -1,5 +1,6 @@
+ """Functions for processing top level targets."""
+
++load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
+ load("@bazel_skylib//lib:paths.bzl", "paths")
+ load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
+ load(
+diff --git a/xcodeproj/internal/processed_targets/mixed_language_library_targets.bzl b/xcodeproj/internal/processed_targets/mixed_language_library_targets.bzl
+--- a/xcodeproj/internal/processed_targets/mixed_language_library_targets.bzl
++++ b/xcodeproj/internal/processed_targets/mixed_language_library_targets.bzl
+@@ -1,5 +1,6 @@
+ """Functions for processing mixed-language library targets."""
+
++load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
+ load("@bazel_skylib//rules:common_settings.bzl", "BuildSettingInfo")
+ load("@build_bazel_rules_apple//apple:providers.bzl", "AppleDebugOutputsInfo")
+ load("@build_bazel_rules_swift//swift:swift.bzl", "SwiftInfo")
+diff --git a/xcodeproj/internal/processed_targets/unsupported_targets.bzl b/xcodeproj/internal/processed_targets/unsupported_targets.bzl
+--- a/xcodeproj/internal/processed_targets/unsupported_targets.bzl
++++ b/xcodeproj/internal/processed_targets/unsupported_targets.bzl
+@@ -1,5 +1,6 @@
+ """Functions for processing non-Xcode targets."""
+
++load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
+ load(
+     "@build_bazel_rules_apple//apple:providers.bzl",
+     "AppleResourceBundleInfo",
+diff --git a/xcodeproj/internal/products.bzl b/xcodeproj/internal/products.bzl
+--- a/xcodeproj/internal/products.bzl
++++ b/xcodeproj/internal/products.bzl
+@@ -1,5 +1,6 @@
+ """Module for collecting product information for a target."""
+
++load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
+ load("@bazel_skylib//lib:paths.bzl", "paths")
+ load("//xcodeproj/internal/files:files.bzl", "join_paths_ignoring_empty")
+ load("//xcodeproj/internal/files:linker_input_files.bzl", "linker_input_files")
+diff --git a/xcodeproj/xcodeproj_cache_warm_aspect.bzl b/xcodeproj/xcodeproj_cache_warm_aspect.bzl
+--- a/xcodeproj/xcodeproj_cache_warm_aspect.bzl
++++ b/xcodeproj/xcodeproj_cache_warm_aspect.bzl
+@@ -6,6 +6,7 @@
+ bundle, or codesign as well (which we don't cache anyway).
+ """
+
++load("@rules_cc//cc/common:cc_info.bzl", "CcInfo")
+ load("@build_bazel_rules_apple//apple:providers.bzl", "AppleResourceInfo")
+ load("@build_bazel_rules_swift//swift:providers.bzl", "SwiftInfo")
+

@@ -1,0 +1,75 @@
+module(
+    name = "imujoco",
+    version = "0.1.0",
+)
+
+# ============================================================================
+# Core Bazel dependencies
+# ============================================================================
+
+bazel_dep(name = "bazel_skylib", version = "1.8.2")
+bazel_dep(name = "platforms", version = "1.0.0")
+
+# Apple platform support (MUST be before rules_cc for toolchain priority)
+bazel_dep(name = "apple_support", version = "2.2.0")
+
+# C/C++ rules (required explicitly in Bazel 9)
+bazel_dep(name = "rules_cc", version = "0.2.16")
+
+# Apple platform rules
+bazel_dep(name = "rules_apple", version = "4.3.3")
+bazel_dep(name = "rules_swift", version = "3.4.2", repo_name = "build_bazel_rules_swift")
+
+# Xcode project generation
+bazel_dep(name = "rules_xcodeproj", version = "2.12.1")
+
+# Google Test (for driver tests)
+bazel_dep(name = "googletest", version = "1.17.0.bcr.2")
+
+# ============================================================================
+# Git overrides for Bazel 9 compatibility (unreleased fixes on main)
+# ============================================================================
+
+git_override(
+    module_name = "apple_support",
+    commit = "2262438a874f0d5fe5ccdd22e2123cd06d902225",
+    remote = "https://github.com/bazelbuild/apple_support.git",
+)
+
+git_override(
+    module_name = "rules_apple",
+    commit = "22f6a4d9391eccb3b80d636d5c984f203873d477",
+    remote = "https://github.com/bazelbuild/rules_apple.git",
+)
+
+git_override(
+    module_name = "rules_swift",
+    commit = "81a1af27dbe43cc253b3a588d11687e58391fb97",
+    remote = "https://github.com/bazelbuild/rules_swift.git",
+)
+
+git_override(
+    module_name = "rules_xcodeproj",
+    commit = "e1bcd9ea8f3aa3b7f5c299247fca2c4fcc9df573",
+    remote = "https://github.com/MobileNativeFoundation/rules_xcodeproj.git",
+    patches = ["//third_party/patches:rules_xcodeproj_ccinfo.patch"],
+    patch_strip = 1,
+)
+
+# ============================================================================
+# Module extension for MuJoCo, FlatBuffers, and C dependencies
+# ============================================================================
+
+mujoco_deps = use_extension("//:extensions.bzl", "mujoco_deps")
+use_repo(
+    mujoco_deps,
+    "flatbuffers",
+    "mujoco",
+    "lodepng",
+    "tinyxml2",
+    "tinyobjloader",
+    "qhull",
+    "ccd",
+    "marchingcubecpp",
+    "trianglemeshdistance",
+)

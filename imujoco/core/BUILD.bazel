@@ -1,0 +1,62 @@
+load("@build_bazel_rules_swift//swift:swift.bzl", "swift_interop_hint", "swift_library")
+load("@rules_cc//cc:defs.bzl", "objc_library")
+
+# ============================================================================
+# Swift interop hint for exposing ObjC++ headers to Swift
+# ============================================================================
+
+swift_interop_hint(
+    name = "core_cpp_swift_hint",
+    module_map = "core/module.modulemap",
+    module_name = "MJCPhysicsRuntime",
+)
+
+# ============================================================================
+# Core C++ runtime (compiled as ObjC++ for Apple platform compatibility)
+# ============================================================================
+
+objc_library(
+    name = "core_cpp",
+    srcs = [
+        "core/mjc_fragment.mm",
+        "core/mjc_physics_runtime.mm",
+    ],
+    hdrs = [
+        "core/mjc_fragment.h",
+        "core/mjc_physics_runtime.h",
+        "core/spsc_queue.h",
+    ],
+    aspect_hints = [":core_cpp_swift_hint"],
+    copts = [
+        "-std=c++20",
+        "-fvisibility=hidden",
+    ],
+    sdk_frameworks = [
+        "Foundation",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//schema:core_schemas",
+        "@flatbuffers//:runtime_cc",
+        "@mujoco//:mujoco",
+    ],
+)
+
+# ============================================================================
+# Core Swift library
+# ============================================================================
+
+swift_library(
+    name = "core",
+    srcs = [
+        "core/core.swift",
+        "core/mjc_runtime.swift",
+    ],
+    copts = ["-cxx-interoperability-mode=default"],
+    module_name = "core",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":core_cpp",
+        "@mujoco//:mujoco",
+    ],
+)

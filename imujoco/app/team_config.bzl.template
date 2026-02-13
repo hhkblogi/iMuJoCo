@@ -1,0 +1,5 @@
+# Local team configuration
+# Copy this file to team_config.bzl and fill in your Apple Developer Team ID.
+# team_config.bzl is gitignored and will not be committed.
+
+TEAM_ID = "YOUR_TEAM_ID_HERE"
