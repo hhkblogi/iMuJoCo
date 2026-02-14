@@ -897,6 +897,12 @@ private:
 
                 if (stepped) {
                     steps_since_last_frame++;
+                    // Send state to connected client even when stepping in
+                    // real-time mode (not only on UDP-driven steps). This lets
+                    // clients that send empty ctrl still receive state.
+                    if (udp_server_.HasClient()) {
+                        udp_server_.SendState(model_, data_);
+                    }
                 }
             }
 
