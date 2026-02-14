@@ -19,7 +19,7 @@ struct Uniforms {
     float emission;
     float specular;
     float shininess;
-    float _padding2;  // Final alignment padding
+    float checkerboardScale;  // >0 = procedural checkerboard cell size, 0 = disabled
 };
 
 struct Light {
@@ -79,6 +79,13 @@ fragment float4 fragmentMain(VertexOut in [[stage_in]],
     float3 V = normalize(uniforms.cameraPosition - in.worldPosition);
     float3 baseColor = in.color.rgb * uniforms.color.rgb;
     float alpha = in.color.a * uniforms.color.a;
+
+    // Procedural checkerboard for ground planes
+    if (uniforms.checkerboardScale > 0.0) {
+        float2 cell = floor(in.worldPosition.xy / uniforms.checkerboardScale);
+        bool isDark = fmod(cell.x + cell.y, 2.0) != 0.0;
+        baseColor *= isDark ? 0.7 : 1.1;
+    }
 
     float3 result = float3(0.0);
 
