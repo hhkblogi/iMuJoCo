@@ -46,6 +46,11 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    if (rate_hz <= 0) {
+        std::cerr << "Invalid rate (" << rate_hz << " Hz); using 1 Hz." << std::endl;
+        rate_hz = 1;
+    }
+
     int sleep_ms = std::max(1, 1000 / rate_hz);
 
     std::cout << "MuJoCo Driver Example (Async Mode)" << std::endl;

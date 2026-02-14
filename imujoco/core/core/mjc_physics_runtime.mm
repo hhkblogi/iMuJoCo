@@ -452,6 +452,7 @@ public:
             // Clear replay state
             ctrl_queue_.clear();
             replay_anchor_host_us_ = 0;
+            replay_anchor_cpu_ = Clock::time_point{};
             ctrl_timed_out_ = false;
             last_ctrl_received_ = Clock::time_point{};
         }
@@ -644,20 +645,28 @@ public:
     }
 
 private:
-    // Per-actuator timeout policy: true = zero on timeout (torque), false = hold (servo)
+    // Per-actuator timeout policy: true = zero on timeout, false = hold last value
     void BuildActuatorTimeoutPolicy() {
         actuator_zero_on_timeout_.clear();
         if (!model_) return;
         actuator_zero_on_timeout_.resize(model_->nu);
+        int zero_count = 0, hold_count = 0;
         for (int i = 0; i < model_->nu; i++) {
-            // mjBIAS_NONE (0) = direct torque actuator → zero on timeout
-            // mjBIAS_AFFINE (1) = position/velocity servo → hold last value
-            actuator_zero_on_timeout_[i] = (model_->actuator_biastype[i] == mjBIAS_NONE);
+            switch (model_->actuator_biastype[i]) {
+                case mjBIAS_AFFINE:
+                    // Position/velocity servo → hold last value
+                    actuator_zero_on_timeout_[i] = false;
+                    hold_count++;
+                    break;
+                default:
+                    // mjBIAS_NONE (torque), mjBIAS_MUSCLE, or unknown → zero on timeout
+                    actuator_zero_on_timeout_[i] = true;
+                    zero_count++;
+                    break;
+            }
         }
-        int torque_count = 0;
-        for (bool z : actuator_zero_on_timeout_) { if (z) torque_count++; }
-        os_log_info(OS_LOG_DEFAULT, "Actuator timeout policy: %d torque (zero), %d servo (hold), timeout=%ums",
-                    torque_count, model_->nu - torque_count, ctrl_timeout_ms_);
+        os_log_info(OS_LOG_DEFAULT, "Actuator timeout policy: %d zero, %d hold, timeout=%ums",
+                    zero_count, hold_count, ctrl_timeout_ms_);
     }
 
     void ExtractMeshData() {
@@ -802,10 +811,15 @@ private:
                         replay_anchor_cpu_ = Clock::now();
                         replay_anchor_host_us_ = next.host_timestamp_us;
                     }
-                    uint64_t delta_us = next.host_timestamp_us - replay_anchor_host_us_;
-                    auto elapsed = Clock::now() - replay_anchor_cpu_;
-                    if (elapsed >= std::chrono::microseconds(delta_us)) {
+                    if (next.host_timestamp_us <= replay_anchor_host_us_) {
+                        // Out-of-order or backwards timestamp — apply immediately
                         should_apply = true;
+                    } else {
+                        uint64_t delta_us = next.host_timestamp_us - replay_anchor_host_us_;
+                        auto elapsed = Clock::now() - replay_anchor_cpu_;
+                        if (elapsed >= std::chrono::microseconds(delta_us)) {
+                            should_apply = true;
+                        }
                     }
                 }
 
@@ -846,7 +860,8 @@ private:
                     // Clear any stale queued controls
                     ctrl_queue_.clear();
                     replay_anchor_host_us_ = 0;
-                    os_log_info(OS_LOG_DEFAULT, "Ctrl timeout: zeroed torque actuators after %ums",
+                    replay_anchor_cpu_ = Clock::time_point{};
+                    os_log_info(OS_LOG_DEFAULT, "Ctrl timeout: zeroed actuators after %ums",
                                 ctrl_timeout_ms_);
                 }
             }
