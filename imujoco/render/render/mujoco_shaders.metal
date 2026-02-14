@@ -77,9 +77,15 @@ fragment float4 fragmentMain(VertexOut in [[stage_in]],
                              constant LightBuffer& lightBuf [[buffer(2)]]) {
     float3 N = normalize(in.normal);
     float3 V = normalize(uniforms.cameraPosition - in.worldPosition);
-    float3 baseColor = in.color.rgb;
+    float3 baseColor = in.color.rgb * uniforms.color.rgb;
+    float alpha = in.color.a * uniforms.color.a;
 
     float3 result = float3(0.0);
+
+    // Early exit: no lights → emission only
+    if (lightBuf.lightCount <= 0) {
+        return float4(clamp(baseColor * uniforms.emission, 0.0, 1.0), alpha);
+    }
 
     for (int i = 0; i < lightBuf.lightCount; i++) {
         Light light = lightBuf.lights[i];
@@ -114,5 +120,5 @@ fragment float4 fragmentMain(VertexOut in [[stage_in]],
     // Emission
     result += baseColor * uniforms.emission;
 
-    return float4(clamp(result, 0.0, 1.0), in.color.a);
+    return float4(clamp(result, 0.0, 1.0), alpha);
 }
