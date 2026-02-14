@@ -82,12 +82,14 @@ fragment float4 fragmentMain(VertexOut in [[stage_in]],
 
     float3 result = float3(0.0);
 
-    // Early exit: no lights → emission only
+    // No lights: fall back to unlit base color + emission
     if (lightBuf.lightCount <= 0) {
-        return float4(clamp(baseColor * uniforms.emission, 0.0, 1.0), alpha);
+        float3 unlit = baseColor + baseColor * uniforms.emission;
+        return float4(clamp(unlit, 0.0, 1.0), alpha);
     }
 
-    for (int i = 0; i < lightBuf.lightCount; i++) {
+    int numLights = min(lightBuf.lightCount, 8);
+    for (int i = 0; i < numLights; i++) {
         Light light = lightBuf.lights[i];
 
         // Compute light direction

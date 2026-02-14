@@ -421,24 +421,31 @@ public final class MJCMetalRender {
         let lightsPtr = MJFrameDataGetLights(frame)
         if lCount > 0, let lightsPtr = lightsPtr {
             lightBuffer.lightCount = Int32(min(lCount, 8))
-            withUnsafeMutablePointer(to: &lightBuffer.lights) { tuple in
-                let base = UnsafeMutableRawPointer(tuple)
-                    .bindMemory(to: MJCMetalLight.self, capacity: 8)
-                for li in 0..<Int(lightBuffer.lightCount) {
-                    let src = lightsPtr[li]
-                    base[li] = MJCMetalLight(
-                        pos: simd_float3(src.pos.0, src.pos.1, src.pos.2), _pad0: 0,
-                        dir: simd_float3(src.dir.0, src.dir.1, src.dir.2), _pad1: 0,
-                        ambient: simd_float3(src.ambient.0, src.ambient.1, src.ambient.2), _pad2: 0,
-                        diffuse: simd_float3(src.diffuse.0, src.diffuse.1, src.diffuse.2), _pad3: 0,
-                        specular: simd_float3(src.specular.0, src.specular.1, src.specular.2), _pad4: 0,
-                        attenuation: simd_float3(src.attenuation.0, src.attenuation.1, src.attenuation.2),
-                        cutoff: src.cutoff,
-                        exponent: src.exponent,
-                        headlight: src.headlight,
-                        directional: src.directional,
-                        _pad5: 0
-                    )
+            for li in 0..<Int(lightBuffer.lightCount) {
+                let src = lightsPtr[li]
+                let light = MJCMetalLight(
+                    pos: simd_float3(src.pos.0, src.pos.1, src.pos.2), _pad0: 0,
+                    dir: simd_float3(src.dir.0, src.dir.1, src.dir.2), _pad1: 0,
+                    ambient: simd_float3(src.ambient.0, src.ambient.1, src.ambient.2), _pad2: 0,
+                    diffuse: simd_float3(src.diffuse.0, src.diffuse.1, src.diffuse.2), _pad3: 0,
+                    specular: simd_float3(src.specular.0, src.specular.1, src.specular.2), _pad4: 0,
+                    attenuation: simd_float3(src.attenuation.0, src.attenuation.1, src.attenuation.2),
+                    cutoff: src.cutoff,
+                    exponent: src.exponent,
+                    headlight: src.headlight,
+                    directional: src.directional,
+                    _pad5: 0
+                )
+                switch li {
+                case 0: lightBuffer.lights.0 = light
+                case 1: lightBuffer.lights.1 = light
+                case 2: lightBuffer.lights.2 = light
+                case 3: lightBuffer.lights.3 = light
+                case 4: lightBuffer.lights.4 = light
+                case 5: lightBuffer.lights.5 = light
+                case 6: lightBuffer.lights.6 = light
+                case 7: lightBuffer.lights.7 = light
+                default: break
                 }
             }
         }
