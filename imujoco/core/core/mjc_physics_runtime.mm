@@ -323,6 +323,7 @@ public:
 
         mj_forward(model_, data_);
         WriteFrameToBuffer();
+        ExtractMeshData();
 
         state_ = MJRuntimeState::Loaded;
         return true;
@@ -368,6 +369,7 @@ public:
 
         mj_forward(model_, data_);
         WriteFrameToBuffer();
+        ExtractMeshData();
 
         state_ = MJRuntimeState::Loaded;
         return true;
@@ -375,6 +377,9 @@ public:
 
     void Unload() {
         Stop();
+
+        mesh_data_.reset();
+        mesh_storage_.reset();
 
         if (data_) { mj_deleteData(data_); data_ = nullptr; }
         if (model_) { mj_deleteModel(model_); model_ = nullptr; }
@@ -613,7 +618,89 @@ public:
     const mjModel* GetModel() const { return model_; }
     const mjData* GetData() const { return data_; }
 
+    MJMeshData* GetMeshData() {
+        if (!mesh_storage_ || mesh_storage_->meshCount == 0) return nullptr;
+        if (!mesh_data_) {
+            mesh_data_ = std::make_unique<MJMeshData>(mesh_storage_.get());
+        }
+        return mesh_data_.get();
+    }
+
 private:
+    void ExtractMeshData() {
+        mesh_data_.reset();
+        mesh_storage_.reset();
+
+        if (!model_ || model_->nmesh == 0) return;
+
+        auto storage = std::make_unique<MJMeshDataStorage>();
+        storage->meshCount = model_->nmesh;
+        storage->meshes.resize(model_->nmesh);
+
+        // MuJoCo 3.4.0 uses separate indexing for positions (mesh_face) and
+        // normals (mesh_facenormal). We unroll to per-face-vertex: each face
+        // corner becomes a unique vertex with its own position + normal.
+        // This duplicates positions but ensures correct per-face normals.
+
+        // Count total unrolled vertices (3 per face)
+        int totalFaces = 0;
+        for (int m = 0; m < model_->nmesh; m++) {
+            totalFaces += model_->mesh_facenum[m];
+        }
+        int totalUnrolledVerts = totalFaces * 3;
+
+        storage->vertices.resize(totalUnrolledVerts * 6);  // 6 floats per vertex (pos[3] + normal[3])
+        storage->faces.resize(totalUnrolledVerts);          // Sequential indices (0, 1, 2, ...)
+
+        int vertOffset = 0;   // In unrolled vertices
+        int faceOffset = 0;   // In unrolled faces (= vertices / 3)
+
+        for (int m = 0; m < model_->nmesh; m++) {
+            int nf = model_->mesh_facenum[m];
+            int srcVertStart = model_->mesh_vertadr[m];
+            int srcNormStart = model_->mesh_normaladr[m];
+            int srcFaceStart = model_->mesh_faceadr[m];
+
+            storage->meshes[m].vertexOffset = vertOffset;
+            storage->meshes[m].vertexCount = nf * 3;
+            storage->meshes[m].faceOffset = faceOffset;
+            storage->meshes[m].faceCount = nf;
+
+            // Unroll each face: look up position via mesh_face, normal via mesh_facenormal
+            for (int f = 0; f < nf; f++) {
+                for (int c = 0; c < 3; c++) {
+                    int faceIdx = (srcFaceStart + f) * 3 + c;
+                    int vi = model_->mesh_face[faceIdx];         // vertex index (relative to mesh)
+                    int ni = model_->mesh_facenormal[faceIdx];   // normal index (relative to mesh)
+
+                    int vSrc = (srcVertStart + vi) * 3;
+                    int nSrc = (srcNormStart + ni) * 3;
+                    int dstIdx = (vertOffset + f * 3 + c) * 6;
+
+                    // Position
+                    storage->vertices[dstIdx + 0] = model_->mesh_vert[vSrc + 0];
+                    storage->vertices[dstIdx + 1] = model_->mesh_vert[vSrc + 1];
+                    storage->vertices[dstIdx + 2] = model_->mesh_vert[vSrc + 2];
+                    // Normal
+                    storage->vertices[dstIdx + 3] = model_->mesh_normal[nSrc + 0];
+                    storage->vertices[dstIdx + 4] = model_->mesh_normal[nSrc + 1];
+                    storage->vertices[dstIdx + 5] = model_->mesh_normal[nSrc + 2];
+
+                    // Sequential index (0-based per mesh)
+                    storage->faces[faceOffset * 3 + f * 3 + c] = f * 3 + c;
+                }
+            }
+
+            vertOffset += nf * 3;
+            faceOffset += nf;
+        }
+
+        os_log_info(OS_LOG_DEFAULT, "Extracted mesh data: %d meshes, %d unrolled vertices, %d faces",
+                    storage->meshCount, totalUnrolledVerts, totalFaces);
+
+        mesh_storage_ = std::move(storage);
+    }
+
     void PhysicsLoop() {
         os_log_info(OS_LOG_DEFAULT, "Physics loop started, instance %d, UDP port %u, server active: %s",
                     instance_index_, udp_port_, udp_server_.IsActive() ? "YES" : "NO");
@@ -772,9 +859,27 @@ private:
             dst.rgba[3] = src.rgba[3];
 
             dst.type = src.type;
+            dst.dataid = src.dataid;
             dst.emission = src.emission;
             dst.specular = src.specular;
             dst.shininess = src.shininess;
+        }
+
+        // Copy lights from mjvScene
+        frame->lightCount = std::min(scene_.nlight, MJ_MAX_LIGHTS);
+        for (int i = 0; i < frame->lightCount; i++) {
+            const mjvLight& src = scene_.lights[i];
+            MJLightInstance& dst = frame->lights[i];
+            memcpy(dst.pos, src.pos, 3 * sizeof(float));
+            memcpy(dst.dir, src.dir, 3 * sizeof(float));
+            memcpy(dst.ambient, src.ambient, 3 * sizeof(float));
+            memcpy(dst.diffuse, src.diffuse, 3 * sizeof(float));
+            memcpy(dst.specular, src.specular, 3 * sizeof(float));
+            memcpy(dst.attenuation, src.attenuation, 3 * sizeof(float));
+            dst.cutoff = src.cutoff;
+            dst.exponent = src.exponent;
+            dst.headlight = src.headlight;
+            dst.directional = (src.type == 1) ? 1 : 0;  // mjLIGHT_DIRECTIONAL
         }
 
         frame->cameraAzimuth = static_cast<float>(camera_.azimuth);
@@ -823,6 +928,10 @@ private:
     // Epoch counter: incremented on Stop() so stale WaitForFrame() callers
     // from a previous run detect the generation change and return nullptr.
     std::atomic<uint64_t> epoch_{0};
+
+    // Pre-loaded mesh data (extracted from mjModel at load time)
+    std::unique_ptr<MJMeshDataStorage> mesh_storage_;
+    std::unique_ptr<MJMeshData> mesh_data_;
 };
 
 // MARK: - Version Info
@@ -836,6 +945,28 @@ int32_t MJGetVersion() {
 const MJGeomInstance* MJFrameDataGetGeoms(const MJFrameData* frame) {
     if (!frame || !frame->storage_) return nullptr;
     return frame->storage_->geoms;
+}
+
+const MJLightInstance* MJFrameDataGetLights(const MJFrameData* frame) {
+    if (!frame || !frame->storage_) return nullptr;
+    return frame->storage_->lights;
+}
+
+// MARK: - MJMeshData Free Functions
+
+const MJMeshInfo* MJMeshDataGetMeshes(const MJMeshData* data) {
+    if (!data || !data->storage_ || data->storage_->meshes.empty()) return nullptr;
+    return data->storage_->meshes.data();
+}
+
+const float* MJMeshDataGetVertices(const MJMeshData* data) {
+    if (!data || !data->storage_ || data->storage_->vertices.empty()) return nullptr;
+    return data->storage_->vertices.data();
+}
+
+const int32_t* MJMeshDataGetFaces(const MJMeshData* data) {
+    if (!data || !data->storage_ || data->storage_->faces.empty()) return nullptr;
+    return data->storage_->faces.data();
 }
 
 // MARK: - MJSimulationRuntime Public Interface
@@ -903,3 +1034,4 @@ mjvCamera* MJSimulationRuntime::getCamera() { return impl_->GetCamera(); }
 mjvOption* MJSimulationRuntime::getOption() { return impl_->GetOption(); }
 const mjModel* MJSimulationRuntime::getModel() const { return impl_->GetModel(); }
 const mjData* MJSimulationRuntime::getData() const { return impl_->GetData(); }
+MJMeshData* MJSimulationRuntime::getMeshData() { return impl_->GetMeshData(); }
