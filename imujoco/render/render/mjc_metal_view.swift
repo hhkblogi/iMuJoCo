@@ -46,6 +46,10 @@ public protocol MJCRenderDataSource: AnyObject {
     ///   on the same thread. Do not store references across calls.
     var latestFrame: MJFrameData? { get }
 
+    /// Get pre-loaded mesh data for rendering (available after model load).
+    /// Returns nil if no model is loaded or model has no meshes.
+    var meshData: MJMeshData? { get }
+
     /// Camera azimuth angle in degrees (horizontal rotation).
     var cameraAzimuth: Double { get set }
 
@@ -466,6 +470,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         if geomCount > 0 {
             render.Render(
                 frame: frame,
+                meshData: dataSource.meshData,
                 drawable: drawable,
                 renderPassDescriptor: currentRenderPassDescriptor
             )

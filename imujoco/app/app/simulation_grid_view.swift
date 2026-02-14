@@ -216,7 +216,7 @@ struct ModelPickerView: View {
                     HStack {
                         Image(systemName: "cube.fill")
                             .foregroundColor(.blue)
-                        Text(name.capitalized)
+                        Text(name)
                         Spacer()
                     }
                     .contentShape(Rectangle())
@@ -268,7 +268,7 @@ struct TVModelPickerView: View {
                 // Model buttons
                 ForEach(modelNames, id: \.self) { name in
                     Button(action: { onSelectModel(name) }) {
-                        Text(name.capitalized)
+                        Text(name)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
                     }

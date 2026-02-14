@@ -69,6 +69,7 @@ use_repo(
     mujoco_deps,
     "flatbuffers",
     "mujoco",
+    "mujoco_menagerie",
     "lodepng",
     "tinyxml2",
     "tinyobjloader",
