@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 // Swift C++ interop: for non-copyable types with reference semantics
 #if __has_attribute(swift_attr)
@@ -32,6 +33,7 @@ typedef struct mjvOption_ mjvOption;
 // MARK: - Constants
 
 constexpr int MJ_MAX_GEOMS = 10000;
+constexpr int MJ_MAX_LIGHTS = 8;
 constexpr uint16_t MJ_DEFAULT_UDP_PORT = 8888;
 
 // UDP Packet magic number (see mjc_fragment.h for fragment protocol)
@@ -69,6 +71,21 @@ struct MJRuntimeStats {
     bool hasClient = false;             ///< True if a client is connected
 };
 
+// MARK: - LightInstance (per-light data from mjvScene)
+
+struct MJLightInstance {
+    float pos[3];
+    float dir[3];
+    float ambient[3];
+    float diffuse[3];
+    float specular[3];
+    float attenuation[3];
+    float cutoff;
+    float exponent;
+    int32_t headlight;
+    int32_t directional;
+};
+
 // MARK: - GeomInstance (for instanced rendering)
 
 struct MJGeomInstance {
@@ -80,9 +97,58 @@ struct MJGeomInstance {
     // Visual properties
     float rgba[4] = {1, 1, 1, 1};           ///< Color
     int32_t type = 0;                       ///< Geom type (sphere, capsule, box, etc.)
+    int32_t dataid = -1;                    ///< Mesh data ID (visual=2*meshid, convex=2*meshid+1), -1 if not mesh
     float emission = 0.0f;                  ///< Emission
     float specular = 0.5f;                  ///< Specular
     float shininess = 0.5f;                 ///< Shininess
+};
+
+// MARK: - Mesh Data (pre-loaded mesh geometry for rendering)
+
+/// Per-mesh metadata: offsets and counts into the shared vertex/face arrays.
+struct MJMeshInfo {
+    int32_t vertexOffset = 0;   ///< Offset into vertex array (in vertices, not bytes)
+    int32_t vertexCount = 0;    ///< Number of vertices for this mesh
+    int32_t faceOffset = 0;     ///< Offset into face index array (in ints, not bytes)
+    int32_t faceCount = 0;      ///< Number of faces (triangles) for this mesh
+};
+
+/// Internal storage for all mesh geometry data. Not exposed to Swift directly.
+struct MJMeshDataStorage {
+    std::vector<float> vertices;      ///< Interleaved pos(3)+normal(3) per vertex
+    std::vector<int32_t> faces;       ///< Triangle face indices (3 per face)
+    std::vector<MJMeshInfo> meshes;   ///< Per-mesh metadata
+    int32_t meshCount = 0;            ///< Number of meshes
+};
+
+// Forward declare for friend access
+class MJMeshData;
+
+/// Get pointer to per-mesh info array.
+const MJMeshInfo* MJMeshDataGetMeshes(const MJMeshData* data);
+
+/// Get pointer to interleaved vertex data (pos[3]+normal[3] per vertex).
+const float* MJMeshDataGetVertices(const MJMeshData* data);
+
+/// Get pointer to face index data (3 ints per triangle).
+const int32_t* MJMeshDataGetFaces(const MJMeshData* data);
+
+/// Swift-facing wrapper for mesh data (reference semantics).
+class SWIFT_IMMORTAL_REFERENCE MJMeshData {
+public:
+    explicit MJMeshData(const MJMeshDataStorage* storage) : storage_(storage) {}
+
+    MJMeshData(const MJMeshData&) = delete;
+    MJMeshData& operator=(const MJMeshData&) = delete;
+
+    int32_t meshCount() const { return storage_ ? storage_->meshCount : 0; }
+
+    friend const MJMeshInfo* MJMeshDataGetMeshes(const MJMeshData* data);
+    friend const float* MJMeshDataGetVertices(const MJMeshData* data);
+    friend const int32_t* MJMeshDataGetFaces(const MJMeshData* data);
+
+private:
+    const MJMeshDataStorage* storage_;
 };
 
 // MARK: - FrameDataStorage (internal ring buffer storage - not exposed to Swift)
@@ -92,6 +158,10 @@ struct MJGeomInstance {
 struct MJFrameDataStorage {
     MJGeomInstance geoms[MJ_MAX_GEOMS];
     int32_t geomCount = 0;
+
+    // Light state
+    MJLightInstance lights[MJ_MAX_LIGHTS];
+    int32_t lightCount = 0;
 
     // Camera state
     float cameraPos[3] = {0, 0, 0};
@@ -131,13 +201,17 @@ public:
     MJFrameData(const MJFrameData&) = delete;
     MJFrameData& operator=(const MJFrameData&) = delete;
 
-    // Friend function for geom access (member functions returning pointers not supported in Swift)
+    // Friend functions for array access (member functions returning pointers not supported in Swift)
     friend const MJGeomInstance* MJFrameDataGetGeoms(const MJFrameData* frame);
+    friend const MJLightInstance* MJFrameDataGetLights(const MJFrameData* frame);
 
     // MARK: - Accessors
 
     /// Number of geometry instances in this frame
     int32_t geomCount() const { return storage_ ? storage_->geomCount : 0; }
+
+    /// Number of lights in this frame
+    int32_t lightCount() const { return storage_ ? storage_->lightCount : 0; }
 
     /// Camera azimuth angle in degrees
     float cameraAzimuth() const { return storage_ ? storage_->cameraAzimuth : 0.0f; }
@@ -183,6 +257,9 @@ private:
 /// @param frame The frame data view
 /// @return Pointer to first geom, or nullptr if frame is null
 const MJGeomInstance* MJFrameDataGetGeoms(const MJFrameData* frame);
+
+/// Get pointer to the contiguous lights array for indexed access.
+const MJLightInstance* MJFrameDataGetLights(const MJFrameData* frame);
 
 // MARK: - Version Info
 
@@ -335,6 +412,10 @@ public:
 
     /// Get pointer to mjData (read-only)
     const mjData* getData() const;
+
+    /// Get pre-loaded mesh data for rendering (available after model load)
+    /// @return Pointer to mesh data, or nullptr if no model is loaded or model has no meshes
+    MJMeshData* getMeshData();
 
 private:
     /// Private constructor - use create()
