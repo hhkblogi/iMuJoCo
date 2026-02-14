@@ -739,6 +739,10 @@ private:
                                                               static_cast<int>(ctrl_buffer.size()));
                     if (received < 0) break;
 
+                    // TODO: When received == 0 (empty ctrl), we keep the previous
+                    // data_->ctrl values. Should empty ctrl instead zero out
+                    // data_->ctrl to disable actuators? Or add a protocol flag
+                    // to distinguish "no change" from "zero all actuators"?
                     if (nu > 0 && received > 0) {
                         int copy_count = std::min(received, nu);
                         for (int i = 0; i < copy_count; i++) {
