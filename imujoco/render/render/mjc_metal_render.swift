@@ -375,7 +375,7 @@ public final class MJCMetalRender {
         let up = simd_float3(0, 0, 1)
 
         let viewMatrix = Self.look_at(eye: eye, center: center, up: up)
-        let projMatrix = Self.perspective(fovy: fovy, aspect: aspect, near: 0.01, far: 100.0)
+        let projMatrix = Self.perspective(fovy: fovy, aspect: aspect, near: 0.01, far: 500.0)
 
         // Get dynamic buffer pointers for primitive geometry
         let vertexData = dynamicVB.contents().bindMemory(to: MJCMetalVertex.self, capacity: max_vertices)
@@ -672,8 +672,8 @@ public final class MJCMetalRender {
                                       vertices: UnsafeMutablePointer<MJCMetalVertex>,
                                       indices: UnsafeMutablePointer<UInt32>,
                                       vertexCount: inout Int, indexCount: inout Int) {
-        let sx = size.0 > 0 ? size.0 : Float(50.0)
-        let sy = size.1 > 0 ? size.1 : Float(50.0)
+        let sx = size.0 > 0 ? size.0 : Float(500.0)
+        let sy = size.1 > 0 ? size.1 : Float(500.0)
         let normal = simd_float3(0, 0, 1)
 
         vertices[0] = MJCMetalVertex(position: simd_float3(-sx, -sy, 0), normal: normal, texCoord: .zero, color: color)

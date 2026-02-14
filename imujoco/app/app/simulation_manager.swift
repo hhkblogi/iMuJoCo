@@ -60,9 +60,10 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     private(set) var runtime: MJRuntime?
     internal(set) var modelName: String = ""
 
-    // Display time - stored property for SwiftUI observation
-    // Updated periodically from runtime stats
+    // Stored properties for SwiftUI observation
+    // Updated periodically from runtime stats (~10Hz polling)
     private(set) var displayTime: Double = 0.0
+    private(set) var displaySPS: Int32 = 0
 
     // State polling timer
     private var stateUpdateTask: Task<Void, Never>?
@@ -158,6 +159,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
         guard let runtime = runtime else { return }
         runtime.reset()
         displayTime = 0.0
+        displaySPS = 0
     }
 
     @MainActor
@@ -180,8 +182,10 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
 
                 // Update display time periodically (~10Hz to reduce overhead)
                 let currentTime = runtime.simulationTime
+                let currentSPS = runtime.stats.stepsPerSecond
                 await MainActor.run {
                     self.displayTime = currentTime
+                    self.displaySPS = currentSPS
                 }
 
                 try? await Task.sleep(nanoseconds: 100_000_000)  // 100ms
@@ -223,7 +227,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     }
 
     var stepsPerSecond: Int32 {
-        runtime?.stats.stepsPerSecond ?? 0
+        displaySPS
     }
 
     // MARK: - Network Status
