@@ -24,7 +24,7 @@ struct MJCMetalUniforms {
     var emission: Float
     var specular: Float
     var shininess: Float
-    var _padding2: Float  // Final alignment padding
+    var checkerboardScale: Float  // >0 = procedural checkerboard cell size, 0 = disabled
 }
 
 struct MJCMetalVertex {
@@ -126,7 +126,7 @@ public final class MJCMetalRender {
     /// geom types (spheres, cylinders, capsules, ellipsoids at 16 segments × 12 rings = ~192 quads
     /// = ~384 triangles = ~1152 indices per curved surface) with additional headroom.
     /// Simpler geoms (boxes, planes, segments) use substantially fewer vertices and indices.
-    private static let max_vertices_per_geom = 1700  // plane grid 20x20 = 1600 verts
+    private static let max_vertices_per_geom = 1000
     private static let max_indices_per_geom = 6000
 
     // MARK: - Initialization
@@ -375,7 +375,7 @@ public final class MJCMetalRender {
         let up = simd_float3(0, 0, 1)
 
         let viewMatrix = Self.look_at(eye: eye, center: center, up: up)
-        let projMatrix = Self.perspective(fovy: fovy, aspect: aspect, near: 0.01, far: 100.0)
+        let projMatrix = Self.perspective(fovy: fovy, aspect: aspect, near: 0.01, far: 500.0)
 
         // Get dynamic buffer pointers for primitive geometry
         let vertexData = dynamicVB.contents().bindMemory(to: MJCMetalVertex.self, capacity: max_vertices)
@@ -492,7 +492,7 @@ public final class MJCMetalRender {
                             lightPosition: simd_float3(0, 0, 10), _padding0: 0,
                             cameraPosition: eye, _padding1: 0,
                             color: simd_float4(1, 1, 1, 1),
-                            emission: emission, specular: specular, shininess: shininess, _padding2: 0)
+                            emission: emission, specular: specular, shininess: shininess, checkerboardScale: 0)
                         encoder.setVertexBuffer(dynamicVB, offset: totalVertices * MemoryLayout<MJCMetalVertex>.stride, index: 0)
                         encoder.setVertexBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
                         encoder.setFragmentBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
@@ -511,7 +511,7 @@ public final class MJCMetalRender {
                     lightPosition: simd_float3(0, 0, 10), _padding0: 0,
                     cameraPosition: eye, _padding1: 0,
                     color: simd_float4(geom.rgba.0, geom.rgba.1, geom.rgba.2, geom.rgba.3),
-                    emission: emission, specular: specular, shininess: shininess, _padding2: 0)
+                    emission: emission, specular: specular, shininess: shininess, checkerboardScale: 0)
 
                 encoder.setVertexBuffer(cached.vertexBuffer, offset: 0, index: 0)
                 encoder.setVertexBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
@@ -539,13 +539,15 @@ public final class MJCMetalRender {
 
                 if vertexCount > 0 && indexCount > 0 {
                     // Primitives: color is baked into vertices, uniforms.color = white (passthrough)
+                    let isPlane = geom.type == 0
                     var uniforms = MJCMetalUniforms(
                         modelMatrix: modelMatrix, viewMatrix: viewMatrix,
                         projectionMatrix: projMatrix, normal_matrix: Self.normal_matrix(from: modelMatrix),
                         lightPosition: simd_float3(0, 0, 10), _padding0: 0,
                         cameraPosition: eye, _padding1: 0,
                         color: simd_float4(1, 1, 1, 1),
-                        emission: emission, specular: specular, shininess: shininess, _padding2: 0)
+                        emission: emission, specular: specular, shininess: shininess,
+                        checkerboardScale: isPlane ? 1.0 : 0)
 
                     encoder.setVertexBuffer(dynamicVB, offset: totalVertices * MemoryLayout<MJCMetalVertex>.stride, index: 0)
                     encoder.setVertexBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
@@ -663,58 +665,27 @@ public final class MJCMetalRender {
 
     // MARK: - Geometry Generators
 
-    /// Generate a subdivided ground plane with checkerboard coloring.
-    /// If size components are zero or negative (infinite plane), defaults to 50 units.
-    /// Uses a grid of quads with alternating dark/light colors for visual grounding.
+    /// Generate a single-quad ground plane. Checkerboard pattern is computed procedurally
+    /// in the fragment shader using worldPosition, so pattern density stays constant
+    /// regardless of zoom level (like MuJoCo's OpenGL renderer).
     private static func generate_plane(size: (Float, Float, Float), color: simd_float4,
                                       vertices: UnsafeMutablePointer<MJCMetalVertex>,
                                       indices: UnsafeMutablePointer<UInt32>,
                                       vertexCount: inout Int, indexCount: inout Int) {
-        let sx = size.0 > 0 ? size.0 : Float(50.0)
-        let sy = size.1 > 0 ? size.1 : Float(50.0)
+        let sx = size.0 > 0 ? size.0 : Float(500.0)
+        let sy = size.1 > 0 ? size.1 : Float(500.0)
         let normal = simd_float3(0, 0, 1)
 
-        // Grid subdivision count (per axis)
-        let gridN = 20
-        let cellW = (2.0 * sx) / Float(gridN)
-        let cellH = (2.0 * sy) / Float(gridN)
+        vertices[0] = MJCMetalVertex(position: simd_float3(-sx, -sy, 0), normal: normal, texCoord: .zero, color: color)
+        vertices[1] = MJCMetalVertex(position: simd_float3( sx, -sy, 0), normal: normal, texCoord: .zero, color: color)
+        vertices[2] = MJCMetalVertex(position: simd_float3( sx,  sy, 0), normal: normal, texCoord: .zero, color: color)
+        vertices[3] = MJCMetalVertex(position: simd_float3(-sx,  sy, 0), normal: normal, texCoord: .zero, color: color)
 
-        // Checkerboard colors: darken/lighten the base color
-        let dark = simd_float4(color.x * 0.7, color.y * 0.7, color.z * 0.7, color.w)
-        let light = simd_float4(
-            min(color.x * 1.1, 1.0), min(color.y * 1.1, 1.0),
-            min(color.z * 1.1, 1.0), color.w
-        )
+        indices[0] = 0; indices[1] = 1; indices[2] = 2
+        indices[3] = 0; indices[4] = 2; indices[5] = 3
 
-        var vCount = 0
-        var iCount = 0
-
-        for row in 0..<gridN {
-            for col in 0..<gridN {
-                let x0 = -sx + Float(col) * cellW
-                let y0 = -sy + Float(row) * cellH
-                let x1 = x0 + cellW
-                let y1 = y0 + cellH
-
-                let cellColor = ((row + col) % 2 == 0) ? dark : light
-                let base = UInt32(vCount)
-
-                vertices[vCount] = MJCMetalVertex(position: simd_float3(x0, y0, 0), normal: normal, texCoord: .zero, color: cellColor); vCount += 1
-                vertices[vCount] = MJCMetalVertex(position: simd_float3(x1, y0, 0), normal: normal, texCoord: .zero, color: cellColor); vCount += 1
-                vertices[vCount] = MJCMetalVertex(position: simd_float3(x1, y1, 0), normal: normal, texCoord: .zero, color: cellColor); vCount += 1
-                vertices[vCount] = MJCMetalVertex(position: simd_float3(x0, y1, 0), normal: normal, texCoord: .zero, color: cellColor); vCount += 1
-
-                indices[iCount] = base;     iCount += 1
-                indices[iCount] = base + 1; iCount += 1
-                indices[iCount] = base + 2; iCount += 1
-                indices[iCount] = base;     iCount += 1
-                indices[iCount] = base + 2; iCount += 1
-                indices[iCount] = base + 3; iCount += 1
-            }
-        }
-
-        vertexCount = vCount
-        indexCount = iCount
+        vertexCount = 4
+        indexCount = 6
     }
 
     /// Generate a UV sphere with the given radius and color.
