@@ -10,6 +10,8 @@
 #include "state_generated.h"
 #include "udp_socket.h"
 
+#include <chrono>
+
 namespace imujoco::driver {
 
 // ============================================================================
@@ -94,10 +96,16 @@ void Driver::SendControl(const ControlCommand& cmd) {
         return;
     }
 
-    // Use a mutable copy if we need to set sequence
+    // Use a mutable copy if we need to set sequence or timestamp
     ControlCommand packet = cmd;
     if (packet.sequence == 0) {
         packet.sequence = sequence_.fetch_add(1, std::memory_order_relaxed) + 1;
+    }
+    if (packet.host_timestamp_us == 0) {
+        auto now = std::chrono::steady_clock::now();
+        packet.host_timestamp_us = static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                now.time_since_epoch()).count());
     }
 
     // Use FlatBuffers Pack to convert from Object API type (ControlPacketT)

@@ -1,8 +1,7 @@
 // echo_server.cc
 // Simple state receiver - prints StatePackets received from iMuJoCo
 //
-// Usage: ./echo_server <host> <port>
-// Example: ./echo_server 192.168.65.111 8888
+// Usage: ./echo_server --host 192.168.65.111 --port 8888
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -16,6 +15,7 @@
 #include <vector>
 
 #include <flatbuffers/flatbuffers.h>
+#include "imujoco/driver/args.h"
 #include "control_generated.h"
 #include "state_generated.h"
 #include "fragment.h"
@@ -29,24 +29,17 @@ void signalHandler(int) {
 }
 
 int main(int argc, char* argv[]) {
-    if (argc < 3) {
-        std::cout << "Usage: " << argv[0] << " <host> <port>" << std::endl;
-        std::cout << "Example: " << argv[0] << " 192.168.65.111 8888" << std::endl;
-        return 1;
-    }
+    Args args(argc, argv);
 
-    const char* host = argv[1];
-    uint16_t port = 8888;
-    try {
-        int parsed_port = std::stoi(argv[2]);
-        if (parsed_port < 0 || parsed_port > 65535) {
-            std::cerr << "Invalid port number: must be in range [0, 65535]" << std::endl;
-            return 1;
-        }
-        port = static_cast<uint16_t>(parsed_port);
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to parse port '" << argv[2] << "': " << e.what() << std::endl;
-        return 1;
+    std::string host = args.get("host", "127.0.0.1");
+    uint16_t port = static_cast<uint16_t>(args.get_int("port", 8888));
+
+    if (args.has("help")) {
+        std::cout << "Usage: " << args.program()
+                  << " [--host HOST] [--port PORT]\n"
+                  << "  --host  Simulation host (default: 127.0.0.1)\n"
+                  << "  --port  Simulation port (default: 8888)\n";
+        return 0;
     }
 
     std::cout << "State Receiver - Connecting to " << host << ":" << port << std::endl;
@@ -74,7 +67,7 @@ int main(int argc, char* argv[]) {
     sockaddr_in remote_addr{};
     remote_addr.sin_family = AF_INET;
     remote_addr.sin_port = htons(port);
-    if (inet_pton(AF_INET, host, &remote_addr.sin_addr) != 1) {
+    if (inet_pton(AF_INET, host.c_str(), &remote_addr.sin_addr) != 1) {
         std::cerr << "Invalid host address: " << host << std::endl;
         close(sock);
         return 1;
