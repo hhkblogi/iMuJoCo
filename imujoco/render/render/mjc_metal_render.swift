@@ -666,6 +666,8 @@ public final class MJCMetalRender {
     /// Generate a subdivided ground plane with checkerboard coloring.
     /// If size components are zero or negative (infinite plane), defaults to 50 units.
     /// Uses a grid of quads with alternating dark/light colors for visual grounding.
+    /// TODO: Replace geometry-based checkerboard with a shader-based repeating pattern
+    /// so the grid density stays consistent when zooming in/out (like MuJoCo's OpenGL renderer).
     private static func generate_plane(size: (Float, Float, Float), color: simd_float4,
                                       vertices: UnsafeMutablePointer<MJCMetalVertex>,
                                       indices: UnsafeMutablePointer<UInt32>,
