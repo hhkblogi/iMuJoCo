@@ -94,6 +94,8 @@ or dispatch work to your own thread to avoid blocking state reception.
             "Packet sequence number")
         .def_readwrite("ctrl", &ControlCommand::ctrl,
             "Control values for actuators")
+        .def_readwrite("host_timestamp_us", &ControlCommand::host_timestamp_us,
+            "Host monotonic timestamp in microseconds (0 = apply immediately)")
         .def("__repr__", [](const ControlCommand& c) {
             return "<ControlCommand ctrl[" + std::to_string(c.ctrl.size()) + "]>";
         });

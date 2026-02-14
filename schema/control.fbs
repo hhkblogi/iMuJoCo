@@ -10,6 +10,11 @@ table ControlPacket {
 
   // Control values for actuators (length = model.nu)
   ctrl: [double];
+
+  // Sender's monotonic clock timestamp in microseconds since epoch.
+  // Used for paced replay on the receiver side.
+  // 0 (default) = apply immediately (legacy / backward-compatible behavior).
+  host_timestamp_us: uint64;
 }
 
 root_type ControlPacket;

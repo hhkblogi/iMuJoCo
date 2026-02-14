@@ -11,6 +11,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <deque>
 #include <thread>
 #include <vector>
 
@@ -114,7 +115,7 @@ public:
     uint32_t GetPacketsReceived() const { return packets_received_; }
     uint32_t GetPacketsSent() const { return packets_sent_; }
 
-    int ReceiveControl(double* ctrl_out, int max_ctrl) {
+    int ReceiveControl(double* ctrl_out, int max_ctrl, uint64_t* host_timestamp_us_out) {
         if (socket_fd_ < 0) return -1;
 
         uint8_t buffer[MJ_MAX_UDP_PAYLOAD];
@@ -145,14 +146,18 @@ public:
                 reassembly_buffer_.resize(message_size);
                 std::memcpy(reassembly_buffer_.data(), complete, message_size);
 
-                return ParseControlPacket(reassembly_buffer_.data(), message_size, ctrl_out, max_ctrl);
+                return ParseControlPacket(reassembly_buffer_.data(), message_size,
+                                          ctrl_out, max_ctrl, host_timestamp_us_out);
             }
         }
 
-        return ParseControlPacket(buffer, static_cast<size_t>(recv_len), ctrl_out, max_ctrl);
+        return ParseControlPacket(buffer, static_cast<size_t>(recv_len),
+                                  ctrl_out, max_ctrl, host_timestamp_us_out);
     }
 
-    int ParseControlPacket(const uint8_t* data, size_t size, double* ctrl_out, int max_ctrl) {
+    int ParseControlPacket(const uint8_t* data, size_t size,
+                           double* ctrl_out, int max_ctrl,
+                           uint64_t* host_timestamp_us_out) {
         flatbuffers::Verifier verifier(data, size);
         if (!imujoco::schema::VerifyControlPacketBuffer(verifier)) {
             os_log_error(OS_LOG_DEFAULT, "Invalid FlatBuffers ControlPacket buffer");
@@ -163,6 +168,10 @@ public:
         packets_received_++;
 
         os_log_debug(OS_LOG_DEFAULT, "ControlPacket: seq=%u", packet->sequence());
+
+        if (host_timestamp_us_out) {
+            *host_timestamp_us_out = packet->host_timestamp_us();
+        }
 
         auto ctrl = packet->ctrl();
         if (!ctrl || ctrl->size() == 0) return 0;
@@ -253,6 +262,7 @@ public:
         , target_fps_(config.targetFPS > 0 ? config.targetFPS : 60.0)
         , busy_wait_(config.busyWait)
         , udp_port_(config.udpPort > 0 ? config.udpPort : MJ_DEFAULT_UDP_PORT + config.instanceIndex)
+        , ctrl_timeout_ms_(config.ctrlTimeoutMs)
         , realtime_factor_(1.0)
         , state_(MJRuntimeState::Inactive)
         , model_(nullptr)
@@ -322,6 +332,7 @@ public:
         }
 
         mj_forward(model_, data_);
+        BuildActuatorTimeoutPolicy();
         WriteFrameToBuffer();
         ExtractMeshData();
 
@@ -368,6 +379,7 @@ public:
         }
 
         mj_forward(model_, data_);
+        BuildActuatorTimeoutPolicy();
         WriteFrameToBuffer();
         ExtractMeshData();
 
@@ -437,6 +449,11 @@ public:
             }
             mj_forward(model_, data_);
             speed_changed_ = true;
+            // Clear replay state
+            ctrl_queue_.clear();
+            replay_anchor_host_us_ = 0;
+            ctrl_timed_out_ = false;
+            last_ctrl_received_ = Clock::time_point{};
         }
     }
 
@@ -627,6 +644,22 @@ public:
     }
 
 private:
+    // Per-actuator timeout policy: true = zero on timeout (torque), false = hold (servo)
+    void BuildActuatorTimeoutPolicy() {
+        actuator_zero_on_timeout_.clear();
+        if (!model_) return;
+        actuator_zero_on_timeout_.resize(model_->nu);
+        for (int i = 0; i < model_->nu; i++) {
+            // mjBIAS_NONE (0) = direct torque actuator → zero on timeout
+            // mjBIAS_AFFINE (1) = position/velocity servo → hold last value
+            actuator_zero_on_timeout_[i] = (model_->actuator_biastype[i] == mjBIAS_NONE);
+        }
+        int torque_count = 0;
+        for (bool z : actuator_zero_on_timeout_) { if (z) torque_count++; }
+        os_log_info(OS_LOG_DEFAULT, "Actuator timeout policy: %d torque (zero), %d servo (hold), timeout=%ums",
+                    torque_count, model_->nu - torque_count, ctrl_timeout_ms_);
+    }
+
     void ExtractMeshData() {
         mesh_data_.reset();
         mesh_storage_.reset();
@@ -728,47 +761,99 @@ private:
 
             if (!model_ || !data_) continue;
 
-            // === UDP Control Loop ===
-            bool did_udp_step = false;
+            // === UDP Receive: buffer incoming controls ===
             if (udp_server_.IsActive()) {
-                int nu = model_->nu;
-                int packets_processed = 0;
-
-                while (packets_processed < kMaxPacketsPerLoop) {
+                int packets_received = 0;
+                while (packets_received < kMaxPacketsPerLoop) {
+                    uint64_t host_ts = 0;
                     int received = udp_server_.ReceiveControl(ctrl_buffer.data(),
-                                                              static_cast<int>(ctrl_buffer.size()));
+                                                              static_cast<int>(ctrl_buffer.size()),
+                                                              &host_ts);
                     if (received < 0) break;
 
-                    // TODO: When received == 0 (empty ctrl), we keep the previous
-                    // data_->ctrl values. Should empty ctrl instead zero out
-                    // data_->ctrl to disable actuators? Or add a protocol flag
-                    // to distinguish "no change" from "zero all actuators"?
-                    if (nu > 0 && received > 0) {
+                    last_ctrl_received_ = Clock::now();
+                    ctrl_timed_out_ = false;
+                    packets_received++;
+
+                    // Empty ctrl (received == 0) means "no change" — don't enqueue
+                    if (received > 0) {
+                        int nu = model_->nu;
                         int copy_count = std::min(received, nu);
-                        for (int i = 0; i < copy_count; i++) {
-                            data_->ctrl[i] = ctrl_buffer[i];
-                        }
+                        TimestampedCtrl tc;
+                        tc.host_timestamp_us = host_ts;
+                        tc.ctrl.assign(ctrl_buffer.data(), ctrl_buffer.data() + copy_count);
+                        ctrl_queue_.push_back(std::move(tc));
+                    }
+                }
+            }
+
+            // === Paced Replay: apply buffered controls at original cadence ===
+            bool did_udp_step = false;
+            if (!ctrl_queue_.empty()) {
+                auto& next = ctrl_queue_.front();
+
+                bool should_apply = false;
+                if (next.host_timestamp_us == 0) {
+                    // Legacy packet (no timestamp) — apply immediately
+                    should_apply = true;
+                } else {
+                    if (replay_anchor_host_us_ == 0) {
+                        // First timestamped packet in batch — set anchor
+                        replay_anchor_cpu_ = Clock::now();
+                        replay_anchor_host_us_ = next.host_timestamp_us;
+                    }
+                    uint64_t delta_us = next.host_timestamp_us - replay_anchor_host_us_;
+                    auto elapsed = Clock::now() - replay_anchor_cpu_;
+                    if (elapsed >= std::chrono::microseconds(delta_us)) {
+                        should_apply = true;
+                    }
+                }
+
+                if (should_apply) {
+                    int nu = model_->nu;
+                    int copy_count = std::min(static_cast<int>(next.ctrl.size()), nu);
+                    for (int i = 0; i < copy_count; i++) {
+                        data_->ctrl[i] = next.ctrl[i];
+                    }
+                    ctrl_queue_.pop_front();
+
+                    // Reset anchor when queue drains
+                    if (ctrl_queue_.empty()) {
+                        replay_anchor_host_us_ = 0;
                     }
 
                     mj_step(model_, data_);
                     step_count++;
                     steps_since_last_frame++;
                     did_udp_step = true;
-                    packets_processed++;
 
-                    bool sent = udp_server_.SendState(model_, data_);
-                    if (packets_processed <= 3) {
-                        os_log_debug(OS_LOG_DEFAULT, "UDP packet processed: received=%d, model_nu=%d, sent=%s",
-                                     received, nu, sent ? "YES" : "NO");
-                    }
-                }
-
-                if (did_udp_step) {
-                    sync_cpu = Clock::now();
-                    sync_sim = data_->time;
-                    speed_changed_ = false;
+                    udp_server_.SendState(model_, data_);
                 }
             }
+
+            // === Ctrl Timeout: zero torque actuators if no packets received ===
+            if (ctrl_timeout_ms_ > 0 && !ctrl_timed_out_
+                && last_ctrl_received_.time_since_epoch().count() > 0) {
+                auto since_last = Clock::now() - last_ctrl_received_;
+                if (since_last >= std::chrono::milliseconds(ctrl_timeout_ms_)) {
+                    ctrl_timed_out_ = true;
+                    int nu = model_->nu;
+                    for (int i = 0; i < nu && i < static_cast<int>(actuator_zero_on_timeout_.size()); i++) {
+                        if (actuator_zero_on_timeout_[i]) {
+                            data_->ctrl[i] = 0.0;
+                        }
+                    }
+                    // Clear any stale queued controls
+                    ctrl_queue_.clear();
+                    replay_anchor_host_us_ = 0;
+                    os_log_info(OS_LOG_DEFAULT, "Ctrl timeout: zeroed torque actuators after %ums",
+                                ctrl_timeout_ms_);
+                }
+            }
+
+            // Note: no resync after UDP steps — they consume time from the
+            // real-time budget so total step rate stays at the expected real-time
+            // rate regardless of driver packet rate.
 
             // === Real-time Physics Loop (when no UDP packets) ===
             if (!did_udp_step) {
@@ -908,11 +993,18 @@ private:
         ring_buffer_.end_write();
     }
 
+    // Timestamped control entry for paced replay queue
+    struct TimestampedCtrl {
+        uint64_t host_timestamp_us = 0;  // 0 = apply immediately (legacy)
+        std::vector<double> ctrl;
+    };
+
     const uint64_t unique_id_;  // Monotonic ID for per-thread state keying (survives address reuse)
     int32_t instance_index_;
     double target_fps_;
     bool busy_wait_;
     uint16_t udp_port_;
+    uint32_t ctrl_timeout_ms_;
     std::atomic<double> realtime_factor_;
     std::atomic<MJRuntimeState> state_;
 
@@ -932,6 +1024,14 @@ private:
     // Epoch counter: incremented on Stop() so stale WaitForFrame() callers
     // from a previous run detect the generation change and return nullptr.
     std::atomic<uint64_t> epoch_{0};
+
+    // Ctrl timeout and paced replay state (physics thread only)
+    std::vector<bool> actuator_zero_on_timeout_;   // per-actuator: true = zero on timeout
+    Clock::time_point last_ctrl_received_{};       // last time a UDP ctrl packet arrived
+    bool ctrl_timed_out_ = false;                  // true when timeout has fired
+    std::deque<TimestampedCtrl> ctrl_queue_;        // buffered controls awaiting replay
+    Clock::time_point replay_anchor_cpu_{};         // wall-clock anchor for paced replay
+    uint64_t replay_anchor_host_us_ = 0;           // host timestamp anchor (0 = no anchor)
 
     // Pre-loaded mesh data (extracted from mjModel at load time)
     std::unique_ptr<MJMeshDataStorage> mesh_storage_;

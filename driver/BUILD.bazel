@@ -13,7 +13,10 @@ cc_library(
         "cc/src/fragment.h",
         "cc/src/udp_socket.h",
     ],
-    hdrs = ["cc/include/imujoco/driver/driver.h"],
+    hdrs = [
+        "cc/include/imujoco/driver/args.h",
+        "cc/include/imujoco/driver/driver.h",
+    ],
     includes = [
         "cc/include",
         "cc/src",

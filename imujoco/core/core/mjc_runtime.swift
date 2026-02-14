@@ -93,12 +93,13 @@ public final class MJRuntime {
 
     // MARK: - Initialization
 
-    public init(instanceIndex: Int32, targetFPS: Double = 60.0, busyWait: Bool = false, udpPort: UInt16 = 0) throws {
+    public init(instanceIndex: Int32, targetFPS: Double = 60.0, busyWait: Bool = false, udpPort: UInt16 = 0, ctrlTimeoutMs: UInt32 = 500) throws {
         var config = MJRuntimeConfig()
         config.instanceIndex = instanceIndex
         config.targetFPS = targetFPS
         config.busyWait = busyWait
         config.udpPort = udpPort  // 0 = use default (8888 + instanceIndex)
+        config.ctrlTimeoutMs = ctrlTimeoutMs  // 0 = disabled
 
         guard let ptr = MJSimulationRuntime.create(config) else {
             throw MJRuntimeError.creationFailed

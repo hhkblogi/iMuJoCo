@@ -16,6 +16,7 @@
 #include <atomic>
 #include <mutex>
 
+#include "imujoco/driver/args.h"
 #include "imujoco/driver/driver.h"
 
 using namespace imujoco::driver;
@@ -28,29 +29,29 @@ void signalHandler(int) {
 }
 
 int main(int argc, char* argv[]) {
-    // Parse command line arguments
-    std::string host = "127.0.0.1";
-    uint16_t port = 8888;
+    Args args(argc, argv);
 
-    if (argc > 1) {
-        host = argv[1];
+    std::string host = args.get("host", "127.0.0.1");
+    uint16_t port = static_cast<uint16_t>(args.get_int("port", 8888));
+    int rate_hz = args.get_int("rate", 1000);
+    double duration = args.get_double("duration", 0.0);
+
+    if (args.has("help")) {
+        std::cout << "Usage: " << args.program()
+                  << " [--host HOST] [--port PORT] [--rate HZ] [--duration SEC]\n"
+                  << "  --host      Simulation host (default: 127.0.0.1)\n"
+                  << "  --port      Simulation port (default: 8888)\n"
+                  << "  --rate      Control loop rate in Hz (default: 1000)\n"
+                  << "  --duration  Run duration in seconds, 0=forever (default: 0)\n";
+        return 0;
     }
-    if (argc > 2) {
-        try {
-            int parsed_port = std::stoi(argv[2]);
-            if (parsed_port < 0 || parsed_port > 65535) {
-                std::cerr << "Invalid port number: must be in range [0, 65535]" << std::endl;
-                return 1;
-            }
-            port = static_cast<uint16_t>(parsed_port);
-        } catch (const std::exception& e) {
-            std::cerr << "Failed to parse port '" << argv[2] << "': " << e.what() << std::endl;
-            return 1;
-        }
-    }
+
+    int sleep_ms = std::max(1, 1000 / rate_hz);
 
     std::cout << "MuJoCo Driver Example (Async Mode)" << std::endl;
     std::cout << "Connecting to " << host << ":" << port << "..." << std::endl;
+    std::cout << "Rate: " << rate_hz << " Hz | Duration: "
+              << (duration > 0 ? std::to_string(duration) + "s" : "forever") << std::endl;
 
     // Configure driver
     DriverConfig config;
@@ -129,11 +130,18 @@ int main(int argc, char* argv[]) {
 
     std::cout << "Control dimension: " << local_ctrl_dim << std::endl;
 
-    // Control loop - sends at ~1000 Hz
+    // Control loop
     int send_count = 0;
     std::vector<double> ctrl(local_ctrl_dim, 0.0);
+    auto start_time = std::chrono::steady_clock::now();
 
     while (running) {
+        // Check duration limit
+        if (duration > 0) {
+            auto elapsed = std::chrono::steady_clock::now() - start_time;
+            double elapsed_sec = std::chrono::duration<double>(elapsed).count();
+            if (elapsed_sec >= duration) break;
+        }
         // Get latest time for control computation
         double t;
         {
@@ -159,8 +167,8 @@ int main(int argc, char* argv[]) {
                       << "\n";
         }
 
-        // Control rate (~1000 Hz)
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        // Control rate
+        std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
     }
 
     std::cout << "\nExiting.\n";
