@@ -80,3 +80,10 @@ py_binary(
     main = "examples/simple_control.py",
     deps = ["//driver/imujoco_driver"],
 )
+
+py_binary(
+    name = "unitree_g1_driver",
+    srcs = ["examples/unitree_g1_driver.py"],
+    main = "examples/unitree_g1_driver.py",
+    deps = ["//driver/imujoco_driver"],
+)

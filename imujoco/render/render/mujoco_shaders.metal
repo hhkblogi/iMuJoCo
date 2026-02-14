@@ -22,6 +22,25 @@ struct Uniforms {
     float _padding2;  // Final alignment padding
 };
 
+struct Light {
+    float3 pos;          float _pad0;
+    float3 dir;          float _pad1;
+    float3 ambient;      float _pad2;
+    float3 diffuse;      float _pad3;
+    float3 specular;     float _pad4;
+    float3 attenuation;  float cutoff;
+    float exponent;
+    int headlight;
+    int directional;
+    float _pad5;
+};
+
+struct LightBuffer {
+    int lightCount;
+    int _pad[3];  // align to 16 bytes
+    Light lights[8];
+};
+
 struct VertexIn {
     float3 position [[attribute(0)]];
     float3 normal [[attribute(1)]];
@@ -54,51 +73,54 @@ vertex VertexOut vertexMain(VertexIn in [[stage_in]],
 // MARK: - Fragment Shader
 
 fragment float4 fragmentMain(VertexOut in [[stage_in]],
-                             constant Uniforms& uniforms [[buffer(1)]]) {
+                             constant Uniforms& uniforms [[buffer(1)]],
+                             constant LightBuffer& lightBuf [[buffer(2)]]) {
     float3 N = normalize(in.normal);
     float3 V = normalize(uniforms.cameraPosition - in.worldPosition);
+    float3 baseColor = in.color.rgb * uniforms.color.rgb;
+    float alpha = in.color.a * uniforms.color.a;
 
-    // Base color from vertex color (MuJoCo geom RGBA)
-    float3 baseColor = in.color.rgb;
+    float3 result = float3(0.0);
 
-    // Light 1: Headlight (camera-attached, like MuJoCo default)
-    float3 L1 = V;
-    float NdotL1 = max(dot(N, L1), 0.0);
-
-    // Light 2: Top-down fill light to illuminate horizontal surfaces (floors)
-    // Unnormalized direction (0.2, 0.3, 1.0) points mostly upward (+Z) with slight
-    // forward (+Y) and right (+X) offset; normalized below to create soft shadows
-    // and avoid perfectly flat lighting on horizontal planes.
-    float3 L2 = normalize(float3(0.2, 0.3, 1.0));
-    float NdotL2 = max(dot(N, L2), 0.0);
-
-    // Ambient component (slightly higher for better visibility)
-    float3 ambient = baseColor * 0.15;
-
-    // Diffuse from both lights
-    float3 diffuse1 = baseColor * NdotL1 * 0.4;   // Headlight
-    float3 diffuse2 = baseColor * NdotL2 * 0.35;  // Fill light
-
-    // Specular component (Blinn-Phong) from headlight only
-    float3 specularColor = float3(0.0);
-    if (NdotL1 > 0.0 && uniforms.specular > 0.0) {
-        float3 H = normalize(L1 + V);
-        float NdotH = max(dot(N, H), 0.0);
-        float phongExp = uniforms.shininess * 128.0;
-        float spec = pow(NdotH, phongExp);
-        // Scale by 0.5 to keep highlights balanced with ambient/diffuse and avoid
-        // frequent saturation; overall specular intensity controlled via uniforms.specular
-        specularColor = float3(0.5 * uniforms.specular * spec);
+    // No lights: fall back to unlit base color + emission
+    if (lightBuf.lightCount <= 0) {
+        float3 unlit = baseColor + baseColor * uniforms.emission;
+        return float4(clamp(unlit, 0.0, 1.0), alpha);
     }
 
-    // Emission component (clamped to avoid excessive HDR overflow before final clamp)
-    float3 emissive = clamp(baseColor * uniforms.emission, 0.0, 1.0);
+    int numLights = min(lightBuf.lightCount, 8);
+    for (int i = 0; i < numLights; i++) {
+        Light light = lightBuf.lights[i];
 
-    // Final color
-    float3 finalColor = ambient + diffuse1 + diffuse2 + specularColor + emissive;
+        // Compute light direction
+        float3 L;
+        if (light.headlight) {
+            L = V;
+        } else if (light.directional) {
+            L = normalize(light.dir);
+        } else {
+            L = normalize(light.pos - in.worldPosition);
+        }
 
-    // Clamp to valid range
-    finalColor = clamp(finalColor, 0.0, 1.0);
+        float NdotL = max(dot(N, L), 0.0);
 
-    return float4(finalColor, in.color.a);
+        // Ambient: light.ambient * baseColor (GL_COLOR_MATERIAL)
+        result += light.ambient * baseColor;
+
+        // Diffuse: light.diffuse * baseColor * NdotL
+        result += light.diffuse * baseColor * NdotL;
+
+        // Specular: Blinn-Phong
+        if (NdotL > 0.0 && uniforms.specular > 0.0) {
+            float3 H = normalize(L + V);
+            float NdotH = max(dot(N, H), 0.0);
+            float spec = pow(NdotH, uniforms.shininess * 128.0);
+            result += light.specular * uniforms.specular * spec;
+        }
+    }
+
+    // Emission
+    result += baseColor * uniforms.emission;
+
+    return float4(clamp(result, 0.0, 1.0), alpha);
 }

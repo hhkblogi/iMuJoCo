@@ -249,4 +249,10 @@ public final class MJRuntime {
         // MJFrameData is a SWIFT_IMMORTAL_REFERENCE class - Swift treats it as a reference type
         return runtime.getLatestFrame()
     }
+
+    /// Get pre-loaded mesh data for rendering (available after model load).
+    /// Returns nil if no model is loaded or model has no meshes.
+    public var meshData: MJMeshData? {
+        return runtime.getMeshData()
+    }
 }

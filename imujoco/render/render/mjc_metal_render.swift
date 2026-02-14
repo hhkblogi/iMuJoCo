@@ -45,6 +45,28 @@ struct MJCMetalVertex {
     }
 }
 
+// MARK: - Light Types (must match Metal Light/LightBuffer structs)
+
+struct MJCMetalLight {
+    var pos: simd_float3; var _pad0: Float
+    var dir: simd_float3; var _pad1: Float
+    var ambient: simd_float3; var _pad2: Float
+    var diffuse: simd_float3; var _pad3: Float
+    var specular: simd_float3; var _pad4: Float
+    var attenuation: simd_float3; var cutoff: Float
+    var exponent: Float
+    var headlight: Int32
+    var directional: Int32
+    var _pad5: Float
+}
+
+struct MJCLightBuffer {
+    var lightCount: Int32
+    var _pad: (Int32, Int32, Int32)
+    var lights: (MJCMetalLight, MJCMetalLight, MJCMetalLight, MJCMetalLight,
+                 MJCMetalLight, MJCMetalLight, MJCMetalLight, MJCMetalLight)
+}
+
 // MARK: - Metal Render
 
 /// Metal-based render for MuJoCo physics visualization.
@@ -68,20 +90,35 @@ public final class MJCMetalRender {
     private let pipeline_state: MTLRenderPipelineState
     private let depth_state: MTLDepthStencilState
 
-    private var vertex_buffer: MTLBuffer
-    private var index_buffer: MTLBuffer
     private var depth_texture: MTLTexture?
 
-    // Buffer capacity - pre-allocated at init to avoid runtime allocation during rendering.
-    // Strategy: Allocate large fixed buffers (~64MB vertex + ~4MB index) upfront.
-    // This trades memory for consistent frame times by eliminating allocation stalls.
-    // Values are sufficient for typical MuJoCo scenes with thousands of geometries.
-    // For scenes that would exceed these capacities, additional geometries are skipped
-    // due to buffer capacity limits and a warning is emitted.
-    private let max_vertices = 1024 * 1024  // ~64MB at 64 bytes/vertex
-    private let max_indices = 1024 * 1024   // ~4MB at 4 bytes/index
+    // MARK: - Mesh Cache (static geometry)
 
-    /// Upper bounds on vertices/indices a single geometry can contribute to a frame.
+    /// Cached immutable Metal buffers for a single mesh (created once at load time).
+    private struct CachedMesh {
+        let vertexBuffer: MTLBuffer
+        let indexBuffer: MTLBuffer
+        let vertexCount: Int
+        let indexCount: Int
+    }
+    /// meshId → cached MTLBuffers (populated lazily on first frame with mesh data)
+    private var meshCache: [Int: CachedMesh] = [:]
+    private var meshCacheBuilt = false
+
+    // MARK: - Triple Buffering (dynamic primitive geometry)
+
+    private static let inflightFrameCount = 3
+    private var dynamicVertexBuffers: [MTLBuffer] = []
+    private var dynamicIndexBuffers: [MTLBuffer] = []
+    private var bufferIndex = 0
+    private let inflightSemaphore = DispatchSemaphore(value: inflightFrameCount)
+
+    // Dynamic buffer capacity - sized for procedural primitives only (meshes use cached buffers).
+    // Reduced from 2M because dynamic buffers no longer hold mesh vertices.
+    private let max_vertices = 512 * 1024  // ~32MB per buffer at 64 bytes/vertex
+    private let max_indices = 512 * 1024   // ~2MB per buffer at 4 bytes/index
+
+    /// Upper bounds on vertices/indices a single procedural geometry can contribute to a frame.
     /// Used as a buffer capacity guard so we can detect when adding a geom would exceed
     /// the pre-allocated vertex/index buffers and skip it instead of writing past buffer bounds.
     ///
@@ -89,7 +126,7 @@ public final class MJCMetalRender {
     /// geom types (spheres, cylinders, capsules, ellipsoids at 16 segments × 12 rings = ~192 quads
     /// = ~384 triangles = ~1152 indices per curved surface) with additional headroom.
     /// Simpler geoms (boxes, planes, segments) use substantially fewer vertices and indices.
-    private static let max_vertices_per_geom = 1000
+    private static let max_vertices_per_geom = 1700  // plane grid 20x20 = 1600 verts
     private static let max_indices_per_geom = 6000
 
     // MARK: - Initialization
@@ -170,15 +207,73 @@ public final class MJCMetalRender {
         }
         self.depth_state = depth_state
 
-        // Allocate buffers
-        guard let vBuffer = device.makeBuffer(length: max_vertices * MemoryLayout<MJCMetalVertex>.stride,
-                                               options: .storageModeShared),
-              let iBuffer = device.makeBuffer(length: max_indices * MemoryLayout<UInt32>.stride,
-                                               options: .storageModeShared) else {
-            throw MJCRenderError.bufferAllocationFailed
+        // Allocate triple-buffered dynamic buffers for procedural geometry
+        for _ in 0..<Self.inflightFrameCount {
+            guard let vBuf = device.makeBuffer(length: max_vertices * MemoryLayout<MJCMetalVertex>.stride,
+                                                options: .storageModeShared),
+                  let iBuf = device.makeBuffer(length: max_indices * MemoryLayout<UInt32>.stride,
+                                                options: .storageModeShared) else {
+                throw MJCRenderError.bufferAllocationFailed
+            }
+            dynamicVertexBuffers.append(vBuf)
+            dynamicIndexBuffers.append(iBuf)
         }
-        self.vertex_buffer = vBuffer
-        self.index_buffer = iBuffer
+    }
+
+    // MARK: - Mesh Cache Builder
+
+    /// Build immutable Metal buffers for all meshes. Called once when meshData first becomes available.
+    private func buildMeshCache(meshData: MJMeshData) {
+        guard !meshCacheBuilt else { return }
+
+        guard let meshInfoPtr = MJMeshDataGetMeshes(meshData),
+              let meshVertPtr = MJMeshDataGetVertices(meshData),
+              let meshFacePtr = MJMeshDataGetFaces(meshData) else {
+            return
+        }
+        meshCacheBuilt = true
+
+        let meshCount = Int(meshData.meshCount())
+        for meshId in 0..<meshCount {
+            let info = meshInfoPtr[meshId]
+            let nv = Int(info.vertexCount)
+            let nf = Int(info.faceCount)
+            guard nv > 0, nf > 0 else { continue }
+
+            // Build vertex data with white color (actual color applied via uniforms.color)
+            let vertexStride = MemoryLayout<MJCMetalVertex>.stride
+            guard let vBuf = device.makeBuffer(length: nv * vertexStride, options: .storageModeShared) else {
+                logger.warning("Failed to allocate vertex buffer for mesh \(meshId)")
+                continue
+            }
+            let vPtr = vBuf.contents().bindMemory(to: MJCMetalVertex.self, capacity: nv)
+            let vertBase = Int(info.vertexOffset) * 6
+            let whiteColor = simd_float4(1, 1, 1, 1)
+            for v in 0..<nv {
+                let srcIdx = vertBase + v * 6
+                let pos = simd_float3(meshVertPtr[srcIdx], meshVertPtr[srcIdx + 1], meshVertPtr[srcIdx + 2])
+                let normal = simd_float3(meshVertPtr[srcIdx + 3], meshVertPtr[srcIdx + 4], meshVertPtr[srcIdx + 5])
+                vPtr[v] = MJCMetalVertex(position: pos, normal: normal, texCoord: .zero, color: whiteColor)
+            }
+
+            // Build index data
+            let indexCount = nf * 3
+            guard let iBuf = device.makeBuffer(length: indexCount * MemoryLayout<UInt32>.stride,
+                                                options: .storageModeShared) else {
+                logger.warning("Failed to allocate index buffer for mesh \(meshId)")
+                continue
+            }
+            let iPtr = iBuf.contents().bindMemory(to: UInt32.self, capacity: indexCount)
+            let faceBase = Int(info.faceOffset) * 3
+            for f in 0..<indexCount {
+                iPtr[f] = UInt32(meshFacePtr[faceBase + f])
+            }
+
+            meshCache[meshId] = CachedMesh(vertexBuffer: vBuf, indexBuffer: iBuf,
+                                            vertexCount: nv, indexCount: indexCount)
+        }
+
+        logger.info("Built mesh cache: \(self.meshCache.count) meshes cached")
     }
 
     // MARK: - Rendering (Lock-Free Ring Buffer API)
@@ -194,6 +289,7 @@ public final class MJCMetalRender {
     ///   - drawable: The Metal drawable to render into.
     ///   - renderPassDescriptor: Optional render pass descriptor. If nil, a default is created.
     public func Render(frame: MJFrameData,
+                       meshData: MJMeshData? = nil,
                        drawable: CAMetalDrawable,
                        renderPassDescriptor: MTLRenderPassDescriptor?) {
 
@@ -202,7 +298,23 @@ public final class MJCMetalRender {
         // valid until the next getLatestFrame() call on the same thread. Do NOT store the
         // frame reference beyond this render call.
 
-        guard let commandBuffer = command_queue.makeCommandBuffer() else { return }
+        // Build mesh cache lazily on first frame with mesh data
+        if !meshCacheBuilt, let md = meshData {
+            buildMeshCache(meshData: md)
+        }
+
+        // Triple buffering: wait for a free buffer slot
+        inflightSemaphore.wait()
+        let currentBufferIndex = bufferIndex
+        bufferIndex = (bufferIndex + 1) % Self.inflightFrameCount
+        let dynamicVB = dynamicVertexBuffers[currentBufferIndex]
+        let dynamicIB = dynamicIndexBuffers[currentBufferIndex]
+
+        guard let commandBuffer = command_queue.makeCommandBuffer() else {
+            inflightSemaphore.signal()
+            return
+        }
+        commandBuffer.addCompletedHandler { [sem = self.inflightSemaphore] _ in sem.signal() }
 
         let passDescriptor = renderPassDescriptor ?? MTLRenderPassDescriptor()
         passDescriptor.colorAttachments[0].texture = drawable.texture
@@ -232,7 +344,10 @@ public final class MJCMetalRender {
         passDescriptor.depthAttachment.storeAction = .dontCare
         passDescriptor.depthAttachment.clearDepth = 1.0
 
-        guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: passDescriptor) else { return }
+        guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: passDescriptor) else {
+            commandBuffer.commit()
+            return
+        }
 
         encoder.setRenderPipelineState(pipeline_state)
         encoder.setDepthStencilState(depth_state)
@@ -262,9 +377,9 @@ public final class MJCMetalRender {
         let viewMatrix = Self.look_at(eye: eye, center: center, up: up)
         let projMatrix = Self.perspective(fovy: fovy, aspect: aspect, near: 0.01, far: 100.0)
 
-        // Get buffer pointers
-        let vertexData = vertex_buffer.contents().bindMemory(to: MJCMetalVertex.self, capacity: max_vertices)
-        let indexData = index_buffer.contents().bindMemory(to: UInt32.self, capacity: max_indices)
+        // Get dynamic buffer pointers for primitive geometry
+        let vertexData = dynamicVB.contents().bindMemory(to: MJCMetalVertex.self, capacity: max_vertices)
+        let indexData = dynamicIB.contents().bindMemory(to: UInt32.self, capacity: max_indices)
 
         var totalVertices = 0
         var totalIndices = 0
@@ -288,79 +403,165 @@ public final class MJCMetalRender {
             return
         }
 
+        // Build and set light buffer (once per frame, shared across all geoms)
+        let emptyLight = MJCMetalLight(
+            pos: .zero, _pad0: 0, dir: .zero, _pad1: 0,
+            ambient: .zero, _pad2: 0, diffuse: .zero, _pad3: 0,
+            specular: .zero, _pad4: 0, attenuation: .zero, cutoff: 0,
+            exponent: 0, headlight: 0, directional: 0, _pad5: 0
+        )
+        var lightBuffer = MJCLightBuffer(
+            lightCount: 0,
+            _pad: (0, 0, 0),
+            lights: (emptyLight, emptyLight, emptyLight, emptyLight,
+                     emptyLight, emptyLight, emptyLight, emptyLight)
+        )
+
+        let lCount = Int(frame.lightCount())
+        let lightsPtr = MJFrameDataGetLights(frame)
+        if lCount > 0, let lightsPtr = lightsPtr {
+            lightBuffer.lightCount = Int32(min(lCount, 8))
+            for li in 0..<Int(lightBuffer.lightCount) {
+                let src = lightsPtr[li]
+                let light = MJCMetalLight(
+                    pos: simd_float3(src.pos.0, src.pos.1, src.pos.2), _pad0: 0,
+                    dir: simd_float3(src.dir.0, src.dir.1, src.dir.2), _pad1: 0,
+                    ambient: simd_float3(src.ambient.0, src.ambient.1, src.ambient.2), _pad2: 0,
+                    diffuse: simd_float3(src.diffuse.0, src.diffuse.1, src.diffuse.2), _pad3: 0,
+                    specular: simd_float3(src.specular.0, src.specular.1, src.specular.2), _pad4: 0,
+                    attenuation: simd_float3(src.attenuation.0, src.attenuation.1, src.attenuation.2),
+                    cutoff: src.cutoff,
+                    exponent: src.exponent,
+                    headlight: src.headlight,
+                    directional: src.directional,
+                    _pad5: 0
+                )
+                switch li {
+                case 0: lightBuffer.lights.0 = light
+                case 1: lightBuffer.lights.1 = light
+                case 2: lightBuffer.lights.2 = light
+                case 3: lightBuffer.lights.3 = light
+                case 4: lightBuffer.lights.4 = light
+                case 5: lightBuffer.lights.5 = light
+                case 6: lightBuffer.lights.6 = light
+                case 7: lightBuffer.lights.7 = light
+                default: break
+                }
+            }
+        }
+        encoder.setFragmentBytes(&lightBuffer, length: MemoryLayout<MJCLightBuffer>.stride, index: 2)
+
         // Render each geometry from ring buffer frame data
         var skippedGeoms = 0
         for i in 0..<geomCount {
-            // Buffer overflow protection: skip remaining geometries if buffers are full
-            if totalVertices + Self.max_vertices_per_geom > max_vertices ||
-               totalIndices + Self.max_indices_per_geom > max_indices {
-                skippedGeoms = geomCount - i
-                break
-            }
-
-            // Access geom through array indexing
             let geom = geomsPtr[i]
+            let isMesh = geom.type == 7  // mjGEOM_MESH
 
-            var vertexCount = 0
-            var indexCount = 0
+            // Build model matrix from geom pose (shared by mesh and primitive paths)
+            var modelMatrix = simd_float4x4(1.0)
+            modelMatrix.columns.0 = simd_float4(geom.mat.0, geom.mat.3, geom.mat.6, 0)
+            modelMatrix.columns.1 = simd_float4(geom.mat.1, geom.mat.4, geom.mat.7, 0)
+            modelMatrix.columns.2 = simd_float4(geom.mat.2, geom.mat.5, geom.mat.8, 0)
+            modelMatrix.columns.3 = simd_float4(geom.pos.0, geom.pos.1, geom.pos.2, 1)
 
-            Self.convert_geom_instance(
-                geom: geom,
-                vertices: vertexData.advanced(by: totalVertices),
-                indices: indexData.advanced(by: totalIndices),
-                vertexCount: &vertexCount,
-                indexCount: &indexCount
-            )
+            let emission = geom.emission
+            let specular = geom.specular
+            let shininess = min(max(geom.shininess, 1.0), 10.0)
 
-            if vertexCount > 0 && indexCount > 0 {
-                // Build model matrix from geom pose
-                var modelMatrix = simd_float4x4(1.0)
-                modelMatrix.columns.0 = simd_float4(geom.mat.0, geom.mat.3, geom.mat.6, 0)
-                modelMatrix.columns.1 = simd_float4(geom.mat.1, geom.mat.4, geom.mat.7, 0)
-                modelMatrix.columns.2 = simd_float4(geom.mat.2, geom.mat.5, geom.mat.8, 0)
-                modelMatrix.columns.3 = simd_float4(geom.pos.0, geom.pos.1, geom.pos.2, 1)
+            if isMesh {
+                // --- Cached mesh path: bind pre-built buffers, no CPU vertex copying ---
+                let dataid = Int(geom.dataid)
+                let meshId = dataid >= 0 ? dataid / 2 : -1
 
-                // Get material properties from geom
-                let emission = geom.emission
-                let specular = geom.specular
-                let shininess = min(max(geom.shininess, 1.0), 10.0)  // Clamp to reasonable range
+                guard meshId >= 0, let cached = meshCache[meshId] else {
+                    // Fallback: tiny placeholder box via dynamic buffer
+                    if totalVertices + Self.max_vertices_per_geom > max_vertices ||
+                       totalIndices + Self.max_indices_per_geom > max_indices {
+                        skippedGeoms += 1; continue
+                    }
+                    var vertexCount = 0; var indexCount = 0
+                    let color = simd_float4(geom.rgba.0, geom.rgba.1, geom.rgba.2, geom.rgba.3)
+                    Self.generate_box(size: (0.02, 0.02, 0.02), color: color,
+                                      vertices: vertexData.advanced(by: totalVertices),
+                                      indices: indexData.advanced(by: totalIndices),
+                                      vertexCount: &vertexCount, indexCount: &indexCount)
+                    if vertexCount > 0 && indexCount > 0 {
+                        var uniforms = MJCMetalUniforms(
+                            modelMatrix: modelMatrix, viewMatrix: viewMatrix,
+                            projectionMatrix: projMatrix, normal_matrix: Self.normal_matrix(from: modelMatrix),
+                            lightPosition: simd_float3(0, 0, 10), _padding0: 0,
+                            cameraPosition: eye, _padding1: 0,
+                            color: simd_float4(1, 1, 1, 1),
+                            emission: emission, specular: specular, shininess: shininess, _padding2: 0)
+                        encoder.setVertexBuffer(dynamicVB, offset: totalVertices * MemoryLayout<MJCMetalVertex>.stride, index: 0)
+                        encoder.setVertexBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
+                        encoder.setFragmentBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
+                        encoder.drawIndexedPrimitives(type: .triangle, indexCount: indexCount, indexType: .uint32,
+                                                      indexBuffer: dynamicIB,
+                                                      indexBufferOffset: totalIndices * MemoryLayout<UInt32>.stride)
+                        totalVertices += vertexCount; totalIndices += indexCount
+                    }
+                    continue
+                }
 
+                // Cached mesh: set geom color via uniforms (vertex color is white in cache)
                 var uniforms = MJCMetalUniforms(
-                    modelMatrix: modelMatrix,
-                    viewMatrix: viewMatrix,
-                    projectionMatrix: projMatrix,
-                    normal_matrix: Self.normal_matrix(from: modelMatrix),
-                    lightPosition: simd_float3(0, 0, 10),
-                    _padding0: 0,
-                    cameraPosition: eye,
-                    _padding1: 0,
-                    color: simd_float4(1, 1, 1, 1),
-                    emission: emission,
-                    specular: specular,
-                    shininess: shininess,
-                    _padding2: 0
-                )
+                    modelMatrix: modelMatrix, viewMatrix: viewMatrix,
+                    projectionMatrix: projMatrix, normal_matrix: Self.normal_matrix(from: modelMatrix),
+                    lightPosition: simd_float3(0, 0, 10), _padding0: 0,
+                    cameraPosition: eye, _padding1: 0,
+                    color: simd_float4(geom.rgba.0, geom.rgba.1, geom.rgba.2, geom.rgba.3),
+                    emission: emission, specular: specular, shininess: shininess, _padding2: 0)
 
-                encoder.setVertexBuffer(vertex_buffer, offset: totalVertices * MemoryLayout<MJCMetalVertex>.stride, index: 0)
+                encoder.setVertexBuffer(cached.vertexBuffer, offset: 0, index: 0)
                 encoder.setVertexBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
                 encoder.setFragmentBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
+                encoder.drawIndexedPrimitives(type: .triangle, indexCount: cached.indexCount, indexType: .uint32,
+                                              indexBuffer: cached.indexBuffer, indexBufferOffset: 0)
 
-                encoder.drawIndexedPrimitives(
-                    type: .triangle,
-                    indexCount: indexCount,
-                    indexType: .uint32,
-                    indexBuffer: index_buffer,
-                    indexBufferOffset: totalIndices * MemoryLayout<UInt32>.stride
+            } else {
+                // --- Dynamic primitive path: write to triple-buffered shared buffer ---
+                if totalVertices + Self.max_vertices_per_geom > max_vertices ||
+                   totalIndices + Self.max_indices_per_geom > max_indices {
+                    skippedGeoms = geomCount - i
+                    break
+                }
+
+                var vertexCount = 0
+                var indexCount = 0
+                Self.convert_geom_instance(
+                    geom: geom,
+                    vertices: vertexData.advanced(by: totalVertices),
+                    indices: indexData.advanced(by: totalIndices),
+                    vertexCount: &vertexCount,
+                    indexCount: &indexCount
                 )
 
-                totalVertices += vertexCount
-                totalIndices += indexCount
+                if vertexCount > 0 && indexCount > 0 {
+                    // Primitives: color is baked into vertices, uniforms.color = white (passthrough)
+                    var uniforms = MJCMetalUniforms(
+                        modelMatrix: modelMatrix, viewMatrix: viewMatrix,
+                        projectionMatrix: projMatrix, normal_matrix: Self.normal_matrix(from: modelMatrix),
+                        lightPosition: simd_float3(0, 0, 10), _padding0: 0,
+                        cameraPosition: eye, _padding1: 0,
+                        color: simd_float4(1, 1, 1, 1),
+                        emission: emission, specular: specular, shininess: shininess, _padding2: 0)
+
+                    encoder.setVertexBuffer(dynamicVB, offset: totalVertices * MemoryLayout<MJCMetalVertex>.stride, index: 0)
+                    encoder.setVertexBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
+                    encoder.setFragmentBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
+                    encoder.drawIndexedPrimitives(type: .triangle, indexCount: indexCount, indexType: .uint32,
+                                                  indexBuffer: dynamicIB,
+                                                  indexBufferOffset: totalIndices * MemoryLayout<UInt32>.stride)
+                    totalVertices += vertexCount
+                    totalIndices += indexCount
+                }
             }
         }
 
         // Warn if geometries were skipped due to buffer overflow
         if skippedGeoms > 0 {
-            let rendered = Int(geomCount) - skippedGeoms
+            let rendered = geomCount - skippedGeoms
             logger.warning("Skipped \(skippedGeoms)/\(geomCount) geometries due to buffer capacity (rendered \(rendered), vertices: \(totalVertices)/\(self.max_vertices), indices: \(totalIndices)/\(self.max_indices))")
         }
 
@@ -462,27 +663,58 @@ public final class MJCMetalRender {
 
     // MARK: - Geometry Generators
 
-    /// Generate a plane quad with the given size and color.
-    /// If size components are zero or negative, defaults to 10.0 units for visibility.
+    /// Generate a subdivided ground plane with checkerboard coloring.
+    /// If size components are zero or negative (infinite plane), defaults to 50 units.
+    /// Uses a grid of quads with alternating dark/light colors for visual grounding.
     private static func generate_plane(size: (Float, Float, Float), color: simd_float4,
                                       vertices: UnsafeMutablePointer<MJCMetalVertex>,
                                       indices: UnsafeMutablePointer<UInt32>,
                                       vertexCount: inout Int, indexCount: inout Int) {
-        // Use fallback size if dimensions are invalid (ensures plane is always visible)
-        let sx = size.0 > 0 ? size.0 : 10.0
-        let sy = size.1 > 0 ? size.1 : 10.0
+        let sx = size.0 > 0 ? size.0 : Float(50.0)
+        let sy = size.1 > 0 ? size.1 : Float(50.0)
         let normal = simd_float3(0, 0, 1)
 
-        vertices[0] = MJCMetalVertex(position: simd_float3(-sx, -sy, 0), normal: normal, texCoord: simd_float2(0, 0), color: color)
-        vertices[1] = MJCMetalVertex(position: simd_float3(sx, -sy, 0), normal: normal, texCoord: simd_float2(1, 0), color: color)
-        vertices[2] = MJCMetalVertex(position: simd_float3(sx, sy, 0), normal: normal, texCoord: simd_float2(1, 1), color: color)
-        vertices[3] = MJCMetalVertex(position: simd_float3(-sx, sy, 0), normal: normal, texCoord: simd_float2(0, 1), color: color)
+        // Grid subdivision count (per axis)
+        let gridN = 20
+        let cellW = (2.0 * sx) / Float(gridN)
+        let cellH = (2.0 * sy) / Float(gridN)
 
-        indices[0] = 0; indices[1] = 1; indices[2] = 2
-        indices[3] = 0; indices[4] = 2; indices[5] = 3
+        // Checkerboard colors: darken/lighten the base color
+        let dark = simd_float4(color.x * 0.7, color.y * 0.7, color.z * 0.7, color.w)
+        let light = simd_float4(
+            min(color.x * 1.1, 1.0), min(color.y * 1.1, 1.0),
+            min(color.z * 1.1, 1.0), color.w
+        )
 
-        vertexCount = 4
-        indexCount = 6
+        var vCount = 0
+        var iCount = 0
+
+        for row in 0..<gridN {
+            for col in 0..<gridN {
+                let x0 = -sx + Float(col) * cellW
+                let y0 = -sy + Float(row) * cellH
+                let x1 = x0 + cellW
+                let y1 = y0 + cellH
+
+                let cellColor = ((row + col) % 2 == 0) ? dark : light
+                let base = UInt32(vCount)
+
+                vertices[vCount] = MJCMetalVertex(position: simd_float3(x0, y0, 0), normal: normal, texCoord: .zero, color: cellColor); vCount += 1
+                vertices[vCount] = MJCMetalVertex(position: simd_float3(x1, y0, 0), normal: normal, texCoord: .zero, color: cellColor); vCount += 1
+                vertices[vCount] = MJCMetalVertex(position: simd_float3(x1, y1, 0), normal: normal, texCoord: .zero, color: cellColor); vCount += 1
+                vertices[vCount] = MJCMetalVertex(position: simd_float3(x0, y1, 0), normal: normal, texCoord: .zero, color: cellColor); vCount += 1
+
+                indices[iCount] = base;     iCount += 1
+                indices[iCount] = base + 1; iCount += 1
+                indices[iCount] = base + 2; iCount += 1
+                indices[iCount] = base;     iCount += 1
+                indices[iCount] = base + 2; iCount += 1
+                indices[iCount] = base + 3; iCount += 1
+            }
+        }
+
+        vertexCount = vCount
+        indexCount = iCount
     }
 
     /// Generate a UV sphere with the given radius and color.

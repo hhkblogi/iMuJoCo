@@ -4,6 +4,7 @@
 exports_files(
     [
         "mujoco.BUILD",
+        "mujoco_menagerie.BUILD",
         "flatbuffers.BUILD",
         "lodepng.BUILD",
         "tinyxml2.BUILD",

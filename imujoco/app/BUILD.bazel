@@ -2,6 +2,7 @@ load("@build_bazel_rules_swift//swift:swift.bzl", "swift_library")
 load("@rules_apple//apple:apple.bzl", "local_provisioning_profile")
 load("@rules_apple//apple:ios.bzl", "ios_application")
 load("@rules_apple//apple:macos.bzl", "macos_application")
+load("@rules_apple//apple:resources.bzl", "apple_resource_group")
 load("@rules_apple//apple:tvos.bzl", "tvos_application")
 load("@rules_xcodeproj//xcodeproj:xcode_provisioning_profile.bzl", "xcode_provisioning_profile")
 load(":team_config.bzl", "TEAM_ID")
@@ -21,6 +22,7 @@ swift_library(
         "app/simulation_manager.swift",
     ],
     copts = ["-cxx-interoperability-mode=default"],
+    data = [":menagerie_models"],
     module_name = "app",
     deps = [
         "//imujoco/core",
@@ -45,6 +47,17 @@ xcode_provisioning_profile(
     managed_by_xcode = True,
     provisioning_profile = ":local_profile",
     team_id = TEAM_ID,
+)
+
+# ============================================================================
+# Menagerie robot models (directory structure must be preserved for MuJoCo)
+# ============================================================================
+
+apple_resource_group(
+    name = "menagerie_models",
+    structured_resources = [
+        "@mujoco_menagerie//:unitree_g1",
+    ],
 )
 
 # ============================================================================

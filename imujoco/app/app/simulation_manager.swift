@@ -58,7 +58,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
 
     // C++ physics runtime (owns model, data, scene, camera, option)
     private(set) var runtime: MJRuntime?
-    private(set) var modelName: String = ""
+    internal(set) var modelName: String = ""
 
     // Display time - stored property for SwiftUI observation
     // Updated periodically from runtime stats
@@ -246,6 +246,10 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
         runtime?.latestFrame
     }
 
+    public var meshData: MJMeshData? {
+        runtime?.meshData
+    }
+
     public var cameraAzimuth: Double {
         get { runtime?.cameraAzimuth ?? 90.0 }
         set { runtime?.cameraAzimuth = newValue }
@@ -266,6 +270,14 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     }
 }
 
+// MARK: - Bundled Model Descriptor
+
+struct BundledModel {
+    let name: String         // Display name
+    let resource: String     // XML filename without extension
+    let subdirectory: String?  // Subdirectory in bundle (nil = flat)
+}
+
 // MARK: - Grid Manager
 
 /// Manages 2x2 grid of simulation instances.
@@ -280,8 +292,17 @@ final class SimulationGridManager: @unchecked Sendable {
     private(set) var instances: [SimulationInstance]
     private(set) var fullscreenInstanceId: Int? = nil
 
+    var bundledModels: [BundledModel] {
+        [
+            BundledModel(name: "Humanoid", resource: "humanoid", subdirectory: nil),
+            BundledModel(name: "Pendulum", resource: "pendulum", subdirectory: nil),
+            BundledModel(name: "Simple Pendulum", resource: "simple_pendulum", subdirectory: nil),
+            BundledModel(name: "Unitree G1", resource: "scene", subdirectory: "unitree_g1"),
+        ]
+    }
+
     var bundledModelNames: [String] {
-        ["humanoid", "pendulum", "simple_pendulum"]
+        bundledModels.map { $0.name }
     }
 
     init() {
@@ -317,21 +338,24 @@ final class SimulationGridManager: @unchecked Sendable {
     @MainActor
     func loadBundledModel(at index: Int, name: String) async throws {
         guard let instance = instance(at: index) else { return }
+        guard let model = bundledModels.first(where: { $0.name == name }) else {
+            throw MuJoCoError.loadFailed("Unknown model '\(name)'")
+        }
 
         // Try multiple search paths for the model file.
         // Rationale: Bundle resource locations can vary between Xcode configurations
         // (Debug/Release), build systems, and test environments. This multi-path
-        // approach ensures robustness during development. Once bundle organization
-        // is finalized, this can be simplified to a single path.
+        // approach ensures robustness during development.
         let searchPaths: [(String?, String)] = [
+            (model.subdirectory, "model subdirectory"),
             (nil, "Bundle root"),
             ("Resources/Models", "Resources/Models subdirectory"),
-            ("Models", "Models subdirectory")
+            ("Models", "Models subdirectory"),
         ]
 
         var path: String?
         for (subdirectory, description) in searchPaths {
-            if let foundPath = Bundle.main.path(forResource: name, ofType: "xml", inDirectory: subdirectory) {
+            if let foundPath = Bundle.main.path(forResource: model.resource, ofType: "xml", inDirectory: subdirectory) {
                 path = foundPath
                 logger.debug("Found model '\(name)' in \(description): \(foundPath)")
                 break
@@ -339,7 +363,6 @@ final class SimulationGridManager: @unchecked Sendable {
         }
 
         guard let modelPath = path else {
-            // Log all paths that were tried to help with debugging
             let triedPaths = searchPaths.map { $0.1 }.joined(separator: ", ")
             logger.error("Model '\(name)' not found. Tried: \(triedPaths)")
             if let bundlePath = Bundle.main.resourcePath {
@@ -352,6 +375,7 @@ final class SimulationGridManager: @unchecked Sendable {
         }
 
         try await instance.loadModel(fromFile: modelPath)
+        instance.modelName = name
         instance.start()
     }
 

@@ -73,6 +73,14 @@ def _mujoco_deps_impl(_ctx):
         urls = ["https://github.com/aparis69/MarchingCubeCpp/archive/f03a1b3ec29b1d7d865691ca8aea4f1eb2c2873d.tar.gz"],
     )
 
+    # MuJoCo Menagerie robot models (BSD-3 licensed)
+    http_archive(
+        name = "mujoco_menagerie",
+        build_file = "//:third_party/mujoco_menagerie.BUILD",
+        strip_prefix = "mujoco_menagerie-a03e87bf13502b0b48ebbf2808928fd96ebf9cf3",
+        urls = ["https://github.com/google-deepmind/mujoco_menagerie/archive/a03e87bf13502b0b48ebbf2808928fd96ebf9cf3.tar.gz"],
+    )
+
     # TriangleMeshDistance - Header-only triangle mesh distance
     http_archive(
         name = "trianglemeshdistance",
