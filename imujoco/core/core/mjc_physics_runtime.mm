@@ -883,7 +883,7 @@ private:
             dst.cutoff = src.cutoff;
             dst.exponent = src.exponent;
             dst.headlight = src.headlight;
-            dst.directional = (src.type == 1) ? 1 : 0;  // mjLIGHT_DIRECTIONAL
+            dst.directional = (src.type == mjLIGHT_DIRECTIONAL) ? 1 : 0;
         }
 
         frame->cameraAzimuth = static_cast<float>(camera_.azimuth);

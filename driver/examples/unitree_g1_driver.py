@@ -5,7 +5,7 @@ unitree_g1_driver.py - Unitree G1 robot driver example
 Control modes:
   stand  - Hold standing pose (keyframe ctrl values)
   zero   - Drive all joints to 0 rad
-  free   - Send empty ctrl (no actuator commands)
+  free   - Send zero ctrl (identical to zero; true actuator-free requires app support)
 
 Usage:
   bazel run //driver:unitree_g1_driver -- --host <device_ip> --mode stand

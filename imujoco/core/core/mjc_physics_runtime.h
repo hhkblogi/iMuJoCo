@@ -109,7 +109,7 @@ struct MJGeomInstance {
 struct MJMeshInfo {
     int32_t vertexOffset = 0;   ///< Offset into vertex array (in vertices, not bytes)
     int32_t vertexCount = 0;    ///< Number of vertices for this mesh
-    int32_t faceOffset = 0;     ///< Offset into face index array (in ints, not bytes)
+    int32_t faceOffset = 0;     ///< Offset into face index array (in faces, 3 indices per face)
     int32_t faceCount = 0;      ///< Number of faces (triangles) for this mesh
 };
 

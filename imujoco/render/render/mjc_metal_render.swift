@@ -126,7 +126,7 @@ public final class MJCMetalRender {
     /// geom types (spheres, cylinders, capsules, ellipsoids at 16 segments × 12 rings = ~192 quads
     /// = ~384 triangles = ~1152 indices per curved surface) with additional headroom.
     /// Simpler geoms (boxes, planes, segments) use substantially fewer vertices and indices.
-    private static let max_vertices_per_geom = 1000
+    private static let max_vertices_per_geom = 1700  // plane grid 20x20 = 1600 verts
     private static let max_indices_per_geom = 6000
 
     // MARK: - Initialization
@@ -225,13 +225,13 @@ public final class MJCMetalRender {
     /// Build immutable Metal buffers for all meshes. Called once when meshData first becomes available.
     private func buildMeshCache(meshData: MJMeshData) {
         guard !meshCacheBuilt else { return }
-        meshCacheBuilt = true
 
         guard let meshInfoPtr = MJMeshDataGetMeshes(meshData),
               let meshVertPtr = MJMeshDataGetVertices(meshData),
               let meshFacePtr = MJMeshDataGetFaces(meshData) else {
             return
         }
+        meshCacheBuilt = true
 
         let meshCount = Int(meshData.meshCount())
         for meshId in 0..<meshCount {
@@ -344,7 +344,10 @@ public final class MJCMetalRender {
         passDescriptor.depthAttachment.storeAction = .dontCare
         passDescriptor.depthAttachment.clearDepth = 1.0
 
-        guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: passDescriptor) else { return }
+        guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: passDescriptor) else {
+            commandBuffer.commit()
+            return
+        }
 
         encoder.setRenderPipelineState(pipeline_state)
         encoder.setDepthStencilState(depth_state)

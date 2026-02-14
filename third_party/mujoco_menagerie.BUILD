@@ -11,6 +11,6 @@ filegroup(
             "unitree_g1/**/*.STL",
             "unitree_g1/LICENSE",
         ],
-        allow_empty = True,
+        allow_empty = True,  # .stl/.STL: only one case matches per platform
     ),
 )
