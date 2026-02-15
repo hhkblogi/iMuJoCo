@@ -280,9 +280,9 @@ public:
         mjv_makeScene(nullptr, &scene_, MJ_MAX_GEOMS);
 
         camera_.type = mjCAMERA_FREE;
-        camera_.azimuth = 90;
-        camera_.elevation = -15;
-        camera_.distance = 3.0;
+        camera_.azimuth = 60;
+        camera_.elevation = 45;
+        camera_.distance = 4.0;
         camera_.lookat[0] = 0;
         camera_.lookat[1] = 0;
         camera_.lookat[2] = 0.5;
@@ -328,7 +328,8 @@ public:
         data_ = dnew;
 
         if (model_->nkey > 0) {
-            mj_resetDataKeyframe(model_, data_, 0);
+            int keyId = mj_name2id(model_, mjOBJ_KEY, "supine");
+            mj_resetDataKeyframe(model_, data_, keyId >= 0 ? keyId : 0);
         }
 
         mj_forward(model_, data_);
@@ -375,7 +376,8 @@ public:
         data_ = dnew;
 
         if (model_->nkey > 0) {
-            mj_resetDataKeyframe(model_, data_, 0);
+            int keyId = mj_name2id(model_, mjOBJ_KEY, "supine");
+            mj_resetDataKeyframe(model_, data_, keyId >= 0 ? keyId : 0);
         }
 
         mj_forward(model_, data_);
@@ -611,9 +613,9 @@ public:
         camera_.lookat[2] = z;
     }
     void ResetCamera() {
-        camera_.azimuth = 90;
-        camera_.elevation = -15;
-        camera_.distance = 3.0;
+        camera_.azimuth = 60;
+        camera_.elevation = 45;
+        camera_.distance = 4.0;
         camera_.lookat[0] = 0;
         camera_.lookat[1] = 0;
         camera_.lookat[2] = 0.5;
@@ -622,6 +624,10 @@ public:
     double GetCameraAzimuth() const { return camera_.azimuth; }
     double GetCameraElevation() const { return camera_.elevation; }
     double GetCameraDistance() const { return camera_.distance; }
+
+    void SetTimestep(double ts) {
+        if (model_) model_->opt.timestep = ts;
+    }
 
     void SetRealtimeFactor(double factor) {
         realtime_factor_ = std::max(0.01, std::min(10.0, factor));
@@ -1151,6 +1157,7 @@ double MJSimulationRuntime::getCameraAzimuth() const { return impl_->GetCameraAz
 double MJSimulationRuntime::getCameraElevation() const { return impl_->GetCameraElevation(); }
 double MJSimulationRuntime::getCameraDistance() const { return impl_->GetCameraDistance(); }
 
+void MJSimulationRuntime::setTimestep(double v) { impl_->SetTimestep(v); }
 void MJSimulationRuntime::setRealtimeFactor(double v) { impl_->SetRealtimeFactor(v); }
 double MJSimulationRuntime::getRealtimeFactor() const { return impl_->GetRealtimeFactor(); }
 

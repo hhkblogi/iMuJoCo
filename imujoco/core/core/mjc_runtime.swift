@@ -231,6 +231,11 @@ public final class MJRuntime {
 
     // MARK: - Real-time Control
 
+    /// Override the model timestep (call after loading)
+    public func setTimestep(_ ts: Double) {
+        runtime.setTimestep(ts)
+    }
+
     public var realtimeFactor: Double {
         get { runtime.getRealtimeFactor() }
         set { runtime.setRealtimeFactor(newValue) }

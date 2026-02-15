@@ -129,5 +129,8 @@ fragment float4 fragmentMain(VertexOut in [[stage_in]],
     // Emission
     result += baseColor * uniforms.emission;
 
+    // Slightly dim overall lighting for a softer look
+    result *= 0.85;
+
     return float4(clamp(result, 0.0, 1.0), alpha);
 }
