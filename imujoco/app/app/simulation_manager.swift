@@ -58,7 +58,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
 
     // C++ physics runtime (owns model, data, scene, camera, option)
     private(set) var runtime: MJRuntime?
-    internal(set) var modelName: String = ""
+    fileprivate(set) var modelName: String = ""
 
     // Stored properties for SwiftUI observation
     // Updated periodically from runtime stats (~10Hz polling)
@@ -280,6 +280,10 @@ struct BundledModel {
     let name: String         // Display name
     let resource: String     // XML filename without extension
     let subdirectory: String?  // Subdirectory in bundle (nil = flat)
+    let timestep: Double?    // Override model timestep (nil = use model default)
+    let cameraElevation: Double?  // Override initial camera elevation (nil = use default)
+    let cameraAzimuth: Double?    // Override initial camera azimuth (nil = use default)
+    let cameraDistance: Double?   // Override initial camera distance (nil = use default)
 }
 
 // MARK: - Grid Manager
@@ -298,10 +302,14 @@ final class SimulationGridManager: @unchecked Sendable {
 
     var bundledModels: [BundledModel] {
         [
-            BundledModel(name: "Humanoid", resource: "humanoid", subdirectory: nil),
-            BundledModel(name: "Pendulum", resource: "pendulum", subdirectory: nil),
-            BundledModel(name: "Simple Pendulum", resource: "simple_pendulum", subdirectory: nil),
-            BundledModel(name: "Unitree G1", resource: "scene", subdirectory: "unitree_g1"),
+            BundledModel(name: "Humanoid (Supine)", resource: "humanoid", subdirectory: "model/humanoid",
+                         timestep: 0.001, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
+            BundledModel(name: "Pendulum", resource: "pendulum", subdirectory: nil,
+                         timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
+            BundledModel(name: "Simple Pendulum", resource: "simple_pendulum", subdirectory: nil,
+                         timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
+            BundledModel(name: "Unitree G1", resource: "scene", subdirectory: "unitree_g1",
+                         timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
         ]
     }
 
@@ -379,6 +387,12 @@ final class SimulationGridManager: @unchecked Sendable {
         }
 
         try await instance.loadModel(fromFile: modelPath)
+        if let ts = model.timestep {
+            instance.runtime?.setTimestep(ts)
+        }
+        if let el = model.cameraElevation { instance.cameraElevation = el }
+        if let az = model.cameraAzimuth { instance.cameraAzimuth = az }
+        if let dist = model.cameraDistance { instance.cameraDistance = dist }
         instance.modelName = name
         instance.start()
     }

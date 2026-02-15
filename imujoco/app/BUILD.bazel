@@ -22,7 +22,10 @@ swift_library(
         "app/simulation_manager.swift",
     ],
     copts = ["-cxx-interoperability-mode=default"],
-    data = [":menagerie_models"],
+    data = [
+        ":menagerie_models",
+        ":mujoco_models",
+    ],
     module_name = "app",
     deps = [
         "//imujoco/core",
@@ -60,6 +63,13 @@ apple_resource_group(
     ],
 )
 
+apple_resource_group(
+    name = "mujoco_models",
+    structured_resources = [
+        "@mujoco//:humanoid_model",
+    ],
+)
+
 # ============================================================================
 # iOS application
 # ============================================================================
@@ -78,7 +88,6 @@ ios_application(
     resources = [
         "app/Assets.xcassets",
         "app/PrivacyInfo.xcprivacy",
-        "app/Resources/Models/humanoid.xml",
         "app/Resources/Models/pendulum.xml",
         "app/Resources/Models/simple_pendulum.xml",
         "//imujoco/render:mujoco_metallib",
@@ -100,7 +109,6 @@ macos_application(
     resources = [
         "app/Assets.xcassets",
         "app/PrivacyInfo.xcprivacy",
-        "app/Resources/Models/humanoid.xml",
         "app/Resources/Models/pendulum.xml",
         "app/Resources/Models/simple_pendulum.xml",
         "//imujoco/render:mujoco_metallib",
@@ -121,7 +129,6 @@ tvos_application(
     resources = [
         "app/Assets.xcassets",
         "app/PrivacyInfo.xcprivacy",
-        "app/Resources/Models/humanoid.xml",
         "app/Resources/Models/pendulum.xml",
         "app/Resources/Models/simple_pendulum.xml",
         "//imujoco/render:mujoco_metallib",

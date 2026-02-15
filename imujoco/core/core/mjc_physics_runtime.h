@@ -393,6 +393,7 @@ public:
 
     // MARK: - Real-time Control
 
+    void setTimestep(double timestep);
     void setRealtimeFactor(double factor);
     double getRealtimeFactor() const;
 

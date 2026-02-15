@@ -89,6 +89,10 @@ public final class MJCMetalRender {
     private let command_queue: MTLCommandQueue
     private let pipeline_state: MTLRenderPipelineState
     private let depth_state: MTLDepthStencilState
+    private let gizmoDepthState: MTLDepthStencilState
+    private let gizmoVertexBuffer: MTLBuffer
+    private let gizmoIndexBuffer: MTLBuffer
+    private let gizmoIndexCounts: [(offset: Int, count: Int)]  // per-axis (X, Y, Z) index ranges
 
     private var depth_texture: MTLTexture?
 
@@ -206,6 +210,23 @@ public final class MJCMetalRender {
             throw MJCRenderError.depth_stateCreationFailed
         }
         self.depth_state = depth_state
+
+        // Create gizmo depth state (always pass, no depth write — painter's algorithm)
+        let gizmoDepthDesc = MTLDepthStencilDescriptor()
+        gizmoDepthDesc.depthCompareFunction = .always
+        gizmoDepthDesc.isDepthWriteEnabled = false
+        guard let gizmoDS = device.makeDepthStencilState(descriptor: gizmoDepthDesc) else {
+            throw MJCRenderError.depth_stateCreationFailed
+        }
+        self.gizmoDepthState = gizmoDS
+
+        // Build gizmo geometry (3 axis arrows in a single buffer)
+        guard let gizmo = Self.buildGizmoGeometry(device: device) else {
+            throw MJCRenderError.bufferAllocationFailed
+        }
+        self.gizmoVertexBuffer = gizmo.vertexBuffer
+        self.gizmoIndexBuffer = gizmo.indexBuffer
+        self.gizmoIndexCounts = gizmo.indexCounts
 
         // Allocate triple-buffered dynamic buffers for procedural geometry
         for _ in 0..<Self.inflightFrameCount {
@@ -389,6 +410,7 @@ public final class MJCMetalRender {
 
         // Handle empty frame
         if geomCount == 0 {
+            renderAxesGizmo(encoder: encoder, viewMatrix: viewMatrix, width: width, height: height)
             encoder.endEncoding()
             commandBuffer.present(drawable)
             commandBuffer.commit()
@@ -397,6 +419,7 @@ public final class MJCMetalRender {
 
         // Get pointer to geoms array (using free function - member functions returning pointers not supported)
         guard let geomsPtr = MJFrameDataGetGeoms(frame) else {
+            renderAxesGizmo(encoder: encoder, viewMatrix: viewMatrix, width: width, height: height)
             encoder.endEncoding()
             commandBuffer.present(drawable)
             commandBuffer.commit()
@@ -567,9 +590,237 @@ public final class MJCMetalRender {
             logger.warning("Skipped \(skippedGeoms)/\(geomCount) geometries due to buffer capacity (rendered \(rendered), vertices: \(totalVertices)/\(self.max_vertices), indices: \(totalIndices)/\(self.max_indices))")
         }
 
+        renderAxesGizmo(encoder: encoder, viewMatrix: viewMatrix, width: width, height: height)
+
         encoder.endEncoding()
         commandBuffer.present(drawable)
         commandBuffer.commit()
+    }
+
+    // MARK: - Axes Gizmo
+
+    /// Render a 3D XYZ orientation axes gizmo in the bottom-left corner.
+    /// Rotates with the camera but stays fixed in the corner, never occluded by scene geometry.
+    private func renderAxesGizmo(encoder: MTLRenderCommandEncoder, viewMatrix: simd_float4x4,
+                                 width: Int, height: Int) {
+        let gizmoSize = Int(Float(min(width, height)) * 0.15)
+        let padding = 10
+
+        // Set viewport to bottom-left corner
+        encoder.setViewport(MTLViewport(
+            originX: Double(padding),
+            originY: Double(height - gizmoSize - padding),
+            width: Double(gizmoSize),
+            height: Double(gizmoSize),
+            znear: 0, zfar: 1
+        ))
+
+        // Switch to gizmo depth state (always pass, no depth write)
+        encoder.setDepthStencilState(gizmoDepthState)
+
+        // Build rotation-only view matrix: keep camera rotation, replace translation
+        // with fixed push-back so gizmo is always centered at a fixed distance
+        var gizmoView = viewMatrix
+        gizmoView.columns.3 = simd_float4(0, 0, -3, 1)
+
+        // Orthographic projection (gizmo arrows extend ~0.9 units from origin)
+        let orthoProj = Self.orthographic(left: -1.0, right: 1.0, bottom: -1.0, top: 1.0,
+                                          near: 0.1, far: 10)
+
+        // Simple directional light from camera direction for consistent gizmo shading
+        let emptyLight = MJCMetalLight(
+            pos: .zero, _pad0: 0, dir: .zero, _pad1: 0,
+            ambient: .zero, _pad2: 0, diffuse: .zero, _pad3: 0,
+            specular: .zero, _pad4: 0, attenuation: .zero, cutoff: 0,
+            exponent: 0, headlight: 0, directional: 0, _pad5: 0
+        )
+        var gizmoLightBuffer = MJCLightBuffer(
+            lightCount: 1,
+            _pad: (0, 0, 0),
+            lights: (
+                MJCMetalLight(
+                    pos: simd_float3(0, 0, 5), _pad0: 0,
+                    dir: simd_float3(0, 0, -1), _pad1: 0,
+                    ambient: simd_float3(0.4, 0.4, 0.4), _pad2: 0,
+                    diffuse: simd_float3(0.8, 0.8, 0.8), _pad3: 0,
+                    specular: simd_float3(0.3, 0.3, 0.3), _pad4: 0,
+                    attenuation: simd_float3(1, 0, 0), cutoff: 180,
+                    exponent: 0, headlight: 0, directional: 1, _pad5: 0
+                ),
+                emptyLight, emptyLight, emptyLight,
+                emptyLight, emptyLight, emptyLight, emptyLight
+            )
+        )
+        encoder.setFragmentBytes(&gizmoLightBuffer, length: MemoryLayout<MJCLightBuffer>.stride, index: 2)
+
+        // Axis rotation matrices: rotate local-Z arrow geometry to point along target axis
+        let axisRotations: [simd_float4x4] = [
+            // X axis (red): rotate 90° around Y → local Z becomes +X
+            simd_float4x4(columns: (
+                simd_float4(0, 0, -1, 0),
+                simd_float4(0, 1, 0, 0),
+                simd_float4(1, 0, 0, 0),
+                simd_float4(0, 0, 0, 1)
+            )),
+            // Y axis (green): rotate -90° around X → local Z becomes +Y
+            simd_float4x4(columns: (
+                simd_float4(1, 0, 0, 0),
+                simd_float4(0, 0, -1, 0),
+                simd_float4(0, 1, 0, 0),
+                simd_float4(0, 0, 0, 1)
+            )),
+            // Z axis (blue): identity (arrow already along Z)
+            simd_float4x4(1.0)
+        ]
+
+        // World-space axis directions for depth sorting
+        let axisDirections: [simd_float3] = [
+            simd_float3(1, 0, 0), simd_float3(0, 1, 0), simd_float3(0, 0, 1)
+        ]
+
+        // Camera -forward direction (row 2 of view matrix) for back-to-front sorting
+        let viewRow2 = simd_float3(gizmoView.columns.0.z, gizmoView.columns.1.z, gizmoView.columns.2.z)
+
+        // Sort axes back-to-front: most negative dot = furthest from camera = draw first
+        var axisOrder = [0, 1, 2]
+        axisOrder.sort { simd_dot(axisDirections[$0], viewRow2) < simd_dot(axisDirections[$1], viewRow2) }
+
+        // Draw axes back-to-front using pre-built gizmo geometry
+        encoder.setVertexBuffer(gizmoVertexBuffer, offset: 0, index: 0)
+        for axisIdx in axisOrder {
+            let modelMatrix = axisRotations[axisIdx]
+            var uniforms = MJCMetalUniforms(
+                modelMatrix: modelMatrix,
+                viewMatrix: gizmoView,
+                projectionMatrix: orthoProj,
+                normal_matrix: Self.normal_matrix(from: modelMatrix),
+                lightPosition: simd_float3(0, 0, 5), _padding0: 0,
+                cameraPosition: simd_float3(0, 0, 3), _padding1: 0,
+                color: simd_float4(1, 1, 1, 1),
+                emission: 0.5, specular: 0.3, shininess: 5.0, checkerboardScale: 0
+            )
+            encoder.setVertexBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
+            encoder.setFragmentBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
+
+            let range = gizmoIndexCounts[axisIdx]
+            encoder.drawIndexedPrimitives(
+                type: .triangle,
+                indexCount: range.count,
+                indexType: .uint32,
+                indexBuffer: gizmoIndexBuffer,
+                indexBufferOffset: range.offset * MemoryLayout<UInt32>.stride
+            )
+        }
+
+        // Restore scene viewport and depth state
+        encoder.setViewport(MTLViewport(
+            originX: 0, originY: 0,
+            width: Double(width), height: Double(height),
+            znear: 0, zfar: 1
+        ))
+        encoder.setDepthStencilState(depth_state)
+    }
+
+    /// Build vertex and index buffers for the 3-axis gizmo (X=red, Y=green, Z=blue).
+    /// Each axis is an arrow along +Z (shaft cylinder + cone arrowhead), to be rotated
+    /// at render time via modelMatrix. All 3 axes share a single vertex/index buffer pair.
+    private static func buildGizmoGeometry(device: MTLDevice) -> (vertexBuffer: MTLBuffer,
+                                                                   indexBuffer: MTLBuffer,
+                                                                   indexCounts: [(offset: Int, count: Int)])? {
+        let segments = 8
+        let shaftRadius: Float = 0.03
+        let shaftLength: Float = 0.7
+        let coneBaseRadius: Float = 0.08
+        let coneHeight: Float = 0.2
+
+        let axisColors: [simd_float4] = [
+            simd_float4(0.9, 0.2, 0.2, 1),  // X - red
+            simd_float4(0.2, 0.8, 0.2, 1),  // Y - green
+            simd_float4(0.3, 0.4, 0.9, 1),  // Z - blue
+        ]
+
+        var allVertices: [MJCMetalVertex] = []
+        var allIndices: [UInt32] = []
+        var indexCounts: [(offset: Int, count: Int)] = []
+
+        for axisIdx in 0..<3 {
+            let color = axisColors[axisIdx]
+            let baseVertex = UInt32(allVertices.count)
+            let baseIndex = allIndices.count
+
+            // --- Shaft: cylinder from z=0 to z=shaftLength ---
+            for s in 0...segments {
+                let theta = 2.0 * Float.pi * Float(s) / Float(segments)
+                let x = shaftRadius * cos(theta)
+                let y = shaftRadius * sin(theta)
+                let normal = simd_float3(cos(theta), sin(theta), 0)
+
+                allVertices.append(MJCMetalVertex(position: simd_float3(x, y, 0),
+                                                   normal: normal, texCoord: .zero, color: color))
+                allVertices.append(MJCMetalVertex(position: simd_float3(x, y, shaftLength),
+                                                   normal: normal, texCoord: .zero, color: color))
+            }
+
+            for s in 0..<segments {
+                let c = baseVertex + UInt32(s * 2)
+                allIndices.append(contentsOf: [c, c + 2, c + 1, c + 1, c + 2, c + 3])
+            }
+
+            // --- Arrowhead: cone from z=shaftLength to z=shaftLength+coneHeight ---
+            let coneApexIdx = UInt32(allVertices.count)
+            allVertices.append(MJCMetalVertex(position: simd_float3(0, 0, shaftLength + coneHeight),
+                                               normal: simd_float3(0, 0, 1), texCoord: .zero, color: color))
+
+            let coneRingBase = UInt32(allVertices.count)
+            let slopeAngle = atan2(coneBaseRadius, coneHeight)
+            let nz = sin(slopeAngle)
+            let nr = cos(slopeAngle)
+
+            for s in 0...segments {
+                let theta = 2.0 * Float.pi * Float(s) / Float(segments)
+                let x = coneBaseRadius * cos(theta)
+                let y = coneBaseRadius * sin(theta)
+                let normal = simd_float3(nr * cos(theta), nr * sin(theta), nz)
+                allVertices.append(MJCMetalVertex(position: simd_float3(x, y, shaftLength),
+                                                   normal: normal, texCoord: .zero, color: color))
+            }
+
+            for s in 0..<segments {
+                allIndices.append(contentsOf: [coneApexIdx, coneRingBase + UInt32(s),
+                                               coneRingBase + UInt32(s + 1)])
+            }
+
+            // Cone base disk
+            let coneCenterIdx = UInt32(allVertices.count)
+            allVertices.append(MJCMetalVertex(position: simd_float3(0, 0, shaftLength),
+                                               normal: simd_float3(0, 0, -1), texCoord: .zero, color: color))
+            let coneDiskRing = UInt32(allVertices.count)
+            for s in 0...segments {
+                let theta = 2.0 * Float.pi * Float(s) / Float(segments)
+                let x = coneBaseRadius * cos(theta)
+                let y = coneBaseRadius * sin(theta)
+                allVertices.append(MJCMetalVertex(position: simd_float3(x, y, shaftLength),
+                                                   normal: simd_float3(0, 0, -1), texCoord: .zero, color: color))
+            }
+
+            for s in 0..<segments {
+                allIndices.append(contentsOf: [coneCenterIdx, coneDiskRing + UInt32(s + 1),
+                                               coneDiskRing + UInt32(s)])
+            }
+
+            indexCounts.append((offset: baseIndex, count: allIndices.count - baseIndex))
+        }
+
+        guard let vBuf = device.makeBuffer(bytes: allVertices,
+                                            length: allVertices.count * MemoryLayout<MJCMetalVertex>.stride,
+                                            options: .storageModeShared),
+              let iBuf = device.makeBuffer(bytes: allIndices,
+                                            length: allIndices.count * MemoryLayout<UInt32>.stride,
+                                            options: .storageModeShared) else {
+            return nil
+        }
+
+        return (vBuf, iBuf, indexCounts)
     }
 
     // MARK: - Matrix Helpers
@@ -584,6 +835,23 @@ public final class MJCMetalRender {
             simd_float4(0, ys, 0, 0),
             simd_float4(0, 0, zs, -1),
             simd_float4(0, 0, near * zs, 0)
+        ))
+    }
+
+    private static func orthographic(left: Float, right: Float, bottom: Float, top: Float,
+                                     near: Float, far: Float) -> simd_float4x4 {
+        let sx = 2.0 / (right - left)
+        let sy = 2.0 / (top - bottom)
+        let sz = 1.0 / (near - far)
+        let tx = -(right + left) / (right - left)
+        let ty = -(top + bottom) / (top - bottom)
+        let tz = near / (near - far)
+
+        return simd_float4x4(columns: (
+            simd_float4(sx, 0, 0, 0),
+            simd_float4(0, sy, 0, 0),
+            simd_float4(0, 0, sz, 0),
+            simd_float4(tx, ty, tz, 1)
         ))
     }
 

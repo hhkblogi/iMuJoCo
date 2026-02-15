@@ -103,3 +103,9 @@ cc_library(
         "@trianglemeshdistance",
     ],
 )
+
+filegroup(
+    name = "humanoid_model",
+    srcs = ["model/humanoid/humanoid.xml"],
+    visibility = ["//visibility:public"],
+)
