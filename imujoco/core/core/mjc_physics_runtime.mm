@@ -623,6 +623,9 @@ public:
     double GetCameraAzimuth() const { return camera_.azimuth; }
     double GetCameraElevation() const { return camera_.elevation; }
     double GetCameraDistance() const { return camera_.distance; }
+    double GetCameraLookatX() const { return camera_.lookat[0]; }
+    double GetCameraLookatY() const { return camera_.lookat[1]; }
+    double GetCameraLookatZ() const { return camera_.lookat[2]; }
 
     void SetTimestep(double ts) {
         if (!model_ || ts <= 0.0 || !std::isfinite(ts)) return;
@@ -1187,6 +1190,9 @@ void MJSimulationRuntime::resetCamera() { impl_->ResetCamera(); }
 double MJSimulationRuntime::getCameraAzimuth() const { return impl_->GetCameraAzimuth(); }
 double MJSimulationRuntime::getCameraElevation() const { return impl_->GetCameraElevation(); }
 double MJSimulationRuntime::getCameraDistance() const { return impl_->GetCameraDistance(); }
+double MJSimulationRuntime::getCameraLookatX() const { return impl_->GetCameraLookatX(); }
+double MJSimulationRuntime::getCameraLookatY() const { return impl_->GetCameraLookatY(); }
+double MJSimulationRuntime::getCameraLookatZ() const { return impl_->GetCameraLookatZ(); }
 
 void MJSimulationRuntime::setTimestep(double v) { impl_->SetTimestep(v); }
 void MJSimulationRuntime::setRealtimeFactor(double v) { impl_->SetRealtimeFactor(v); }

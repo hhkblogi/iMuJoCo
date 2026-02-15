@@ -409,6 +409,9 @@ public:
     double getCameraAzimuth() const;
     double getCameraElevation() const;
     double getCameraDistance() const;
+    double getCameraLookatX() const;
+    double getCameraLookatY() const;
+    double getCameraLookatZ() const;
 
     // MARK: - Real-time Control
 

@@ -227,8 +227,19 @@ public final class MJRuntime {
         set { runtime.setCameraDistance(newValue) }
     }
 
-    public func setCameraLookat(x: Double, y: Double, z: Double) {
-        runtime.setCameraLookat(x, y, z)
+    public var cameraLookatX: Double {
+        get { runtime.getCameraLookatX() }
+        set { runtime.setCameraLookat(newValue, runtime.getCameraLookatY(), runtime.getCameraLookatZ()) }
+    }
+
+    public var cameraLookatY: Double {
+        get { runtime.getCameraLookatY() }
+        set { runtime.setCameraLookat(runtime.getCameraLookatX(), newValue, runtime.getCameraLookatZ()) }
+    }
+
+    public var cameraLookatZ: Double {
+        get { runtime.getCameraLookatZ() }
+        set { runtime.setCameraLookat(runtime.getCameraLookatX(), runtime.getCameraLookatY(), newValue) }
     }
 
     public func resetCamera() {

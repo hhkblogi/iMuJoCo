@@ -308,6 +308,21 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
         set { runtime?.cameraDistance = newValue }
     }
 
+    public var cameraLookatX: Double {
+        get { runtime?.cameraLookatX ?? 0.0 }
+        set { runtime?.cameraLookatX = newValue }
+    }
+
+    public var cameraLookatY: Double {
+        get { runtime?.cameraLookatY ?? 0.0 }
+        set { runtime?.cameraLookatY = newValue }
+    }
+
+    public var cameraLookatZ: Double {
+        get { runtime?.cameraLookatZ ?? 0.5 }
+        set { runtime?.cameraLookatZ = newValue }
+    }
+
     public var renderedSceneBrightness: Float {
         get { _renderedBrightness }
         set { _renderedBrightness = newValue }

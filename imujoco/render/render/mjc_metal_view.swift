@@ -60,6 +60,15 @@ public protocol MJCRenderDataSource: AnyObject {
     /// Must remain positive; gesture handlers clamp to `min_camera_distance`.
     var cameraDistance: Double { get set }
 
+    /// Camera lookat point X coordinate (world space).
+    var cameraLookatX: Double { get set }
+
+    /// Camera lookat point Y coordinate (world space).
+    var cameraLookatY: Double { get set }
+
+    /// Camera lookat point Z coordinate (world space).
+    var cameraLookatZ: Double { get set }
+
     /// Average rendered scene brightness (0.0 dark – 1.0 bright).
     /// Written by the render thread after each frame via GPU pixel readback.
     var renderedSceneBrightness: Float { get set }
@@ -181,6 +190,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
     // Touch tracking
     #if os(iOS)
     private var last_pan_location: CGPoint = .zero
+    private var last_translate_location: CGPoint = .zero
     private var last_pinch_scale: CGFloat = 1.0
     #endif
 
@@ -246,6 +256,10 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         setup_tv_gestures()
         #endif
 
+        #if os(macOS)
+        // No special touch types needed; pan uses Option+scroll instead of 3-finger touches
+        #endif
+
         // Set delegate last, after everything is fully initialized
         self.delegate = self
 
@@ -263,9 +277,17 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
 
     #if os(iOS)
     private func setup_gestures() {
-        // Pan for camera rotation
+        // One-finger pan for camera rotation
         let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handle_pan(_:)))
+        panGesture.minimumNumberOfTouches = 1
+        panGesture.maximumNumberOfTouches = 1
         addGestureRecognizer(panGesture)
+
+        // Three-finger pan for camera translation
+        let translateGesture = UIPanGestureRecognizer(target: self, action: #selector(handle_translate(_:)))
+        translateGesture.minimumNumberOfTouches = 3
+        translateGesture.maximumNumberOfTouches = 3
+        addGestureRecognizer(translateGesture)
 
         // Pinch for zoom
         let pinchGesture = UIPinchGestureRecognizer(target: self, action: #selector(handle_pinch(_:)))
@@ -295,6 +317,21 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         dataSource.cameraElevation += Double(deltaY) * camera_rotation_sensitivity
 
         last_pan_location = location
+    }
+
+    @objc private func handle_translate(_ gesture: UIPanGestureRecognizer) {
+        guard let dataSource = dataSource else { return }
+
+        let location = gesture.translation(in: self)
+
+        if gesture.state == .began {
+            last_translate_location = location
+        }
+
+        let deltaX = Double(location.x - last_translate_location.x)
+        let deltaY = Double(location.y - last_translate_location.y)
+        translate_camera(dataSource: dataSource, deltaX: deltaX, deltaY: -deltaY)
+        last_translate_location = location
     }
 
     @objc private func handle_pinch(_ gesture: UIPinchGestureRecognizer) {
@@ -419,9 +456,24 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
     public override func scrollWheel(with event: NSEvent) {
         guard let dataSource = dataSource else { return }
 
-        // Scroll wheel for zoom
-        let deltaY = event.scrollingDeltaY
-        let newDistance = dataSource.cameraDistance * (1.0 - Double(deltaY) * zoom_sensitivity)
+        if event.modifierFlags.contains(.option) {
+            // Option + two-finger scroll → pan (translate camera lookat)
+            let deltaX = Double(event.scrollingDeltaX)
+            let deltaY = Double(event.scrollingDeltaY)
+            translate_camera(dataSource: dataSource, deltaX: deltaX, deltaY: deltaY)
+        } else {
+            // Two-finger scroll → zoom
+            let deltaY = event.scrollingDeltaY
+            let newDistance = dataSource.cameraDistance * (1.0 - Double(deltaY) * zoom_sensitivity)
+            dataSource.cameraDistance = max(newDistance, min_camera_distance)
+        }
+    }
+
+    public override func magnify(with event: NSEvent) {
+        guard let dataSource = dataSource else { return }
+
+        // Trackpad pinch → zoom
+        let newDistance = dataSource.cameraDistance * (1.0 - Double(event.magnification))
         dataSource.cameraDistance = max(newDistance, min_camera_distance)
     }
 
@@ -432,6 +484,28 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         }
     }
     #endif
+
+    // MARK: - Camera Translation
+
+    /// Pan sensitivity (screen points to world units, scaled by camera distance).
+    private let pan_sensitivity: Double = 0.003
+
+    /// Translate camera lookat point based on screen-space deltas.
+    /// Positive deltaX moves the scene right, positive deltaY moves it up.
+    private func translate_camera(dataSource: MJCRenderDataSource, deltaX: Double, deltaY: Double) {
+        let az = dataSource.cameraAzimuth * .pi / 180.0
+        let el = dataSource.cameraElevation * .pi / 180.0
+        let scale = dataSource.cameraDistance * pan_sensitivity
+
+        // Right vector (screen X → world)
+        let rx = cos(az), ry = -sin(az)
+        // Up vector (screen Y → world)
+        let ux = -sin(el) * sin(az), uy = -sin(el) * cos(az), uz = cos(el)
+
+        dataSource.cameraLookatX += deltaX * rx * scale - deltaY * ux * scale
+        dataSource.cameraLookatY += deltaX * ry * scale - deltaY * uy * scale
+        dataSource.cameraLookatZ -= deltaY * uz * scale
+    }
 
     // MARK: - MTKViewDelegate
 
