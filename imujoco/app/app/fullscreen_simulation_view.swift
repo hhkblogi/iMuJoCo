@@ -68,6 +68,12 @@ struct FullscreenSimulationView: View {
         .padding(.horizontal)
     }
 
+    private var brightness: Float { instance.sceneBrightness }
+
+    private var metricLabelColor: Color {
+        overlayTertiaryTextColor(brightness: brightness)
+    }
+
     private var topHUD: some View {
         HStack {
             #if os(iOS)
@@ -76,9 +82,9 @@ struct FullscreenSimulationView: View {
                 Image(systemName: "chevron.left")
                     .font(.title2)
                     .fontWeight(.semibold)
-                    .foregroundColor(.white)
+                    .foregroundColor(overlayTextColor(brightness: brightness))
                     .frame(width: 44, height: 44)
-                    .background(Color.black.opacity(0.5))
+                    .background(Color.black.opacity(0.3))
                     .clipShape(Circle())
             }
             #endif
@@ -89,9 +95,9 @@ struct FullscreenSimulationView: View {
                 Image(systemName: "chevron.left")
                     .font(.title2)
                     .fontWeight(.semibold)
-                    .foregroundColor(.white)
+                    .foregroundColor(overlayTextColor(brightness: brightness))
                     .frame(width: 44, height: 44)
-                    .background(Color.black.opacity(0.5))
+                    .background(Color.black.opacity(0.3))
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
@@ -103,15 +109,15 @@ struct FullscreenSimulationView: View {
             VStack(spacing: 4) {
                 Text(instance.modelName)
                     .font(.headline)
-                    .foregroundColor(.white)
+                    .foregroundColor(overlayTextColor(brightness: brightness))
 
                 Text(verbatim: "Port \(instance.port)")
                     .font(.caption)
-                    .foregroundColor(.white.opacity(0.7))
+                    .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
-            .background(Color.black.opacity(0.5))
+            .background(Color.black.opacity(0.3))
             .clipShape(Capsule())
 
             Spacer()
@@ -124,57 +130,57 @@ struct FullscreenSimulationView: View {
                         .frame(width: 8, height: 8)
                     Text(instance.stateDescription)
                         .font(.caption)
-                        .foregroundColor(.white.opacity(0.8))
+                        .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
                 }
 
                 Text(formatSimulationTime(instance.simulationTime))
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.8))
+                    .foregroundColor(overlayTextColor(brightness: brightness).opacity(0.8))
 
                 Divider()
                     .frame(width: 60)
-                    .background(Color.white.opacity(0.3))
+                    .background(overlayTertiaryTextColor(brightness: brightness))
 
                 // Performance metrics
                 Grid(horizontalSpacing: 3, verticalSpacing: 2) {
                     GridRow {
-                        Text(String(format: "%.1f", instance.stepsPerSecondFloat))
+                        Text(String(format: "%7.1f", instance.stepsPerSecondFloat))
                             .font(.system(size: 11, weight: .bold, design: .monospaced))
                             .foregroundColor(stepsPerSecondColor)
                             .gridColumnAlignment(.trailing)
                         Text("fps")
                             .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(.white.opacity(0.5))
+                            .foregroundColor(metricLabelColor)
                             .gridColumnAlignment(.leading)
                         Text("SIM")
                             .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(.white.opacity(0.5))
+                            .foregroundColor(metricLabelColor)
                             .gridColumnAlignment(.leading)
                     }
                     if instance.hasClient || instance.txRate > 0 {
                         GridRow {
-                            Text(String(format: "%.1f", instance.txRate))
+                            Text(String(format: "%7.1f", instance.txRate))
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                                 .foregroundColor(rateColor(instance.txRate))
                             Text("fps")
                                 .font(.system(size: 9, weight: .medium))
-                                .foregroundColor(.white.opacity(0.5))
+                                .foregroundColor(metricLabelColor)
                             Text("State TX")
                                 .font(.system(size: 9, weight: .medium))
-                                .foregroundColor(.white.opacity(0.5))
+                                .foregroundColor(metricLabelColor)
                         }
                     }
                     if instance.hasClient || instance.rxRate > 0 {
                         GridRow {
-                            Text(String(format: "%.1f", instance.rxRate))
+                            Text(String(format: "%7.1f", instance.rxRate))
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
                                 .foregroundColor(rateColor(instance.rxRate))
                             Text("fps")
                                 .font(.system(size: 9, weight: .medium))
-                                .foregroundColor(.white.opacity(0.5))
+                                .foregroundColor(metricLabelColor)
                             Text("Control RX")
                                 .font(.system(size: 9, weight: .medium))
-                                .foregroundColor(.white.opacity(0.5))
+                                .foregroundColor(metricLabelColor)
                         }
                     }
                 }
@@ -183,8 +189,6 @@ struct FullscreenSimulationView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(Color.black.opacity(0.5))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
         }
     }
 

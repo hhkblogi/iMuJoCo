@@ -15,6 +15,22 @@ func formatSimulationTime(_ seconds: Double) -> String {
                   totalMs % 1000)
 }
 
+// MARK: - Shared Overlay Text Color
+
+/// Returns white text for dark scenes, black text for bright scenes.
+/// Brightness is 0.0 (dark) to 1.0 (bright), with threshold at 0.5.
+func overlayTextColor(brightness: Float) -> Color {
+    brightness > 0.5 ? .black : .white
+}
+
+func overlaySecondaryTextColor(brightness: Float) -> Color {
+    brightness > 0.5 ? .black.opacity(0.6) : .white.opacity(0.7)
+}
+
+func overlayTertiaryTextColor(brightness: Float) -> Color {
+    brightness > 0.5 ? .black.opacity(0.4) : .white.opacity(0.5)
+}
+
 // MARK: - Shared Rate Color
 
 func rateColor(_ rate: Float) -> Color {
@@ -77,12 +93,14 @@ struct SimulationCellView: View {
 
     // MARK: - Active View
 
+    private var brightness: Float { instance.sceneBrightness }
+
     private var activeView: some View {
         ZStack {
             // Metal rendering view
             MuJoCoMetalView(dataSource: instance)
 
-            // Info overlay
+            // Info overlay — text color adapts to scene brightness
             VStack(spacing: 0) {
                 // Top bar
                 HStack(alignment: .top) {
@@ -91,7 +109,7 @@ struct SimulationCellView: View {
                         Text(instance.modelName)
                             .font(.caption)
                             .fontWeight(.semibold)
-                            .foregroundColor(.white)
+                            .foregroundColor(overlayTextColor(brightness: brightness))
 
                         HStack(spacing: 4) {
                             Circle()
@@ -99,7 +117,7 @@ struct SimulationCellView: View {
                                 .frame(width: 6, height: 6)
                             Text(instance.stateDescription)
                                 .font(.system(size: 9))
-                                .foregroundColor(.white.opacity(0.7))
+                                .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
                         }
                     }
 
@@ -110,10 +128,10 @@ struct SimulationCellView: View {
                         Text(verbatim: ":\(instance.port)")
                             .font(.caption2)
                             .fontWeight(.medium)
-                            .foregroundColor(.white.opacity(0.7))
+                            .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.black.opacity(0.5))
+                            .background(Color.black.opacity(0.3))
                             .clipShape(Capsule())
 
                         performanceMetricsView
@@ -130,22 +148,14 @@ struct SimulationCellView: View {
 
                 Spacer()
 
-                // Bottom bar: time only (right-aligned)
+                // Bottom-right: time
                 HStack {
                     Spacer()
-
                     Text(formatSimulationTime(instance.simulationTime))
                         .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.8))
+                        .foregroundColor(overlayTextColor(brightness: brightness).opacity(0.8))
+                        .padding(6)
                 }
-                .padding(8)
-                .background(
-                    LinearGradient(
-                        colors: [Color.clear, Color.black.opacity(0.6)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
             }
         }
         .contentShape(Rectangle())
@@ -165,56 +175,55 @@ struct SimulationCellView: View {
 
     private static let metricValueFont = Font.system(size: 8, weight: .medium, design: .monospaced)
     private static let metricLabelFont = Font.system(size: 8, weight: .medium)
-    private static let metricLabelColor = Color.white.opacity(0.5)
+
+    private var metricLabelColor: Color {
+        overlayTertiaryTextColor(brightness: brightness)
+    }
 
     private var performanceMetricsView: some View {
         Grid(horizontalSpacing: 3, verticalSpacing: 2) {
             GridRow {
-                Text(String(format: "%6.1f", instance.stepsPerSecondFloat))
+                Text(String(format: "%7.1f", instance.stepsPerSecondFloat))
                     .font(Self.metricValueFont)
                     .foregroundColor(stepsPerSecondColor)
                     .gridColumnAlignment(.trailing)
                 Text("fps")
                     .font(Self.metricLabelFont)
-                    .foregroundColor(Self.metricLabelColor)
+                    .foregroundColor(metricLabelColor)
                     .gridColumnAlignment(.leading)
                 Text("SIM")
                     .font(Self.metricLabelFont)
-                    .foregroundColor(Self.metricLabelColor)
+                    .foregroundColor(metricLabelColor)
                     .gridColumnAlignment(.leading)
             }
             if instance.hasClient || instance.txRate > 0 {
                 GridRow {
-                    Text(String(format: "%6.1f", instance.txRate))
+                    Text(String(format: "%7.1f", instance.txRate))
                         .font(Self.metricValueFont)
                         .foregroundColor(rateColor(instance.txRate))
                     Text("fps")
                         .font(Self.metricLabelFont)
-                        .foregroundColor(Self.metricLabelColor)
+                        .foregroundColor(metricLabelColor)
                     Text("State TX")
                         .font(Self.metricLabelFont)
-                        .foregroundColor(Self.metricLabelColor)
+                        .foregroundColor(metricLabelColor)
                 }
             }
             if instance.hasClient || instance.rxRate > 0 {
                 GridRow {
-                    Text(String(format: "%6.1f", instance.rxRate))
+                    Text(String(format: "%7.1f", instance.rxRate))
                         .font(Self.metricValueFont)
                         .foregroundColor(rateColor(instance.rxRate))
                     Text("fps")
                         .font(Self.metricLabelFont)
-                        .foregroundColor(Self.metricLabelColor)
+                        .foregroundColor(metricLabelColor)
                     Text("Control RX")
                         .font(Self.metricLabelFont)
-                        .foregroundColor(Self.metricLabelColor)
+                        .foregroundColor(metricLabelColor)
                 }
             }
         }
         .fixedSize()
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .background(Color.black.opacity(0.7))
-        .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
     private var stepsPerSecondColor: Color {

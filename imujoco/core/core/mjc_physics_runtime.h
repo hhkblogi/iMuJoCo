@@ -180,6 +180,7 @@ struct MJFrameDataStorage {
     float stepsPerSecondF = 0.0f;
     float txRate = 0.0f;
     float rxRate = 0.0f;
+    float sceneBrightness = 0.0f;  ///< Average scene brightness (0.0 dark – 1.0 bright)
 
     // Frame sequence number (for debugging)
     uint64_t frameNumber = 0;
@@ -249,6 +250,9 @@ public:
 
     /// Control packets received per second
     float rxRate() const { return storage_ ? storage_->rxRate : 0.0f; }
+
+    /// Average scene brightness (0.0 dark – 1.0 bright)
+    float sceneBrightness() const { return storage_ ? storage_->sceneBrightness : 0.0f; }
 
     /// Frame sequence number
     uint64_t frameNumber() const { return storage_ ? storage_->frameNumber : 0; }

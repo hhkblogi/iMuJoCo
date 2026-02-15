@@ -67,6 +67,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     private(set) var displaySPSFloat: Float = 0.0
     private(set) var displayTXRate: Float = 0.0
     private(set) var displayRXRate: Float = 0.0
+    private(set) var displaySceneBrightness: Float = 0.0
 
     // State polling timer
     private var stateUpdateTask: Task<Void, Never>?
@@ -166,6 +167,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
         displaySPSFloat = 0.0
         displayTXRate = 0.0
         displayRXRate = 0.0
+        displaySceneBrightness = 0.0
     }
 
     @MainActor
@@ -193,12 +195,14 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
                 let currentSPSF = stats.stepsPerSecondF
                 let currentTXRate = stats.txRate
                 let currentRXRate = stats.rxRate
+                let currentBrightness = runtime.latestFrame?.sceneBrightness() ?? 0.0
                 await MainActor.run {
                     self.displayTime = currentTime
                     self.displaySPS = currentSPS
                     self.displaySPSFloat = currentSPSF
                     self.displayTXRate = currentTXRate
                     self.displayRXRate = currentRXRate
+                    self.displaySceneBrightness = currentBrightness
                 }
 
                 try? await Task.sleep(nanoseconds: 100_000_000)  // 100ms
@@ -253,6 +257,10 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
 
     var rxRate: Float {
         displayRXRate
+    }
+
+    var sceneBrightness: Float {
+        displaySceneBrightness
     }
 
     // MARK: - Network Status

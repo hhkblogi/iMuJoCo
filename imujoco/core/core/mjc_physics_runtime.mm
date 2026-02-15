@@ -1026,6 +1026,20 @@ private:
         frame->cameraPos[1] = static_cast<float>(camera_.lookat[1] + dist * cos(az_rad) * cos(el_rad));
         frame->cameraPos[2] = static_cast<float>(camera_.lookat[2] + dist * sin(el_rad));
 
+        // Compute average scene brightness from lights
+        float brightness_sum = 0.0f;
+        int light_count = frame->lightCount;
+        for (int i = 0; i < light_count; i++) {
+            const auto& l = frame->lights[i];
+            // Use diffuse + ambient as brightness contribution
+            float lum = (l.diffuse[0] + l.diffuse[1] + l.diffuse[2]) / 3.0f
+                      + (l.ambient[0] + l.ambient[1] + l.ambient[2]) / 3.0f;
+            brightness_sum += lum;
+        }
+        frame->sceneBrightness = light_count > 0
+            ? std::min(1.0f, brightness_sum / static_cast<float>(light_count))
+            : 0.0f;
+
         frame->simulationTime = data_->time;
         frame->stepsPerSecond = sps;
         frame->stepsPerSecondF = sps_f;
