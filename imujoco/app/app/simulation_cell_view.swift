@@ -4,6 +4,47 @@
 import SwiftUI
 import render
 
+// MARK: - Shared Time Formatter
+
+func formatSimulationTime(_ seconds: Double) -> String {
+    let totalMs = Int(seconds * 1000)
+    return String(format: "%02d:%02d:%02d.%03d",
+                  totalMs / 3_600_000,
+                  (totalMs % 3_600_000) / 60_000,
+                  (totalMs % 60_000) / 1000,
+                  totalMs % 1000)
+}
+
+// MARK: - Shared Overlay Text Color
+
+/// Returns white text for dark scenes, black text for bright scenes.
+/// Brightness is 0.0 (dark) to 1.0 (bright), with threshold at 0.5.
+func overlayTextColor(brightness: Float) -> Color {
+    brightness > 0.5 ? .black : .white
+}
+
+func overlaySecondaryTextColor(brightness: Float) -> Color {
+    brightness > 0.5 ? .black.opacity(0.6) : .white.opacity(0.7)
+}
+
+func overlayTertiaryTextColor(brightness: Float) -> Color {
+    brightness > 0.5 ? .black.opacity(0.4) : .white.opacity(0.5)
+}
+
+// MARK: - Shared Rate Color
+
+func rateColor(_ rate: Float) -> Color {
+    if rate >= 40 {
+        return .green
+    } else if rate >= 20 {
+        return .yellow
+    } else if rate >= 5 {
+        return .orange
+    } else {
+        return .red
+    }
+}
+
 struct SimulationCellView: View {
     var instance: SimulationInstance
     var onTapFullscreen: () -> Void
@@ -52,30 +93,32 @@ struct SimulationCellView: View {
 
     // MARK: - Active View
 
+    private var brightness: Float { instance.sceneBrightness }
+
     private var activeView: some View {
         ZStack {
             // Metal rendering view
             MuJoCoMetalView(dataSource: instance)
 
-            // Info overlay
-            VStack {
-                // Top bar with model name and port
-                HStack {
+            // Info overlay — text color adapts to scene brightness
+            VStack(spacing: 0) {
+                // Top: title row, then metrics below (right-aligned)
+                VStack(alignment: .leading, spacing: 4) {
+                    // Title (full width, no wrap) — triple-click to enter fullscreen
                     Text(instance.modelName)
                         .font(.caption)
                         .fontWeight(.semibold)
-                        .foregroundColor(.white)
+                        .foregroundColor(overlayTextColor(brightness: brightness))
+                        .lineLimit(1)
+                        .onTapGesture(count: 3) {
+                            onTapFullscreen()
+                        }
 
-                    Spacer()
-
-                    Text(verbatim: ":\(instance.port)")
-                        .font(.caption2)
-                        .fontWeight(.medium)
-                        .foregroundColor(.white.opacity(0.7))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.black.opacity(0.5))
-                        .clipShape(Capsule())
+                    // Metrics (right-aligned, under title)
+                    HStack {
+                        Spacer()
+                        performanceMetricsView
+                    }
                 }
                 .padding(8)
                 .background(
@@ -88,91 +131,89 @@ struct SimulationCellView: View {
 
                 Spacer()
 
-                // Performance metrics overlay (top-right corner)
+                // Bottom-right: port + status + time
                 HStack {
                     Spacer()
-                    performanceMetricsView
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(verbatim: ":\(instance.port)")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(instance.state == .running ? Color.green : Color.yellow)
+                                .frame(width: 6, height: 6)
+                            Text(instance.stateDescription)
+                                .font(.system(size: 9))
+                                .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
+                        }
+                        Text(formatSimulationTime(instance.simulationTime))
+                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                            .foregroundColor(overlayTextColor(brightness: brightness).opacity(0.8))
+                    }
+                    .padding(6)
                 }
-                .padding(.horizontal, 8)
-
-                Spacer()
-
-                // Bottom bar with status and time
-                HStack {
-                    // Status indicator
-                    Circle()
-                        .fill(instance.state == .running ? Color.green : Color.yellow)
-                        .frame(width: 8, height: 8)
-
-                    Text(instance.stateDescription)
-                        .font(.caption2)
-                        .foregroundColor(.white.opacity(0.8))
-
-                    Spacer()
-
-                    Text(String(format: "%.2fs", instance.simulationTime))
-                        .font(.caption2)
-                        .monospacedDigit()
-                        .foregroundColor(.white.opacity(0.8))
-                }
-                .padding(8)
-                .background(
-                    LinearGradient(
-                        colors: [Color.clear, Color.black.opacity(0.6)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
             }
         }
         .contentShape(Rectangle())
-        #if os(iOS)
-        .onTapGesture(count: 2) {
-            onTapFullscreen()
-        }
-        #endif
-        #if os(macOS)
-        .onTapGesture(count: 2) {
-            onTapFullscreen()
-        }
-        #endif
     }
 
     // MARK: - Performance Metrics View
 
-    private var performanceMetricsView: some View {
-        VStack(alignment: .trailing, spacing: 2) {
-            // Physics steps per second
-            HStack(spacing: 4) {
-                Text("SIM")
-                    .font(.system(size: 8, weight: .medium))
-                    .foregroundColor(.white.opacity(0.6))
-                Text("\(instance.stepsPerSecond)")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundColor(stepsPerSecondColor)
-                Text("Hz")
-                    .font(.system(size: 8, weight: .medium))
-                    .foregroundColor(.white.opacity(0.6))
-            }
+    private static let metricValueFont = Font.system(size: 8, weight: .medium, design: .monospaced)
+    private static let metricLabelFont = Font.system(size: 8, weight: .medium)
 
-            // Model timestep (shows expected real-time rate)
-            HStack(spacing: 4) {
-                Text("dt")
-                    .font(.system(size: 8, weight: .medium))
-                    .foregroundColor(.white.opacity(0.6))
-                Text(String(format: "%.1fms", instance.timestep * 1000))
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.8))
+    private var metricLabelColor: Color {
+        overlayTertiaryTextColor(brightness: brightness)
+    }
+
+    private var performanceMetricsView: some View {
+        Grid(horizontalSpacing: 3, verticalSpacing: 2) {
+            GridRow {
+                Text(String(format: "%7.1f", instance.stepsPerSecondFloat))
+                    .font(Self.metricValueFont)
+                    .foregroundColor(stepsPerSecondColor)
+                    .gridColumnAlignment(.trailing)
+                Text("fps")
+                    .font(Self.metricLabelFont)
+                    .foregroundColor(metricLabelColor)
+                    .gridColumnAlignment(.leading)
+                Text("SIM")
+                    .font(Self.metricLabelFont)
+                    .foregroundColor(metricLabelColor)
+                    .gridColumnAlignment(.leading)
+            }
+            if instance.hasClient || instance.txRate > 0 {
+                GridRow {
+                    Text(String(format: "%7.1f", instance.txRate))
+                        .font(Self.metricValueFont)
+                        .foregroundColor(rateColor(instance.txRate))
+                    Text("fps")
+                        .font(Self.metricLabelFont)
+                        .foregroundColor(metricLabelColor)
+                    Text("State TX")
+                        .font(Self.metricLabelFont)
+                        .foregroundColor(metricLabelColor)
+                }
+            }
+            if instance.hasClient || instance.rxRate > 0 {
+                GridRow {
+                    Text(String(format: "%7.1f", instance.rxRate))
+                        .font(Self.metricValueFont)
+                        .foregroundColor(rateColor(instance.rxRate))
+                    Text("fps")
+                        .font(Self.metricLabelFont)
+                        .foregroundColor(metricLabelColor)
+                    Text("Control RX")
+                        .font(Self.metricLabelFont)
+                        .foregroundColor(metricLabelColor)
+                }
             }
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .background(Color.black.opacity(0.7))
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .fixedSize()
     }
 
     private var stepsPerSecondColor: Color {
-        let sps = instance.stepsPerSecond
+        let sps = instance.stepsPerSecondFloat
         if sps >= 400 {
             return .green       // Excellent
         } else if sps >= 200 {

@@ -130,7 +130,7 @@ public:
         client_addr_ = client_addr;
         has_client_ = true;
 
-        os_log_debug(OS_LOG_DEFAULT, "Received %zd bytes", recv_len);
+        // Hot-path: skip per-packet logging
 
         reassembly_manager_.CleanupStale();
 
@@ -167,7 +167,7 @@ public:
         auto packet = imujoco::schema::GetControlPacket(data);
         packets_received_++;
 
-        os_log_debug(OS_LOG_DEFAULT, "ControlPacket: seq=%u", packet->sequence());
+        // Hot-path: skip per-packet logging
 
         if (host_timestamp_us_out) {
             *host_timestamp_us_out = packet->host_timestamp_us();
@@ -222,10 +222,6 @@ public:
 
         if (fragments > 0) {
             packets_sent_++;
-            if (packets_sent_ <= 5 || packets_sent_ % 100 == 0) {
-                os_log_debug(OS_LOG_DEFAULT, "Sent state packet #%u (%u bytes, %d fragments)",
-                             packets_sent_, static_cast<uint32_t>(fb_builder_.GetSize()), fragments);
-            }
             return true;
         }
 
@@ -476,6 +472,9 @@ public:
         stats.measuredSlowdown = 1.0;
         stats.timestep = model_ ? model_->opt.timestep : 0.002;
         stats.stepsPerSecond = storage ? storage->stepsPerSecond : 0;
+        stats.stepsPerSecondF = storage ? storage->stepsPerSecondF : 0.0f;
+        stats.txRate = storage ? storage->txRate : 0.0f;
+        stats.rxRate = storage ? storage->rxRate : 0.0f;
         stats.udpPort = udp_server_.IsActive() ? udp_server_.GetPort() : 0;
         stats.packetsReceived = udp_server_.GetPacketsReceived();
         stats.packetsSent = udp_server_.GetPacketsSent();
@@ -624,6 +623,9 @@ public:
     double GetCameraAzimuth() const { return camera_.azimuth; }
     double GetCameraElevation() const { return camera_.elevation; }
     double GetCameraDistance() const { return camera_.distance; }
+    double GetCameraLookatX() const { return camera_.lookat[0]; }
+    double GetCameraLookatY() const { return camera_.lookat[1]; }
+    double GetCameraLookatZ() const { return camera_.lookat[2]; }
 
     void SetTimestep(double ts) {
         if (!model_ || ts <= 0.0 || !std::isfinite(ts)) return;
@@ -762,6 +764,11 @@ private:
         auto last_stats_update = Clock::now();
         auto last_frame_write = Clock::now();
         int32_t current_sps = 0;
+        float current_sps_f = 0.0f;
+        float current_tx_rate = 0.0f;
+        float current_rx_rate = 0.0f;
+        uint32_t prev_packets_sent = udp_server_.GetPacketsSent();
+        uint32_t prev_packets_received = udp_server_.GetPacketsReceived();
 
         constexpr double kTargetFrameWriteHz = 80.0;
         constexpr double kFrameWriteInterval = 1.0 / kTargetFrameWriteHz;
@@ -933,6 +940,15 @@ private:
             auto stats_elapsed = Seconds(now - last_stats_update).count();
             if (stats_elapsed >= 1.0) {
                 current_sps = static_cast<int32_t>(step_count / stats_elapsed);
+                current_sps_f = static_cast<float>(step_count / stats_elapsed);
+
+                uint32_t cur_sent = udp_server_.GetPacketsSent();
+                uint32_t cur_received = udp_server_.GetPacketsReceived();
+                current_tx_rate = static_cast<float>((cur_sent - prev_packets_sent) / stats_elapsed);
+                current_rx_rate = static_cast<float>((cur_received - prev_packets_received) / stats_elapsed);
+                prev_packets_sent = cur_sent;
+                prev_packets_received = cur_received;
+
                 step_count = 0;
                 last_stats_update = now;
             }
@@ -940,14 +956,14 @@ private:
             // Adaptive frame writing
             auto frame_elapsed = Seconds(now - last_frame_write).count();
             if (steps_since_last_frame > 0 && frame_elapsed >= kFrameWriteInterval) {
-                WriteFrameToBuffer(current_sps);
+                WriteFrameToBuffer(current_sps, current_sps_f, current_tx_rate, current_rx_rate);
                 last_frame_write = now;
                 steps_since_last_frame = 0;
             }
         }
     }
 
-    void WriteFrameToBuffer(int32_t sps = 0) {
+    void WriteFrameToBuffer(int32_t sps = 0, float sps_f = 0.0f, float tx_rate = 0.0f, float rx_rate = 0.0f) {
         MJFrameDataStorage* frame = ring_buffer_.begin_write();
 
         mjv_updateScene(model_, data_, &option_, nullptr, &camera_, mjCAT_ALL, &scene_);
@@ -1013,8 +1029,25 @@ private:
         frame->cameraPos[1] = static_cast<float>(camera_.lookat[1] + dist * cos(az_rad) * cos(el_rad));
         frame->cameraPos[2] = static_cast<float>(camera_.lookat[2] + dist * sin(el_rad));
 
+        // Compute average scene brightness from lights
+        float brightness_sum = 0.0f;
+        int light_count = frame->lightCount;
+        for (int i = 0; i < light_count; i++) {
+            const auto& l = frame->lights[i];
+            // Use diffuse + ambient as brightness contribution
+            float lum = (l.diffuse[0] + l.diffuse[1] + l.diffuse[2]) / 3.0f
+                      + (l.ambient[0] + l.ambient[1] + l.ambient[2]) / 3.0f;
+            brightness_sum += lum;
+        }
+        frame->sceneBrightness = light_count > 0
+            ? std::min(1.0f, brightness_sum / static_cast<float>(light_count))
+            : 0.0f;
+
         frame->simulationTime = data_->time;
         frame->stepsPerSecond = sps;
+        frame->stepsPerSecondF = sps_f;
+        frame->txRate = tx_rate;
+        frame->rxRate = rx_rate;
         // Use get_item_count() for actual frame count (not affected by signal_exit())
         frame->frameNumber = ring_buffer_.get_item_count() + 1;
 
@@ -1157,6 +1190,9 @@ void MJSimulationRuntime::resetCamera() { impl_->ResetCamera(); }
 double MJSimulationRuntime::getCameraAzimuth() const { return impl_->GetCameraAzimuth(); }
 double MJSimulationRuntime::getCameraElevation() const { return impl_->GetCameraElevation(); }
 double MJSimulationRuntime::getCameraDistance() const { return impl_->GetCameraDistance(); }
+double MJSimulationRuntime::getCameraLookatX() const { return impl_->GetCameraLookatX(); }
+double MJSimulationRuntime::getCameraLookatY() const { return impl_->GetCameraLookatY(); }
+double MJSimulationRuntime::getCameraLookatZ() const { return impl_->GetCameraLookatZ(); }
 
 void MJSimulationRuntime::setTimestep(double v) { impl_->SetTimestep(v); }
 void MJSimulationRuntime::setRealtimeFactor(double v) { impl_->SetRealtimeFactor(v); }

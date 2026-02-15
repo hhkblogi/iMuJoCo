@@ -4,6 +4,7 @@
 import Foundation
 import Observation
 import os.log
+import Observation
 import core
 import render
 import MJCPhysicsRuntime
@@ -64,6 +65,14 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     // Updated periodically from runtime stats (~10Hz polling)
     private(set) var displayTime: Double = 0.0
     private(set) var displaySPS: Int32 = 0
+    private(set) var displaySPSFloat: Float = 0.0
+    private(set) var displayTXRate: Float = 0.0
+    private(set) var displayRXRate: Float = 0.0
+    private(set) var displaySceneBrightness: Float = 0.0
+
+    // Written by the render thread at ~60fps; not observation-tracked to avoid
+    // triggering SwiftUI updates from the render thread.
+    @ObservationIgnored private var _renderedBrightness: Float = 0.0
 
     // State polling timer
     private var stateUpdateTask: Task<Void, Never>?
@@ -160,6 +169,10 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
         runtime.reset()
         displayTime = 0.0
         displaySPS = 0
+        displaySPSFloat = 0.0
+        displayTXRate = 0.0
+        displayRXRate = 0.0
+        displaySceneBrightness = 0.0
     }
 
     @MainActor
@@ -181,11 +194,21 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
                 guard let self = self, let runtime = self.runtime else { break }
 
                 // Update display time periodically (~10Hz to reduce overhead)
-                let currentTime = runtime.simulationTime
-                let currentSPS = runtime.stats.stepsPerSecond
+                let stats = runtime.stats
+                let currentTime = stats.simulationTime
+                let currentSPS = stats.stepsPerSecond
+                let currentSPSF = stats.stepsPerSecondF
+                let currentTXRate = stats.txRate
+                let currentRXRate = stats.rxRate
+                // Read GPU-computed brightness (written by render thread, non-observed)
+                let currentBrightness = self._renderedBrightness
                 await MainActor.run {
                     self.displayTime = currentTime
                     self.displaySPS = currentSPS
+                    self.displaySPSFloat = currentSPSF
+                    self.displayTXRate = currentTXRate
+                    self.displayRXRate = currentRXRate
+                    self.displaySceneBrightness = currentBrightness
                 }
 
                 try? await Task.sleep(nanoseconds: 100_000_000)  // 100ms
@@ -230,6 +253,22 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
         displaySPS
     }
 
+    var stepsPerSecondFloat: Float {
+        displaySPSFloat
+    }
+
+    var txRate: Float {
+        displayTXRate
+    }
+
+    var rxRate: Float {
+        displayRXRate
+    }
+
+    var sceneBrightness: Float {
+        displaySceneBrightness
+    }
+
     // MARK: - Network Status
 
     var hasClient: Bool {
@@ -267,6 +306,26 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     public var cameraDistance: Double {
         get { runtime?.cameraDistance ?? 3.0 }
         set { runtime?.cameraDistance = newValue }
+    }
+
+    public var cameraLookatX: Double {
+        get { runtime?.cameraLookatX ?? 0.0 }
+        set { runtime?.cameraLookatX = newValue }
+    }
+
+    public var cameraLookatY: Double {
+        get { runtime?.cameraLookatY ?? 0.0 }
+        set { runtime?.cameraLookatY = newValue }
+    }
+
+    public var cameraLookatZ: Double {
+        get { runtime?.cameraLookatZ ?? 0.5 }
+        set { runtime?.cameraLookatZ = newValue }
+    }
+
+    public var renderedSceneBrightness: Float {
+        get { _renderedBrightness }
+        set { _renderedBrightness = newValue }
     }
 
     public func resetCamera() {

@@ -64,6 +64,9 @@ struct MJRuntimeStats {
     double measuredSlowdown = 1.0;      ///< Measured slowdown factor
     double timestep = 0.002;            ///< Model timestep
     int32_t stepsPerSecond = 0;         ///< Measured physics steps per second
+    float stepsPerSecondF = 0.0f;       ///< Float precision physics steps per second
+    float txRate = 0.0f;                ///< State packets sent per second
+    float rxRate = 0.0f;                ///< Control packets received per second
 
     // Network stats
     uint16_t udpPort = 0;               ///< UDP port being used (0 if disabled)
@@ -174,6 +177,10 @@ struct MJFrameDataStorage {
     // Timing
     double simulationTime = 0.0;
     int32_t stepsPerSecond = 0;
+    float stepsPerSecondF = 0.0f;
+    float txRate = 0.0f;
+    float rxRate = 0.0f;
+    float sceneBrightness = 0.0f;  ///< Average scene brightness (0.0 dark – 1.0 bright)
 
     // Frame sequence number (for debugging)
     uint64_t frameNumber = 0;
@@ -234,6 +241,18 @@ public:
 
     /// Current simulation time
     double simulationTime() const { return storage_ ? storage_->simulationTime : 0.0; }
+
+    /// Float precision physics steps per second
+    float stepsPerSecondF() const { return storage_ ? storage_->stepsPerSecondF : 0.0f; }
+
+    /// State packets sent per second
+    float txRate() const { return storage_ ? storage_->txRate : 0.0f; }
+
+    /// Control packets received per second
+    float rxRate() const { return storage_ ? storage_->rxRate : 0.0f; }
+
+    /// Average scene brightness (0.0 dark – 1.0 bright)
+    float sceneBrightness() const { return storage_ ? storage_->sceneBrightness : 0.0f; }
 
     /// Frame sequence number
     uint64_t frameNumber() const { return storage_ ? storage_->frameNumber : 0; }
@@ -390,6 +409,9 @@ public:
     double getCameraAzimuth() const;
     double getCameraElevation() const;
     double getCameraDistance() const;
+    double getCameraLookatX() const;
+    double getCameraLookatY() const;
+    double getCameraLookatZ() const;
 
     // MARK: - Real-time Control
 

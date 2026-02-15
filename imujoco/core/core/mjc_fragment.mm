@@ -138,9 +138,7 @@ int FragmentedSender::SendMessage(const uint8_t* data, size_t size,
         offset += payload_size;
     }
 
-    os_log_debug(GetFragmentLog(),
-                 "SendMessage: sent %u fragments, msg_id=%u, total_size=%zu",
-                 fragment_count, msg_id, size);
+    // Hot-path: skip per-message logging
 
     return fragment_count;
 }
@@ -251,17 +249,11 @@ const uint8_t* ReassemblyManager::ProcessFragment(const uint8_t* data, size_t si
 
     memcpy(slot->buffer.data() + offset, payload, header->payload_size);
 
-    os_log_debug(GetFragmentLog(),
-                 "ProcessFragment: received %u/%u for msg_id=%u",
-                 slot->received_count, slot->fragment_count, slot->message_id);
+    // Hot-path: skip per-fragment logging
 
     // Check if complete
     if (slot->received_count == slot->fragment_count) {
         *out_message_size = slot->total_size;
-
-        os_log_info(GetFragmentLog(),
-                    "ProcessFragment: reassembled msg_id=%u (%u bytes, %u fragments)",
-                    slot->message_id, slot->total_size, slot->fragment_count);
 
         // Mark slot as inactive to prevent message_id collision on wrap-around.
         // Buffer contents remain valid until caller copies or slot is reused.
