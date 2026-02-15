@@ -102,22 +102,18 @@ struct SimulationCellView: View {
 
             // Info overlay — text color adapts to scene brightness
             VStack(spacing: 0) {
-                // Top bar
-                HStack(alignment: .top) {
-                    // Left: model name
+                // Top: title row, then metrics below (right-aligned)
+                VStack(alignment: .leading, spacing: 4) {
+                    // Title (full width, no wrap)
                     Text(instance.modelName)
                         .font(.caption)
                         .fontWeight(.semibold)
                         .foregroundColor(overlayTextColor(brightness: brightness))
+                        .lineLimit(1)
 
-                    Spacer()
-
-                    // Right: port badge + metrics
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text(verbatim: ":\(instance.port)")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
-
+                    // Metrics (right-aligned, under title)
+                    HStack {
+                        Spacer()
                         performanceMetricsView
                     }
                 }
@@ -132,10 +128,13 @@ struct SimulationCellView: View {
 
                 Spacer()
 
-                // Bottom-right: status + time
+                // Bottom-right: port + status + time
                 HStack {
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
+                        Text(verbatim: ":\(instance.port)")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
                         HStack(spacing: 4) {
                             Circle()
                                 .fill(instance.state == .running ? Color.green : Color.yellow)

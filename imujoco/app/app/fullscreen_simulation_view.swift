@@ -44,16 +44,13 @@ struct FullscreenSimulationView: View {
 
             Spacer()
 
-            // Bottom: status/time (right) + controls (center)
-            HStack(alignment: .bottom) {
+            // Bottom-right: port + status + time
+            HStack {
                 Spacer()
-
-                bottomControls
-
-                Spacer()
-
-                // Status + time (always visible, bottom-right)
                 VStack(alignment: .trailing, spacing: 3) {
+                    Text(verbatim: ":\(instance.port)")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
                     HStack(spacing: 4) {
                         Circle()
                             .fill(instance.state == .running ? Color.green : Color.yellow)
@@ -79,57 +76,44 @@ struct FullscreenSimulationView: View {
     }
 
     private var topHUD: some View {
-        HStack {
-            #if os(iOS)
-            // Back button
-            Button(action: onExit) {
-                Image(systemName: "chevron.left")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                    .foregroundColor(overlayTextColor(brightness: brightness))
-                    .frame(width: 44, height: 44)
-                    .background(Color.black.opacity(0.3))
-                    .clipShape(Circle())
-            }
-            #endif
+        VStack(alignment: .leading, spacing: 4) {
+            // Title row: back button + model name
+            HStack {
+                #if os(iOS)
+                Button(action: onExit) {
+                    Image(systemName: "chevron.left")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                        .foregroundColor(overlayTextColor(brightness: brightness))
+                        .frame(width: 44, height: 44)
+                        .background(Color.black.opacity(0.3))
+                        .clipShape(Circle())
+                }
+                #endif
 
-            #if os(macOS)
-            // Back button for macOS
-            Button(action: onExit) {
-                Image(systemName: "chevron.left")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                    .foregroundColor(overlayTextColor(brightness: brightness))
-                    .frame(width: 44, height: 44)
-                    .background(Color.black.opacity(0.3))
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            #endif
+                #if os(macOS)
+                Button(action: onExit) {
+                    Image(systemName: "chevron.left")
+                        .font(.title2)
+                        .fontWeight(.semibold)
+                        .foregroundColor(overlayTextColor(brightness: brightness))
+                        .frame(width: 44, height: 44)
+                        .background(Color.black.opacity(0.3))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                #endif
 
-            Spacer()
-
-            // Model info
-            VStack(spacing: 4) {
                 Text(instance.modelName)
                     .font(.headline)
                     .foregroundColor(overlayTextColor(brightness: brightness))
-
-                Text(verbatim: "Port \(instance.port)")
-                    .font(.caption)
-                    .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
+                    .lineLimit(1)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(Color.black.opacity(0.3))
-            .clipShape(Capsule())
 
-            Spacer()
-
-            // Performance metrics (toggleable)
+            // Metrics row (right-aligned, under title)
             if showMetrics {
-                VStack(alignment: .trailing, spacing: 4) {
-                    // Performance metrics
+                HStack {
+                    Spacer()
                     Grid(horizontalSpacing: 3, verticalSpacing: 2) {
                         GridRow {
                             Text(String(format: "%7.1f", instance.stepsPerSecondFloat))
@@ -173,10 +157,7 @@ struct FullscreenSimulationView: View {
                         }
                     }
                     .fixedSize()
-
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
                 .transition(.opacity)
             }
         }
