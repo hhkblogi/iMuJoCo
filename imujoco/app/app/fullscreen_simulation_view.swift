@@ -8,8 +8,7 @@ struct FullscreenSimulationView: View {
     var instance: SimulationInstance
     var onExit: () -> Void
 
-    @State private var showControls = true
-    @State private var hideControlsTask: Task<Void, Never>?
+    @State private var showMetrics = true
 
     var body: some View {
         ZStack {
@@ -17,22 +16,13 @@ struct FullscreenSimulationView: View {
             MuJoCoMetalView(dataSource: instance)
                 .ignoresSafeArea()
 
-            // Controls overlay
-            if showControls {
-                controlsOverlay
-                    .transition(.opacity)
-            }
+            // Controls overlay (always visible)
+            controlsOverlay
         }
         .background(Color.black)
         #if os(iOS)
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
-        .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                showControls.toggle()
-            }
-            scheduleHideControls()
-        }
         #endif
         #if os(tvOS)
         .onPlayPauseCommand {
@@ -42,13 +32,6 @@ struct FullscreenSimulationView: View {
             onExit()
         }
         #endif
-        .onAppear {
-            scheduleHideControls()
-        }
-        .onDisappear {
-            hideControlsTask?.cancel()
-            hideControlsTask = nil
-        }
     }
 
     // MARK: - Controls Overlay
@@ -122,73 +105,76 @@ struct FullscreenSimulationView: View {
 
             Spacer()
 
-            // Status, time, and performance metrics
-            VStack(alignment: .trailing, spacing: 4) {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(instance.state == .running ? Color.green : Color.yellow)
-                        .frame(width: 8, height: 8)
-                    Text(instance.stateDescription)
-                        .font(.caption)
-                        .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
-                }
-
-                Text(formatSimulationTime(instance.simulationTime))
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundColor(overlayTextColor(brightness: brightness).opacity(0.8))
-
-                Divider()
-                    .frame(width: 60)
-                    .background(overlayTertiaryTextColor(brightness: brightness))
-
-                // Performance metrics
-                Grid(horizontalSpacing: 3, verticalSpacing: 2) {
-                    GridRow {
-                        Text(String(format: "%7.1f", instance.stepsPerSecondFloat))
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundColor(stepsPerSecondColor)
-                            .gridColumnAlignment(.trailing)
-                        Text("fps")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(metricLabelColor)
-                            .gridColumnAlignment(.leading)
-                        Text("SIM")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(metricLabelColor)
-                            .gridColumnAlignment(.leading)
+            // Status, time, and performance metrics (toggleable)
+            if showMetrics {
+                VStack(alignment: .trailing, spacing: 4) {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(instance.state == .running ? Color.green : Color.yellow)
+                            .frame(width: 8, height: 8)
+                        Text(instance.stateDescription)
+                            .font(.caption)
+                            .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
                     }
-                    if instance.hasClient || instance.txRate > 0 {
+
+                    Text(formatSimulationTime(instance.simulationTime))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(overlayTextColor(brightness: brightness).opacity(0.8))
+
+                    Divider()
+                        .frame(width: 60)
+                        .background(overlayTertiaryTextColor(brightness: brightness))
+
+                    // Performance metrics
+                    Grid(horizontalSpacing: 3, verticalSpacing: 2) {
                         GridRow {
-                            Text(String(format: "%7.1f", instance.txRate))
+                            Text(String(format: "%7.1f", instance.stepsPerSecondFloat))
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .foregroundColor(rateColor(instance.txRate))
+                                .foregroundColor(stepsPerSecondColor)
+                                .gridColumnAlignment(.trailing)
                             Text("fps")
                                 .font(.system(size: 9, weight: .medium))
                                 .foregroundColor(metricLabelColor)
-                            Text("State TX")
+                                .gridColumnAlignment(.leading)
+                            Text("SIM")
                                 .font(.system(size: 9, weight: .medium))
                                 .foregroundColor(metricLabelColor)
+                                .gridColumnAlignment(.leading)
+                        }
+                        if instance.hasClient || instance.txRate > 0 {
+                            GridRow {
+                                Text(String(format: "%7.1f", instance.txRate))
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundColor(rateColor(instance.txRate))
+                                Text("fps")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(metricLabelColor)
+                                Text("State TX")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(metricLabelColor)
+                            }
+                        }
+                        if instance.hasClient || instance.rxRate > 0 {
+                            GridRow {
+                                Text(String(format: "%7.1f", instance.rxRate))
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundColor(rateColor(instance.rxRate))
+                                Text("fps")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(metricLabelColor)
+                                Text("Control RX")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(metricLabelColor)
+                            }
                         }
                     }
-                    if instance.hasClient || instance.rxRate > 0 {
-                        GridRow {
-                            Text(String(format: "%7.1f", instance.rxRate))
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .foregroundColor(rateColor(instance.rxRate))
-                            Text("fps")
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundColor(metricLabelColor)
-                            Text("Control RX")
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundColor(metricLabelColor)
-                        }
-                    }
-                }
-                .fixedSize()
+                    .fixedSize()
 
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .transition(.opacity)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
         }
     }
 
@@ -208,6 +194,16 @@ struct FullscreenSimulationView: View {
     private var bottomControls: some View {
         HStack(spacing: 24) {
             #if os(iOS)
+            // Metrics toggle
+            ControlButton(
+                systemName: showMetrics ? "chart.bar.fill" : "chart.bar",
+                action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showMetrics.toggle()
+                    }
+                }
+            )
+
             // Reset button
             ControlButton(systemName: "arrow.counterclockwise", action: instance.reset)
 
@@ -224,6 +220,22 @@ struct FullscreenSimulationView: View {
             #endif
 
             #if os(macOS)
+            // Metrics toggle
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showMetrics.toggle()
+                }
+            }) {
+                Image(systemName: showMetrics ? "chart.bar.fill" : "chart.bar")
+                    .font(.title2)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.white)
+                    .frame(width: 48, height: 48)
+                    .background(Color.white.opacity(0.2))
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+
             // Reset button
             Button(action: instance.reset) {
                 Image(systemName: "arrow.counterclockwise")
@@ -273,22 +285,6 @@ struct FullscreenSimulationView: View {
         .padding(.vertical, 16)
         .background(Color.black.opacity(0.5))
         .clipShape(Capsule())
-    }
-
-    // MARK: - Helpers
-
-    private func scheduleHideControls() {
-        hideControlsTask?.cancel()
-        hideControlsTask = Task {
-            try? await Task.sleep(nanoseconds: 3_000_000_000)  // 3 seconds
-            if !Task.isCancelled {
-                await MainActor.run {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        showControls = false
-                    }
-                }
-            }
-        }
     }
 }
 
