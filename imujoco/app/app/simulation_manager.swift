@@ -77,7 +77,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     // State polling timer
     private var stateUpdateTask: Task<Void, Never>?
 
-    init(id: Int, basePort: UInt16 = 8888) {
+    init(id: Int, basePort: UInt16 = 9000) {
         self.id = id
         self.port = basePort + UInt16(id)
     }
@@ -354,7 +354,7 @@ struct BundledModel {
 @Observable
 final class SimulationGridManager: @unchecked Sendable {
     static let gridSize = 4  // 2x2 grid
-    static let basePort: UInt16 = 8888
+    static let basePort: UInt16 = 9000
 
     private(set) var instances: [SimulationInstance]
     private(set) var fullscreenInstanceId: Int? = nil

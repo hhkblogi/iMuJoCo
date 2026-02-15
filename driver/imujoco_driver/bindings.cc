@@ -35,7 +35,7 @@ or dispatch work to your own thread to avoid blocking state reception.
         .def_readwrite("host", &DriverConfig::host,
             "Target simulation host (default: 127.0.0.1)")
         .def_readwrite("port", &DriverConfig::port,
-            "Target simulation UDP port (default: 8888)")
+            "Target simulation UDP port (default: 9000)")
         .def_readwrite("local_port", &DriverConfig::local_port,
             "Local bind port (0 = ephemeral)")
         .def_readwrite("timeout_ms", &DriverConfig::timeout_ms,

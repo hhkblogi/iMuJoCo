@@ -46,8 +46,8 @@ struct DriverConfig {
     // Target simulation host (default: localhost)
     std::string host = "127.0.0.1";
 
-    // Target simulation UDP port (default: 8888)
-    uint16_t port = 8888;
+    // Target simulation UDP port (default: 9000)
+    uint16_t port = 9000;
 
     // Local bind port (0 = ephemeral port)
     uint16_t local_port = 0;

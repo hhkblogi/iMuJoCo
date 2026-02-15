@@ -1,7 +1,7 @@
 // echo_server.cc
 // Simple state receiver - prints StatePackets received from iMuJoCo
 //
-// Usage: ./echo_server --host 192.168.65.111 --port 8888
+// Usage: ./echo_server --host 192.168.65.111 --port 9000
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -32,13 +32,13 @@ int main(int argc, char* argv[]) {
     Args args(argc, argv);
 
     std::string host = args.get("host", "127.0.0.1");
-    uint16_t port = static_cast<uint16_t>(args.get_int("port", 8888));
+    uint16_t port = static_cast<uint16_t>(args.get_int("port", 9000));
 
     if (args.has("help")) {
         std::cout << "Usage: " << args.program()
                   << " [--host HOST] [--port PORT]\n"
                   << "  --host  Simulation host (default: 127.0.0.1)\n"
-                  << "  --port  Simulation port (default: 8888)\n";
+                  << "  --port  Simulation port (default: 9000)\n";
         return 0;
     }
 

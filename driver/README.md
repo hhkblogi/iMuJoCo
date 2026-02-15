@@ -18,7 +18,7 @@ import time
 # Configure driver
 config = DriverConfig()
 config.host = "192.168.1.100"  # Your iPhone's IP
-config.port = 8888
+config.port = 9000
 
 # Create and connect
 driver = Driver(config)
@@ -56,7 +56,7 @@ driver.disconnect()
 
 ### DriverConfig
 - `host`: Target simulation host (default: "127.0.0.1")
-- `port`: Target simulation UDP port (default: 8888)
+- `port`: Target simulation UDP port (default: 9000)
 - `timeout_ms`: Receive timeout in milliseconds (default: 100)
 
 ### Driver
