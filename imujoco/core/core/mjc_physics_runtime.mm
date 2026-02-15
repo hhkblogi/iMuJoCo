@@ -626,7 +626,8 @@ public:
     double GetCameraDistance() const { return camera_.distance; }
 
     void SetTimestep(double ts) {
-        if (model_) model_->opt.timestep = ts;
+        if (!model_ || ts <= 0.0 || !std::isfinite(ts)) return;
+        model_->opt.timestep = ts;
     }
 
     void SetRealtimeFactor(double factor) {

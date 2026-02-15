@@ -58,7 +58,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
 
     // C++ physics runtime (owns model, data, scene, camera, option)
     private(set) var runtime: MJRuntime?
-    var modelName: String = ""
+    fileprivate(set) var modelName: String = ""
 
     // Stored properties for SwiftUI observation
     // Updated periodically from runtime stats (~10Hz polling)

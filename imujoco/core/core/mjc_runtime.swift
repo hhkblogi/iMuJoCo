@@ -233,6 +233,7 @@ public final class MJRuntime {
 
     /// Override the model timestep (call after loading)
     public func setTimestep(_ ts: Double) {
+        guard ts.isFinite, ts > 0.0 else { return }
         runtime.setTimestep(ts)
     }
 
