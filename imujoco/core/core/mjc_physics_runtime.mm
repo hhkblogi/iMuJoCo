@@ -476,6 +476,9 @@ public:
         stats.measuredSlowdown = 1.0;
         stats.timestep = model_ ? model_->opt.timestep : 0.002;
         stats.stepsPerSecond = storage ? storage->stepsPerSecond : 0;
+        stats.stepsPerSecondF = storage ? storage->stepsPerSecondF : 0.0f;
+        stats.txRate = storage ? storage->txRate : 0.0f;
+        stats.rxRate = storage ? storage->rxRate : 0.0f;
         stats.udpPort = udp_server_.IsActive() ? udp_server_.GetPort() : 0;
         stats.packetsReceived = udp_server_.GetPacketsReceived();
         stats.packetsSent = udp_server_.GetPacketsSent();
@@ -762,6 +765,11 @@ private:
         auto last_stats_update = Clock::now();
         auto last_frame_write = Clock::now();
         int32_t current_sps = 0;
+        float current_sps_f = 0.0f;
+        float current_tx_rate = 0.0f;
+        float current_rx_rate = 0.0f;
+        uint32_t prev_packets_sent = udp_server_.GetPacketsSent();
+        uint32_t prev_packets_received = udp_server_.GetPacketsReceived();
 
         constexpr double kTargetFrameWriteHz = 80.0;
         constexpr double kFrameWriteInterval = 1.0 / kTargetFrameWriteHz;
@@ -933,6 +941,15 @@ private:
             auto stats_elapsed = Seconds(now - last_stats_update).count();
             if (stats_elapsed >= 1.0) {
                 current_sps = static_cast<int32_t>(step_count / stats_elapsed);
+                current_sps_f = static_cast<float>(step_count / stats_elapsed);
+
+                uint32_t cur_sent = udp_server_.GetPacketsSent();
+                uint32_t cur_received = udp_server_.GetPacketsReceived();
+                current_tx_rate = static_cast<float>((cur_sent - prev_packets_sent) / stats_elapsed);
+                current_rx_rate = static_cast<float>((cur_received - prev_packets_received) / stats_elapsed);
+                prev_packets_sent = cur_sent;
+                prev_packets_received = cur_received;
+
                 step_count = 0;
                 last_stats_update = now;
             }
@@ -940,14 +957,14 @@ private:
             // Adaptive frame writing
             auto frame_elapsed = Seconds(now - last_frame_write).count();
             if (steps_since_last_frame > 0 && frame_elapsed >= kFrameWriteInterval) {
-                WriteFrameToBuffer(current_sps);
+                WriteFrameToBuffer(current_sps, current_sps_f, current_tx_rate, current_rx_rate);
                 last_frame_write = now;
                 steps_since_last_frame = 0;
             }
         }
     }
 
-    void WriteFrameToBuffer(int32_t sps = 0) {
+    void WriteFrameToBuffer(int32_t sps = 0, float sps_f = 0.0f, float tx_rate = 0.0f, float rx_rate = 0.0f) {
         MJFrameDataStorage* frame = ring_buffer_.begin_write();
 
         mjv_updateScene(model_, data_, &option_, nullptr, &camera_, mjCAT_ALL, &scene_);
@@ -1015,6 +1032,9 @@ private:
 
         frame->simulationTime = data_->time;
         frame->stepsPerSecond = sps;
+        frame->stepsPerSecondF = sps_f;
+        frame->txRate = tx_rate;
+        frame->rxRate = rx_rate;
         // Use get_item_count() for actual frame count (not affected by signal_exit())
         frame->frameNumber = ring_buffer_.get_item_count() + 1;
 

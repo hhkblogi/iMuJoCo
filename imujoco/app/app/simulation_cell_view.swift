@@ -4,6 +4,31 @@
 import SwiftUI
 import render
 
+// MARK: - Shared Time Formatter
+
+func formatSimulationTime(_ seconds: Double) -> String {
+    let totalMs = Int(seconds * 1000)
+    return String(format: "%02d:%02d:%02d.%03d",
+                  totalMs / 3_600_000,
+                  (totalMs % 3_600_000) / 60_000,
+                  (totalMs % 60_000) / 1000,
+                  totalMs % 1000)
+}
+
+// MARK: - Shared Rate Color
+
+func rateColor(_ rate: Float) -> Color {
+    if rate >= 40 {
+        return .green
+    } else if rate >= 20 {
+        return .yellow
+    } else if rate >= 5 {
+        return .orange
+    } else {
+        return .red
+    }
+}
+
 struct SimulationCellView: View {
     var instance: SimulationInstance
     var onTapFullscreen: () -> Void
@@ -58,24 +83,41 @@ struct SimulationCellView: View {
             MuJoCoMetalView(dataSource: instance)
 
             // Info overlay
-            VStack {
-                // Top bar with model name and port
-                HStack {
-                    Text(instance.modelName)
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                        .foregroundColor(.white)
+            VStack(spacing: 0) {
+                // Top bar
+                HStack(alignment: .top) {
+                    // Left: model name + status
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(instance.modelName)
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(instance.state == .running ? Color.green : Color.yellow)
+                                .frame(width: 6, height: 6)
+                            Text(instance.stateDescription)
+                                .font(.system(size: 9))
+                                .foregroundColor(.white.opacity(0.7))
+                        }
+                    }
 
                     Spacer()
 
-                    Text(verbatim: ":\(instance.port)")
-                        .font(.caption2)
-                        .fontWeight(.medium)
-                        .foregroundColor(.white.opacity(0.7))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.black.opacity(0.5))
-                        .clipShape(Capsule())
+                    // Right: port badge + metrics
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text(verbatim: ":\(instance.port)")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundColor(.white.opacity(0.7))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.black.opacity(0.5))
+                            .clipShape(Capsule())
+
+                        performanceMetricsView
+                    }
                 }
                 .padding(8)
                 .background(
@@ -88,31 +130,12 @@ struct SimulationCellView: View {
 
                 Spacer()
 
-                // Performance metrics overlay (top-right corner)
+                // Bottom bar: time only (right-aligned)
                 HStack {
                     Spacer()
-                    performanceMetricsView
-                }
-                .padding(.horizontal, 8)
 
-                Spacer()
-
-                // Bottom bar with status and time
-                HStack {
-                    // Status indicator
-                    Circle()
-                        .fill(instance.state == .running ? Color.green : Color.yellow)
-                        .frame(width: 8, height: 8)
-
-                    Text(instance.stateDescription)
-                        .font(.caption2)
-                        .foregroundColor(.white.opacity(0.8))
-
-                    Spacer()
-
-                    Text(String(format: "%.2fs", instance.simulationTime))
-                        .font(.caption2)
-                        .monospacedDigit()
+                    Text(formatSimulationTime(instance.simulationTime))
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
                         .foregroundColor(.white.opacity(0.8))
                 }
                 .padding(8)
@@ -140,31 +163,54 @@ struct SimulationCellView: View {
 
     // MARK: - Performance Metrics View
 
-    private var performanceMetricsView: some View {
-        VStack(alignment: .trailing, spacing: 2) {
-            // Physics steps per second
-            HStack(spacing: 4) {
-                Text("SIM")
-                    .font(.system(size: 8, weight: .medium))
-                    .foregroundColor(.white.opacity(0.6))
-                Text("\(instance.stepsPerSecond)")
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundColor(stepsPerSecondColor)
-                Text("Hz")
-                    .font(.system(size: 8, weight: .medium))
-                    .foregroundColor(.white.opacity(0.6))
-            }
+    private static let metricValueFont = Font.system(size: 10, weight: .bold, design: .monospaced)
+    private static let metricLabelFont = Font.system(size: 8, weight: .medium)
+    private static let metricLabelColor = Color.white.opacity(0.5)
 
-            // Model timestep (shows expected real-time rate)
-            HStack(spacing: 4) {
-                Text("dt")
-                    .font(.system(size: 8, weight: .medium))
-                    .foregroundColor(.white.opacity(0.6))
-                Text(String(format: "%.1fms", instance.timestep * 1000))
-                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.8))
+    private var performanceMetricsView: some View {
+        Grid(horizontalSpacing: 3, verticalSpacing: 2) {
+            GridRow {
+                Text(String(format: "%.1f", instance.stepsPerSecondFloat))
+                    .font(Self.metricValueFont)
+                    .foregroundColor(stepsPerSecondColor)
+                    .gridColumnAlignment(.trailing)
+                Text("fps")
+                    .font(Self.metricLabelFont)
+                    .foregroundColor(Self.metricLabelColor)
+                    .gridColumnAlignment(.leading)
+                Text("SIM")
+                    .font(Self.metricLabelFont)
+                    .foregroundColor(Self.metricLabelColor)
+                    .gridColumnAlignment(.leading)
+            }
+            if instance.hasClient || instance.txRate > 0 {
+                GridRow {
+                    Text(String(format: "%.1f", instance.txRate))
+                        .font(Self.metricValueFont)
+                        .foregroundColor(rateColor(instance.txRate))
+                    Text("fps")
+                        .font(Self.metricLabelFont)
+                        .foregroundColor(Self.metricLabelColor)
+                    Text("State TX")
+                        .font(Self.metricLabelFont)
+                        .foregroundColor(Self.metricLabelColor)
+                }
+            }
+            if instance.hasClient || instance.rxRate > 0 {
+                GridRow {
+                    Text(String(format: "%.1f", instance.rxRate))
+                        .font(Self.metricValueFont)
+                        .foregroundColor(rateColor(instance.rxRate))
+                    Text("fps")
+                        .font(Self.metricLabelFont)
+                        .foregroundColor(Self.metricLabelColor)
+                    Text("Control RX")
+                        .font(Self.metricLabelFont)
+                        .foregroundColor(Self.metricLabelColor)
+                }
             }
         }
+        .fixedSize()
         .padding(.horizontal, 6)
         .padding(.vertical, 4)
         .background(Color.black.opacity(0.7))
@@ -172,7 +218,7 @@ struct SimulationCellView: View {
     }
 
     private var stepsPerSecondColor: Color {
-        let sps = instance.stepsPerSecond
+        let sps = instance.stepsPerSecondFloat
         if sps >= 400 {
             return .green       // Excellent
         } else if sps >= 200 {

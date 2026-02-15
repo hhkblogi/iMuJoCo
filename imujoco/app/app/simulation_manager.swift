@@ -64,6 +64,9 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     // Updated periodically from runtime stats (~10Hz polling)
     private(set) var displayTime: Double = 0.0
     private(set) var displaySPS: Int32 = 0
+    private(set) var displaySPSFloat: Float = 0.0
+    private(set) var displayTXRate: Float = 0.0
+    private(set) var displayRXRate: Float = 0.0
 
     // State polling timer
     private var stateUpdateTask: Task<Void, Never>?
@@ -160,6 +163,9 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
         runtime.reset()
         displayTime = 0.0
         displaySPS = 0
+        displaySPSFloat = 0.0
+        displayTXRate = 0.0
+        displayRXRate = 0.0
     }
 
     @MainActor
@@ -181,11 +187,18 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
                 guard let self = self, let runtime = self.runtime else { break }
 
                 // Update display time periodically (~10Hz to reduce overhead)
-                let currentTime = runtime.simulationTime
-                let currentSPS = runtime.stats.stepsPerSecond
+                let stats = runtime.stats
+                let currentTime = stats.simulationTime
+                let currentSPS = stats.stepsPerSecond
+                let currentSPSF = stats.stepsPerSecondF
+                let currentTXRate = stats.txRate
+                let currentRXRate = stats.rxRate
                 await MainActor.run {
                     self.displayTime = currentTime
                     self.displaySPS = currentSPS
+                    self.displaySPSFloat = currentSPSF
+                    self.displayTXRate = currentTXRate
+                    self.displayRXRate = currentRXRate
                 }
 
                 try? await Task.sleep(nanoseconds: 100_000_000)  // 100ms
@@ -228,6 +241,18 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
 
     var stepsPerSecond: Int32 {
         displaySPS
+    }
+
+    var stepsPerSecondFloat: Float {
+        displaySPSFloat
+    }
+
+    var txRate: Float {
+        displayTXRate
+    }
+
+    var rxRate: Float {
+        displayRXRate
     }
 
     // MARK: - Network Status

@@ -127,9 +127,8 @@ struct FullscreenSimulationView: View {
                         .foregroundColor(.white.opacity(0.8))
                 }
 
-                Text(String(format: "%.3fs", instance.simulationTime))
-                    .font(.caption)
-                    .monospacedDigit()
+                Text(formatSimulationTime(instance.simulationTime))
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundColor(.white.opacity(0.8))
 
                 Divider()
@@ -137,17 +136,49 @@ struct FullscreenSimulationView: View {
                     .background(Color.white.opacity(0.3))
 
                 // Performance metrics
-                HStack(spacing: 4) {
-                    Text("SIM")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.white.opacity(0.6))
-                    Text("\(instance.stepsPerSecond)")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(stepsPerSecondColor)
-                    Text("Hz")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.white.opacity(0.6))
+                Grid(horizontalSpacing: 3, verticalSpacing: 2) {
+                    GridRow {
+                        Text(String(format: "%.1f", instance.stepsPerSecondFloat))
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundColor(stepsPerSecondColor)
+                            .gridColumnAlignment(.trailing)
+                        Text("fps")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(.white.opacity(0.5))
+                            .gridColumnAlignment(.leading)
+                        Text("SIM")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(.white.opacity(0.5))
+                            .gridColumnAlignment(.leading)
+                    }
+                    if instance.hasClient || instance.txRate > 0 {
+                        GridRow {
+                            Text(String(format: "%.1f", instance.txRate))
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(rateColor(instance.txRate))
+                            Text("fps")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(.white.opacity(0.5))
+                            Text("State TX")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(.white.opacity(0.5))
+                        }
+                    }
+                    if instance.hasClient || instance.rxRate > 0 {
+                        GridRow {
+                            Text(String(format: "%.1f", instance.rxRate))
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(rateColor(instance.rxRate))
+                            Text("fps")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(.white.opacity(0.5))
+                            Text("Control RX")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(.white.opacity(0.5))
+                        }
+                    }
                 }
+                .fixedSize()
 
             }
             .padding(.horizontal, 12)
@@ -158,7 +189,7 @@ struct FullscreenSimulationView: View {
     }
 
     private var stepsPerSecondColor: Color {
-        let sps = instance.stepsPerSecond
+        let sps = instance.stepsPerSecondFloat
         if sps >= 400 {
             return .green
         } else if sps >= 200 {

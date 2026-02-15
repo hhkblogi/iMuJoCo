@@ -61,6 +61,7 @@ struct SimulationGridView: View {
     @State private var deviceIP: String = "..."
     @State private var showingErrorAlert = false
     @State private var errorMessage: String = ""
+    @State private var ipExpanded = true
 
     let columns = [
         GridItem(.flexible(), spacing: 8),
@@ -162,6 +163,10 @@ struct SimulationGridView: View {
 
     // MARK: - Menu Bar
 
+    private var ipIconColor: Color {
+        deviceIP == "No Network" ? .red : .green
+    }
+
     private var menuBar: some View {
         HStack {
             // App title
@@ -172,21 +177,27 @@ struct SimulationGridView: View {
 
             Spacer()
 
-            // Device IP and ports
-            HStack(spacing: 12) {
-                // Network icon
+            // Collapsible IP address capsule
+            HStack(spacing: ipExpanded ? 8 : 0) {
                 Image(systemName: "network")
-                    .foregroundColor(.green)
+                    .foregroundColor(ipIconColor)
 
-                // IP Address
-                Text(deviceIP)
-                    .font(.system(.subheadline, design: .monospaced))
-                    .foregroundColor(.white)
+                if ipExpanded {
+                    Text(deviceIP)
+                        .font(.system(.subheadline, design: .monospaced))
+                        .foregroundColor(.white)
+                        .transition(.opacity.combined(with: .move(edge: .trailing)))
+                }
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, ipExpanded ? 12 : 8)
             .padding(.vertical, 6)
             .background(Color.white.opacity(0.1))
             .clipShape(Capsule())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    ipExpanded.toggle()
+                }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

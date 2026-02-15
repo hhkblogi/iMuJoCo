@@ -32,6 +32,9 @@ public struct MJRuntimeStatistics {
     public let measuredSlowdown: Double
     public let timestep: Double
     public let stepsPerSecond: Int32
+    public let stepsPerSecondF: Float
+    public let txRate: Float
+    public let rxRate: Float
     // Network stats
     public let udpPort: UInt16
     public let packetsReceived: UInt32
@@ -43,6 +46,9 @@ public struct MJRuntimeStatistics {
         self.measuredSlowdown = cppStats.measuredSlowdown
         self.timestep = cppStats.timestep
         self.stepsPerSecond = cppStats.stepsPerSecond
+        self.stepsPerSecondF = cppStats.stepsPerSecondF
+        self.txRate = cppStats.txRate
+        self.rxRate = cppStats.rxRate
         self.udpPort = cppStats.udpPort
         self.packetsReceived = cppStats.packetsReceived
         self.packetsSent = cppStats.packetsSent
