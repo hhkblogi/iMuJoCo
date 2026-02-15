@@ -163,14 +163,14 @@ struct SimulationCellView: View {
 
     // MARK: - Performance Metrics View
 
-    private static let metricValueFont = Font.system(size: 10, weight: .bold, design: .monospaced)
+    private static let metricValueFont = Font.system(size: 8, weight: .medium, design: .monospaced)
     private static let metricLabelFont = Font.system(size: 8, weight: .medium)
     private static let metricLabelColor = Color.white.opacity(0.5)
 
     private var performanceMetricsView: some View {
         Grid(horizontalSpacing: 3, verticalSpacing: 2) {
             GridRow {
-                Text(String(format: "%.1f", instance.stepsPerSecondFloat))
+                Text(String(format: "%6.1f", instance.stepsPerSecondFloat))
                     .font(Self.metricValueFont)
                     .foregroundColor(stepsPerSecondColor)
                     .gridColumnAlignment(.trailing)
@@ -185,7 +185,7 @@ struct SimulationCellView: View {
             }
             if instance.hasClient || instance.txRate > 0 {
                 GridRow {
-                    Text(String(format: "%.1f", instance.txRate))
+                    Text(String(format: "%6.1f", instance.txRate))
                         .font(Self.metricValueFont)
                         .foregroundColor(rateColor(instance.txRate))
                     Text("fps")
@@ -198,7 +198,7 @@ struct SimulationCellView: View {
             }
             if instance.hasClient || instance.rxRate > 0 {
                 GridRow {
-                    Text(String(format: "%.1f", instance.rxRate))
+                    Text(String(format: "%6.1f", instance.rxRate))
                         .font(Self.metricValueFont)
                         .foregroundColor(rateColor(instance.rxRate))
                     Text("fps")
