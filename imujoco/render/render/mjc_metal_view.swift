@@ -60,6 +60,10 @@ public protocol MJCRenderDataSource: AnyObject {
     /// Must remain positive; gesture handlers clamp to `min_camera_distance`.
     var cameraDistance: Double { get set }
 
+    /// Average rendered scene brightness (0.0 dark – 1.0 bright).
+    /// Written by the render thread after each frame via GPU pixel readback.
+    var renderedSceneBrightness: Float { get set }
+
     /// Reset camera to default position.
     func resetCamera()
 }
@@ -220,6 +224,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         self.isPaused = true
         self.colorPixelFormat = .bgra8Unorm
         self.depthStencilPixelFormat = .depth32Float
+        self.framebufferOnly = false  // Allow blit readback for brightness sampling
         self.preferredFramesPerSecond = 60
         self.enableSetNeedsDisplay = false
 
@@ -474,6 +479,9 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
                 drawable: drawable,
                 renderPassDescriptor: currentRenderPassDescriptor
             )
+
+            // Pass GPU-computed brightness back to data source for UI overlay adaptation
+            dataSource.renderedSceneBrightness = render.renderedBrightness
         }
 
         // Update performance metrics

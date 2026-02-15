@@ -4,6 +4,7 @@
 import Foundation
 import Observation
 import os.log
+import Observation
 import core
 import render
 import MJCPhysicsRuntime
@@ -68,6 +69,10 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     private(set) var displayTXRate: Float = 0.0
     private(set) var displayRXRate: Float = 0.0
     private(set) var displaySceneBrightness: Float = 0.0
+
+    // Written by the render thread at ~60fps; not observation-tracked to avoid
+    // triggering SwiftUI updates from the render thread.
+    @ObservationIgnored private var _renderedBrightness: Float = 0.0
 
     // State polling timer
     private var stateUpdateTask: Task<Void, Never>?
@@ -195,7 +200,8 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
                 let currentSPSF = stats.stepsPerSecondF
                 let currentTXRate = stats.txRate
                 let currentRXRate = stats.rxRate
-                let currentBrightness = runtime.latestFrame?.sceneBrightness() ?? 0.0
+                // Read GPU-computed brightness (written by render thread, non-observed)
+                let currentBrightness = self._renderedBrightness
                 await MainActor.run {
                     self.displayTime = currentTime
                     self.displaySPS = currentSPS
@@ -300,6 +306,11 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     public var cameraDistance: Double {
         get { runtime?.cameraDistance ?? 3.0 }
         set { runtime?.cameraDistance = newValue }
+    }
+
+    public var renderedSceneBrightness: Float {
+        get { _renderedBrightness }
+        set { _renderedBrightness = newValue }
     }
 
     public func resetCamera() {

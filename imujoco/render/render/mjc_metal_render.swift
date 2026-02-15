@@ -122,6 +122,17 @@ public final class MJCMetalRender {
     private let max_vertices = 512 * 1024  // ~32MB per buffer at 64 bytes/vertex
     private let max_indices = 512 * 1024   // ~2MB per buffer at 4 bytes/index
 
+    // MARK: - Brightness Readback (GPU → CPU)
+
+    /// Triple-buffered readback buffers for sampling rendered pixel brightness.
+    /// Each buffer holds a 4×4 BGRA8 pixel patch (64 bytes).
+    private var brightnessReadbackBuffers: [MTLBuffer] = []
+    private var brightnessReadbackValid: [Bool] = [false, false, false]
+
+    /// Average luminance of the rendered scene (0.0 dark – 1.0 bright).
+    /// Updated each frame from the previous frame's GPU readback (1-frame latency, no stall).
+    public private(set) var renderedBrightness: Float = 0.0
+
     /// Upper bounds on vertices/indices a single procedural geometry can contribute to a frame.
     /// Used as a buffer capacity guard so we can detect when adding a geom would exceed
     /// the pre-allocated vertex/index buffers and skip it instead of writing past buffer bounds.
@@ -239,6 +250,14 @@ public final class MJCMetalRender {
             dynamicVertexBuffers.append(vBuf)
             dynamicIndexBuffers.append(iBuf)
         }
+
+        // Allocate triple-buffered readback buffers for brightness sampling (4×4 BGRA8 = 64 bytes each)
+        for _ in 0..<Self.inflightFrameCount {
+            guard let buf = device.makeBuffer(length: 4 * 4 * 4, options: .storageModeShared) else {
+                throw MJCRenderError.bufferAllocationFailed
+            }
+            brightnessReadbackBuffers.append(buf)
+        }
     }
 
     // MARK: - Mesh Cache Builder
@@ -331,6 +350,21 @@ public final class MJCMetalRender {
         let dynamicVB = dynamicVertexBuffers[currentBufferIndex]
         let dynamicIB = dynamicIndexBuffers[currentBufferIndex]
 
+        // Read brightness from this slot's previous blit (guaranteed complete after semaphore wait)
+        if brightnessReadbackValid[currentBufferIndex] {
+            let buf = brightnessReadbackBuffers[currentBufferIndex]
+            let ptr = buf.contents().bindMemory(to: UInt8.self, capacity: 64)
+            var totalLum: Float = 0
+            for i in 0..<16 {  // 4×4 pixels
+                let offset = i * 4  // BGRA8
+                let b = Float(ptr[offset]) / 255.0
+                let g = Float(ptr[offset + 1]) / 255.0
+                let r = Float(ptr[offset + 2]) / 255.0
+                totalLum += 0.299 * r + 0.587 * g + 0.114 * b
+            }
+            renderedBrightness = totalLum / 16.0
+        }
+
         guard let commandBuffer = command_queue.makeCommandBuffer() else {
             inflightSemaphore.signal()
             return
@@ -412,6 +446,8 @@ public final class MJCMetalRender {
         if geomCount == 0 {
             renderAxesGizmo(encoder: encoder, viewMatrix: viewMatrix, width: width, height: height)
             encoder.endEncoding()
+            blitBrightnessSample(commandBuffer: commandBuffer, texture: drawable.texture,
+                                 width: width, height: height, bufferIndex: currentBufferIndex)
             commandBuffer.present(drawable)
             commandBuffer.commit()
             return
@@ -421,6 +457,8 @@ public final class MJCMetalRender {
         guard let geomsPtr = MJFrameDataGetGeoms(frame) else {
             renderAxesGizmo(encoder: encoder, viewMatrix: viewMatrix, width: width, height: height)
             encoder.endEncoding()
+            blitBrightnessSample(commandBuffer: commandBuffer, texture: drawable.texture,
+                                 width: width, height: height, bufferIndex: currentBufferIndex)
             commandBuffer.present(drawable)
             commandBuffer.commit()
             return
@@ -593,8 +631,37 @@ public final class MJCMetalRender {
         renderAxesGizmo(encoder: encoder, viewMatrix: viewMatrix, width: width, height: height)
 
         encoder.endEncoding()
+
+        blitBrightnessSample(commandBuffer: commandBuffer, texture: drawable.texture,
+                             width: width, height: height, bufferIndex: currentBufferIndex)
         commandBuffer.present(drawable)
         commandBuffer.commit()
+    }
+
+    // MARK: - Brightness Readback
+
+    /// Blit a 4×4 pixel sample from the rendered texture for CPU brightness readback.
+    /// Samples from the upper-center region where overlay text typically sits.
+    private func blitBrightnessSample(commandBuffer: MTLCommandBuffer, texture: MTLTexture,
+                                       width: Int, height: Int, bufferIndex: Int) {
+        guard let blitEncoder = commandBuffer.makeBlitCommandEncoder() else { return }
+        let sampleW = min(4, width)
+        let sampleH = min(4, height)
+        let sampleX = max(0, width / 2 - sampleW / 2)
+        let sampleY = max(0, height / 4 - sampleH / 2)
+        blitEncoder.copy(
+            from: texture,
+            sourceSlice: 0,
+            sourceLevel: 0,
+            sourceOrigin: MTLOrigin(x: sampleX, y: sampleY, z: 0),
+            sourceSize: MTLSize(width: sampleW, height: sampleH, depth: 1),
+            to: brightnessReadbackBuffers[bufferIndex],
+            destinationOffset: 0,
+            destinationBytesPerRow: sampleW * 4,
+            destinationBytesPerImage: sampleW * sampleH * 4
+        )
+        blitEncoder.endEncoding()
+        brightnessReadbackValid[bufferIndex] = true
     }
 
     // MARK: - Axes Gizmo
