@@ -104,22 +104,11 @@ struct SimulationCellView: View {
             VStack(spacing: 0) {
                 // Top bar
                 HStack(alignment: .top) {
-                    // Left: model name + status
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(instance.modelName)
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                            .foregroundColor(overlayTextColor(brightness: brightness))
-
-                        HStack(spacing: 4) {
-                            Circle()
-                                .fill(instance.state == .running ? Color.green : Color.yellow)
-                                .frame(width: 6, height: 6)
-                            Text(instance.stateDescription)
-                                .font(.system(size: 9))
-                                .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
-                        }
-                    }
+                    // Left: model name
+                    Text(instance.modelName)
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(overlayTextColor(brightness: brightness))
 
                     Spacer()
 
@@ -143,13 +132,23 @@ struct SimulationCellView: View {
 
                 Spacer()
 
-                // Bottom-right: time
+                // Bottom-right: status + time
                 HStack {
                     Spacer()
-                    Text(formatSimulationTime(instance.simulationTime))
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundColor(overlayTextColor(brightness: brightness).opacity(0.8))
-                        .padding(6)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(instance.state == .running ? Color.green : Color.yellow)
+                                .frame(width: 6, height: 6)
+                            Text(instance.stateDescription)
+                                .font(.system(size: 9))
+                                .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
+                        }
+                        Text(formatSimulationTime(instance.simulationTime))
+                            .font(.system(size: 8, weight: .medium, design: .monospaced))
+                            .foregroundColor(overlayTextColor(brightness: brightness).opacity(0.8))
+                    }
+                    .padding(6)
                 }
             }
         }

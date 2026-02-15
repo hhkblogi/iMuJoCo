@@ -44,9 +44,30 @@ struct FullscreenSimulationView: View {
 
             Spacer()
 
-            // Bottom controls
-            bottomControls
-                .padding(.bottom, 8)
+            // Bottom: status/time (right) + controls (center)
+            HStack(alignment: .bottom) {
+                Spacer()
+
+                bottomControls
+
+                Spacer()
+
+                // Status + time (always visible, bottom-right)
+                VStack(alignment: .trailing, spacing: 3) {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(instance.state == .running ? Color.green : Color.yellow)
+                            .frame(width: 8, height: 8)
+                        Text(instance.stateDescription)
+                            .font(.caption)
+                            .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
+                    }
+                    Text(formatSimulationTime(instance.simulationTime))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(overlayTextColor(brightness: brightness).opacity(0.8))
+                }
+            }
+            .padding(.bottom, 8)
         }
         .padding(.horizontal)
     }
@@ -105,26 +126,9 @@ struct FullscreenSimulationView: View {
 
             Spacer()
 
-            // Status, time, and performance metrics (toggleable)
+            // Performance metrics (toggleable)
             if showMetrics {
                 VStack(alignment: .trailing, spacing: 4) {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(instance.state == .running ? Color.green : Color.yellow)
-                            .frame(width: 8, height: 8)
-                        Text(instance.stateDescription)
-                            .font(.caption)
-                            .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
-                    }
-
-                    Text(formatSimulationTime(instance.simulationTime))
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundColor(overlayTextColor(brightness: brightness).opacity(0.8))
-
-                    Divider()
-                        .frame(width: 60)
-                        .background(overlayTertiaryTextColor(brightness: brightness))
-
                     // Performance metrics
                     Grid(horizontalSpacing: 3, verticalSpacing: 2) {
                         GridRow {
