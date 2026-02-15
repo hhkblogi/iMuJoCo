@@ -48,7 +48,7 @@ struct FullscreenSimulationView: View {
             HStack {
                 Spacer()
                 VStack(alignment: .trailing, spacing: 3) {
-                    Text(verbatim: ":\(instance.port)")
+                    Text(verbatim: "Port :\(instance.port)")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
                     HStack(spacing: 4) {
