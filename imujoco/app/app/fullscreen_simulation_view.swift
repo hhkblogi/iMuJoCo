@@ -77,38 +77,16 @@ struct FullscreenSimulationView: View {
 
     private var topHUD: some View {
         VStack(alignment: .leading, spacing: 4) {
-            // Title row: back button + model name
-            HStack {
-                #if os(iOS)
-                Button(action: onExit) {
-                    Image(systemName: "chevron.left")
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                        .foregroundColor(overlayTextColor(brightness: brightness))
-                        .frame(width: 44, height: 44)
-                        .background(Color.black.opacity(0.3))
-                        .clipShape(Circle())
+            // Title row: model name — triple-click to exit fullscreen
+            Text(instance.modelName)
+                .font(.headline)
+                .foregroundColor(overlayTextColor(brightness: brightness))
+                .lineLimit(1)
+                .onTapGesture(count: 3) {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        onExit()
+                    }
                 }
-                #endif
-
-                #if os(macOS)
-                Button(action: onExit) {
-                    Image(systemName: "chevron.left")
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                        .foregroundColor(overlayTextColor(brightness: brightness))
-                        .frame(width: 44, height: 44)
-                        .background(Color.black.opacity(0.3))
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-                #endif
-
-                Text(instance.modelName)
-                    .font(.headline)
-                    .foregroundColor(overlayTextColor(brightness: brightness))
-                    .lineLimit(1)
-            }
 
             // Metrics row (right-aligned, under title)
             if showMetrics {
@@ -174,102 +152,6 @@ struct FullscreenSimulationView: View {
         } else {
             return .red
         }
-    }
-
-    private var bottomControls: some View {
-        HStack(spacing: 24) {
-            #if os(iOS)
-            // Metrics toggle
-            ControlButton(
-                systemName: showMetrics ? "chart.bar.fill" : "chart.bar",
-                action: {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showMetrics.toggle()
-                    }
-                }
-            )
-
-            // Reset button
-            ControlButton(systemName: "arrow.counterclockwise", action: instance.reset)
-
-            // Step button
-            ControlButton(systemName: "forward.frame.fill", action: instance.step)
-                .disabled(instance.state == .running)
-
-            // Play/Pause button
-            ControlButton(
-                systemName: instance.state == .running ? "pause.fill" : "play.fill",
-                action: instance.togglePlayPause
-            )
-            .frame(width: 64, height: 64)
-            #endif
-
-            #if os(macOS)
-            // Metrics toggle
-            Button(action: {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    showMetrics.toggle()
-                }
-            }) {
-                Image(systemName: showMetrics ? "chart.bar.fill" : "chart.bar")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.white)
-                    .frame(width: 48, height: 48)
-                    .background(Color.white.opacity(0.2))
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-
-            // Reset button
-            Button(action: instance.reset) {
-                Image(systemName: "arrow.counterclockwise")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.white)
-                    .frame(width: 48, height: 48)
-                    .background(Color.white.opacity(0.2))
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-
-            // Step button
-            Button(action: instance.step) {
-                Image(systemName: "forward.frame.fill")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.white)
-                    .frame(width: 48, height: 48)
-                    .background(Color.white.opacity(0.2))
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .disabled(instance.state == .running)
-
-            // Play/Pause button
-            Button(action: instance.togglePlayPause) {
-                Image(systemName: instance.state == .running ? "pause.fill" : "play.fill")
-                    .font(.title2)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.white)
-                    .frame(width: 64, height: 64)
-                    .background(Color.white.opacity(0.2))
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            #endif
-
-            #if os(tvOS)
-            // tvOS hint
-            Text("Swipe: Rotate | Up/Down: Zoom | Select: Play/Pause | Menu: Back")
-                .font(.caption)
-                .foregroundColor(.white.opacity(0.7))
-            #endif
-        }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 16)
-        .background(Color.black.opacity(0.5))
-        .clipShape(Capsule())
     }
 }
 

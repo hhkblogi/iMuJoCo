@@ -104,12 +104,15 @@ struct SimulationCellView: View {
             VStack(spacing: 0) {
                 // Top: title row, then metrics below (right-aligned)
                 VStack(alignment: .leading, spacing: 4) {
-                    // Title (full width, no wrap)
+                    // Title (full width, no wrap) — triple-click to enter fullscreen
                     Text(instance.modelName)
                         .font(.caption)
                         .fontWeight(.semibold)
                         .foregroundColor(overlayTextColor(brightness: brightness))
                         .lineLimit(1)
+                        .onTapGesture(count: 3) {
+                            onTapFullscreen()
+                        }
 
                     // Metrics (right-aligned, under title)
                     HStack {
@@ -152,16 +155,6 @@ struct SimulationCellView: View {
             }
         }
         .contentShape(Rectangle())
-        #if os(iOS)
-        .onTapGesture(count: 2) {
-            onTapFullscreen()
-        }
-        #endif
-        #if os(macOS)
-        .onTapGesture(count: 2) {
-            onTapFullscreen()
-        }
-        #endif
     }
 
     // MARK: - Performance Metrics View
