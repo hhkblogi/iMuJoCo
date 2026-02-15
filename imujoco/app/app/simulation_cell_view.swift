@@ -126,13 +126,8 @@ struct SimulationCellView: View {
                     // Right: port badge + metrics
                     VStack(alignment: .trailing, spacing: 4) {
                         Text(verbatim: ":\(instance.port)")
-                            .font(.caption2)
-                            .fontWeight(.medium)
+                            .font(.system(size: 9, weight: .medium))
                             .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.black.opacity(0.3))
-                            .clipShape(Capsule())
 
                         performanceMetricsView
                     }
