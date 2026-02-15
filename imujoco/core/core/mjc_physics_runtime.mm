@@ -130,7 +130,7 @@ public:
         client_addr_ = client_addr;
         has_client_ = true;
 
-        os_log_debug(OS_LOG_DEFAULT, "Received %zd bytes", recv_len);
+        // Hot-path: skip per-packet logging
 
         reassembly_manager_.CleanupStale();
 
@@ -167,7 +167,7 @@ public:
         auto packet = imujoco::schema::GetControlPacket(data);
         packets_received_++;
 
-        os_log_debug(OS_LOG_DEFAULT, "ControlPacket: seq=%u", packet->sequence());
+        // Hot-path: skip per-packet logging
 
         if (host_timestamp_us_out) {
             *host_timestamp_us_out = packet->host_timestamp_us();
@@ -222,10 +222,6 @@ public:
 
         if (fragments > 0) {
             packets_sent_++;
-            if (packets_sent_ <= 5 || packets_sent_ % 100 == 0) {
-                os_log_debug(OS_LOG_DEFAULT, "Sent state packet #%u (%u bytes, %d fragments)",
-                             packets_sent_, static_cast<uint32_t>(fb_builder_.GetSize()), fragments);
-            }
             return true;
         }
 
