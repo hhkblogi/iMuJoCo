@@ -9,6 +9,7 @@ struct FullscreenSimulationView: View {
     var onExit: () -> Void
 
     @State private var showMetrics = true
+    @State private var resetProgress: CGFloat = 0
 
     var body: some View {
         ZStack {
@@ -38,6 +39,11 @@ struct FullscreenSimulationView: View {
 
     private var controlsOverlay: some View {
         ZStack {
+            // Large centered countdown ring (visible above finger)
+            if resetProgress > 0 {
+                resetCountdownOverlay(progress: resetProgress, iconSize: 40, ringWidth: 6)
+            }
+
             // Left control bar
             HStack {
                 VStack(spacing: 12) {
@@ -46,7 +52,8 @@ struct FullscreenSimulationView: View {
                         duration: 3.0,
                         brightness: brightness,
                         iconSize: 14,
-                        action: { instance.reset() }
+                        action: { instance.reset() },
+                        holdProgress: $resetProgress
                     )
                 }
                 .padding(.leading, 12)

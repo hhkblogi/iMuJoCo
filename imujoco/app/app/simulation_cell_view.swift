@@ -116,8 +116,8 @@ struct LongPressButton: View {
     let brightness: Float
     let iconSize: CGFloat
     let action: () -> Void
+    @Binding var holdProgress: CGFloat  // exposed to parent for large overlay
 
-    @State private var progress: CGFloat = 0
     @State private var isPressing = false
     @State private var fired = false  // true after action fires; blocks re-trigger until finger lifts
     @State private var holdTask: Task<Void, Never>?
@@ -134,7 +134,7 @@ struct LongPressButton: View {
             )
             .overlay(
                 Circle()
-                    .trim(from: 0, to: progress)
+                    .trim(from: 0, to: holdProgress)
                     .stroke(Color.orange, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                     .padding(1)
@@ -145,7 +145,7 @@ struct LongPressButton: View {
                         guard !isPressing, !fired else { return }
                         isPressing = true
                         withAnimation(.linear(duration: duration)) {
-                            progress = 1.0
+                            holdProgress = 1.0
                         }
                         holdTask = Task { @MainActor in
                             try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
@@ -154,7 +154,7 @@ struct LongPressButton: View {
                             fired = true
                             isPressing = false
                             withAnimation(.easeOut(duration: 0.2)) {
-                                progress = 0
+                                holdProgress = 0
                             }
                         }
                     }
@@ -164,11 +164,40 @@ struct LongPressButton: View {
                         isPressing = false
                         fired = false
                         withAnimation(.easeOut(duration: 0.2)) {
-                            progress = 0
+                            holdProgress = 0
                         }
                     }
             )
     }
+}
+
+// MARK: - Reset Countdown Overlay
+
+/// Large centered countdown ring shown while holding the reset button.
+/// Displayed above the finger so the user can see progress clearly.
+@ViewBuilder
+func resetCountdownOverlay(progress: CGFloat, iconSize: CGFloat, ringWidth: CGFloat) -> some View {
+    let size = iconSize * 3
+    ZStack {
+        // Dimmed background
+        Circle()
+            .fill(Color.black.opacity(0.4))
+            .frame(width: size, height: size)
+
+        // Progress ring
+        Circle()
+            .trim(from: 0, to: progress)
+            .stroke(Color.orange, style: StrokeStyle(lineWidth: ringWidth, lineCap: .round))
+            .rotationEffect(.degrees(-90))
+            .frame(width: size - ringWidth, height: size - ringWidth)
+
+        // Icon
+        Image(systemName: "arrow.counterclockwise")
+            .font(.system(size: iconSize, weight: .bold))
+            .foregroundColor(.orange)
+    }
+    .transition(.opacity)
+    .allowsHitTesting(false)
 }
 
 // MARK: - Shared Rate Color
@@ -189,6 +218,8 @@ struct SimulationCellView: View {
     var instance: SimulationInstance
     var onTapFullscreen: () -> Void
     var onLoadModel: () -> Void
+
+    @State private var resetProgress: CGFloat = 0
 
     #if os(tvOS)
     @FocusState private var isFocused: Bool
@@ -240,6 +271,11 @@ struct SimulationCellView: View {
             // Metal rendering view
             MuJoCoMetalView(dataSource: instance)
 
+            // Large centered countdown ring (visible above finger)
+            if resetProgress > 0 {
+                resetCountdownOverlay(progress: resetProgress, iconSize: 28, ringWidth: 4)
+            }
+
             // Left control bar
             HStack {
                 VStack(spacing: 8) {
@@ -248,7 +284,8 @@ struct SimulationCellView: View {
                         duration: 3.0,
                         brightness: brightness,
                         iconSize: 10,
-                        action: { instance.reset() }
+                        action: { instance.reset() },
+                        holdProgress: $resetProgress
                     )
                 }
                 .padding(.leading, 6)
