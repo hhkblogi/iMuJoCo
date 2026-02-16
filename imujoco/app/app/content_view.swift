@@ -8,6 +8,7 @@ struct ContentView: View {
     @State private var showingFullscreenModelPicker = false
     @State private var fullscreenErrorMessage = ""
     @State private var showingFullscreenError = false
+    @AppStorage("defaultView") private var defaultView: Int = 0
 
     var body: some View {
         ZStack {
@@ -60,6 +61,11 @@ struct ContentView: View {
             )
         }
         #endif
+        .onAppear {
+            if defaultView >= 1, defaultView <= 4 {
+                gridManager.enterFullscreen(index: defaultView - 1)
+            }
+        }
         .alert("Failed to Load Model", isPresented: $showingFullscreenError) {
             Button("OK", role: .cancel) {}
         } message: {

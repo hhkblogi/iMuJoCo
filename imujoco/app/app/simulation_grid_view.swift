@@ -62,6 +62,8 @@ struct SimulationGridView: View {
     @State private var showingErrorAlert = false
     @State private var errorMessage: String = ""
     @State private var ipExpanded = false
+    @State private var showingSettings = false
+    @AppStorage("defaultView") private var defaultView: Int = 0
 
     let columns = [
         GridItem(.flexible(), spacing: 8),
@@ -143,6 +145,9 @@ struct SimulationGridView: View {
         } message: {
             Text(errorMessage)
         }
+        .sheet(isPresented: $showingSettings) {
+            SettingsView(defaultView: $defaultView, onDismiss: { showingSettings = false })
+        }
     }
 
     // MARK: - Model Loading
@@ -169,11 +174,13 @@ struct SimulationGridView: View {
 
     private var menuBar: some View {
         HStack {
-            // App title
-            Text("iMuJoCo")
-                .font(.headline)
-                .fontWeight(.bold)
-                .foregroundColor(.white)
+            // Settings button
+            Button(action: { showingSettings = true }) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(.white)
+            }
+            .buttonStyle(.plain)
 
             Spacer()
 
@@ -344,6 +351,104 @@ struct TVModelPickerView: View {
     }
 }
 #endif
+
+// MARK: - Settings View
+
+/// Mini layout diagram showing a 2x2 grid with optional cell highlight.
+/// `highlightedCell` nil = all cells equal (grid), 0-3 = specific cell for fullscreen.
+struct LayoutIcon: View {
+    let highlightedCell: Int?  // nil = grid view, 0-3 = fullscreen instance
+    let isSelected: Bool
+
+    private let size: CGFloat = 36
+    private let gap: CGFloat = 2
+    private let cornerR: CGFloat = 2
+
+    var body: some View {
+        let cellSize = (size - gap) / 2
+
+        VStack(spacing: gap) {
+            HStack(spacing: gap) {
+                cell(0, cellSize: cellSize)
+                cell(1, cellSize: cellSize)
+            }
+            HStack(spacing: gap) {
+                cell(2, cellSize: cellSize)
+                cell(3, cellSize: cellSize)
+            }
+        }
+        .padding(6)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isSelected ? Color.blue.opacity(0.2) : Color.clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(isSelected ? Color.blue : Color.gray.opacity(0.3), lineWidth: isSelected ? 1.5 : 1)
+        )
+    }
+
+    @ViewBuilder
+    private func cell(_ index: Int, cellSize: CGFloat) -> some View {
+        let active = highlightedCell == nil || highlightedCell == index
+        RoundedRectangle(cornerRadius: cornerR)
+            .fill(active ? (isSelected ? Color.blue : Color.gray) : Color.gray.opacity(0.2))
+            .frame(width: cellSize, height: cellSize)
+    }
+}
+
+struct SettingsView: View {
+    @Binding var defaultView: Int
+    var onDismiss: () -> Void
+
+    // tag 0 = grid, 1-4 = fullscreen instance (highlightedCell 0-3)
+    private let viewOptions: [(highlightedCell: Int?, tag: Int)] = [
+        (nil, 0),
+        (0, 1),
+        (1, 2),
+        (2, 3),
+        (3, 4),
+    ]
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Default View")
+                            .font(.subheadline)
+                        HStack(spacing: 10) {
+                            ForEach(viewOptions, id: \.tag) { option in
+                                Button(action: { defaultView = option.tag }) {
+                                    LayoutIcon(
+                                        highlightedCell: option.highlightedCell,
+                                        isSelected: defaultView == option.tag
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Settings")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done", action: onDismiss)
+                }
+            }
+        }
+        #if os(iOS)
+        .presentationDetents([.medium])
+        #endif
+        #if os(macOS)
+        .frame(minWidth: 450, minHeight: 200)
+        #endif
+    }
+}
 
 // MARK: - Preview
 
