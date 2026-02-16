@@ -37,17 +37,33 @@ struct FullscreenSimulationView: View {
     // MARK: - Controls Overlay
 
     private var controlsOverlay: some View {
-        VStack {
-            // Top HUD
-            topHUD
-                .padding(.top, 8)
-
-            Spacer()
-
-            // Bottom-right: port + status + time
+        ZStack {
+            // Left control bar
             HStack {
+                VStack(spacing: 12) {
+                    LongPressButton(
+                        systemImage: "arrow.counterclockwise",
+                        duration: 3.0,
+                        brightness: brightness,
+                        iconSize: 14,
+                        action: { instance.reset() }
+                    )
+                }
+                .padding(.leading, 12)
                 Spacer()
-                VStack(alignment: .trailing, spacing: 3) {
+            }
+
+            VStack {
+                // Top HUD
+                topHUD
+                    .padding(.top, 8)
+
+                Spacer()
+
+                // Bottom-right: port + status + time
+                HStack {
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 3) {
                     Text(verbatim: "Port :\(instance.port)")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
@@ -65,8 +81,9 @@ struct FullscreenSimulationView: View {
                 }
             }
             .padding(.bottom, 8)
+            }
+            .padding(.horizontal)
         }
-        .padding(.horizontal)
     }
 
     private var brightness: Float { instance.sceneBrightness }

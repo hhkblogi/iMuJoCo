@@ -166,6 +166,10 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     @MainActor
     func reset() {
         guard let runtime = runtime else { return }
+        let wasRunning = runtime.state == .running
+        if wasRunning {
+            pause()  // joins physics thread — safe to mutate data
+        }
         runtime.reset()
         displayTime = 0.0
         displaySPS = 0
@@ -173,6 +177,9 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
         displayTXRate = 0.0
         displayRXRate = 0.0
         displaySceneBrightness = 0.0
+        if wasRunning {
+            start()
+        }
     }
 
     @MainActor

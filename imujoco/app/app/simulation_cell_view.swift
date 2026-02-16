@@ -104,6 +104,73 @@ extension View {
     }
 }
 
+// MARK: - Long-Press Button with Countdown Ring
+
+/// A button that requires a sustained press to activate, with a circular
+/// progress ring that fills over the hold duration. Prevents accidental taps.
+/// Uses DragGesture + async timer instead of onLongPressGesture to avoid
+/// iOS "System gesture gate timed out" errors with long durations.
+struct LongPressButton: View {
+    let systemImage: String
+    let duration: Double
+    let brightness: Float
+    let iconSize: CGFloat
+    let action: () -> Void
+
+    @State private var progress: CGFloat = 0
+    @State private var isPressing = false
+    @State private var fired = false  // true after action fires; blocks re-trigger until finger lifts
+    @State private var holdTask: Task<Void, Never>?
+
+    var body: some View {
+        let frameSize = iconSize * 2.2
+        Image(systemName: systemImage)
+            .font(.system(size: iconSize, weight: .semibold))
+            .foregroundColor(isPressing ? .orange : overlayTextColor(brightness: brightness))
+            .frame(width: frameSize, height: frameSize)
+            .background(
+                Circle()
+                    .fill(Color.black.opacity(0.3))
+            )
+            .overlay(
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(Color.orange, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .padding(1)
+            )
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        guard !isPressing, !fired else { return }
+                        isPressing = true
+                        withAnimation(.linear(duration: duration)) {
+                            progress = 1.0
+                        }
+                        holdTask = Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+                            guard !Task.isCancelled else { return }
+                            action()
+                            fired = true
+                            isPressing = false
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                progress = 0
+                            }
+                        }
+                    }
+                    .onEnded { _ in
+                        holdTask?.cancel()
+                        holdTask = nil
+                        isPressing = false
+                        fired = false
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            progress = 0
+                        }
+                    }
+            )
+    }
+}
+
 // MARK: - Shared Rate Color
 
 func rateColor(_ rate: Float) -> Color {
@@ -172,6 +239,21 @@ struct SimulationCellView: View {
         ZStack {
             // Metal rendering view
             MuJoCoMetalView(dataSource: instance)
+
+            // Left control bar
+            HStack {
+                VStack(spacing: 8) {
+                    LongPressButton(
+                        systemImage: "arrow.counterclockwise",
+                        duration: 3.0,
+                        brightness: brightness,
+                        iconSize: 10,
+                        action: { instance.reset() }
+                    )
+                }
+                .padding(.leading, 6)
+                Spacer()
+            }
 
             // Info overlay — text color adapts to scene brightness
             VStack(spacing: 0) {
