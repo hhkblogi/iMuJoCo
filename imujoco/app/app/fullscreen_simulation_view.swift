@@ -53,6 +53,16 @@ struct FullscreenSimulationView: View {
             // Left control bar
             HStack {
                 VStack(spacing: 12) {
+                    Button(action: { instance.togglePlayPause() }) {
+                        let isRunning = instance.state == .running
+                        let frameSize = 14 * 2.2
+                        Image(systemName: isRunning ? "pause.fill" : "play.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(overlayTextColor(brightness: brightness))
+                            .frame(width: frameSize, height: frameSize)
+                            .background(Circle().fill(Color.black.opacity(0.3)))
+                    }
+                    .buttonStyle(.plain)
                     LongPressButton(
                         systemImage: "arrow.counterclockwise",
                         duration: 3.0,
