@@ -47,24 +47,6 @@ private struct TripleTapModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .overlay(alignment: .bottomLeading) {
-                if tapCount > 0 {
-                    HStack(spacing: 4) {
-                        HStack(spacing: 3) {
-                            ForEach(0..<3, id: \.self) { i in
-                                Circle()
-                                    .fill(i < tapCount ? dotColor : dotColor.opacity(0.3))
-                                    .frame(width: 4, height: 4)
-                            }
-                        }
-                        Text("\(remaining) tap\(remaining == 1 ? "" : "s") to \(targetLabel)")
-                            .font(.system(size: 9))
-                            .foregroundColor(dotColor.opacity(0.8))
-                    }
-                    .offset(y: 10)
-                    .transition(.opacity)
-                }
-            }
             .onTapGesture {
                 handleTap()
             }
@@ -214,7 +196,6 @@ struct SimulationCellView: View {
 
     @State private var resetProgress: CGFloat = 0
     @State private var stopProgress: CGFloat = 0
-    @State private var isLocked: Bool = true
 
     #if os(tvOS)
     @FocusState private var isFocused: Bool
@@ -271,7 +252,7 @@ struct SimulationCellView: View {
                     .foregroundColor(.gray.opacity(0.3))
             } else {
                 MuJoCoMetalView(dataSource: instance)
-                    .allowsHitTesting(!isLocked)
+                    .allowsHitTesting(!instance.isLocked)
             }
 
             // Large centered countdown overlays (always present so trim animates)
@@ -283,9 +264,9 @@ struct SimulationCellView: View {
                 HStack {
                     VStack(spacing: 6) {
                         // Lock button (standalone toggle)
-                        Button(action: { isLocked.toggle() }) {
+                        Button(action: { instance.isLocked.toggle() }) {
                             let frameSize: CGFloat = 10 * 2.2
-                            Image(systemName: isLocked ? "lock.fill" : "lock.open")
+                            Image(systemName: instance.isLocked ? "lock.fill" : "lock.open")
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundColor(overlayTextColor(brightness: brightness))
                                 .frame(width: frameSize, height: frameSize)
@@ -303,7 +284,7 @@ struct SimulationCellView: View {
                         .buttonStyle(.plain)
 
                         // Controls pill (visible when unlocked)
-                        if !isLocked {
+                        if !instance.isLocked {
                             VStack(spacing: 4) {
                                 Button(action: { instance.togglePlayPause() }) {
                                     let isRunning = instance.state == .running

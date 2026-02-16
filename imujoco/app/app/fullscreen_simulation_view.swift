@@ -12,7 +12,6 @@ struct FullscreenSimulationView: View {
     @State private var showMetrics = true
     @State private var resetProgress: CGFloat = 0
     @State private var stopProgress: CGFloat = 0
-    @State private var isLocked: Bool = true
 
     var body: some View {
         ZStack {
@@ -25,7 +24,7 @@ struct FullscreenSimulationView: View {
                         .foregroundColor(.gray.opacity(0.3))
                 } else {
                     MuJoCoMetalView(dataSource: instance)
-                        .allowsHitTesting(!isLocked)
+                        .allowsHitTesting(!instance.isLocked)
                         .ignoresSafeArea()
                 }
 
@@ -70,9 +69,9 @@ struct FullscreenSimulationView: View {
                 HStack {
                     VStack(spacing: 8) {
                         // Lock button (standalone toggle)
-                        Button(action: { isLocked.toggle() }) {
+                        Button(action: { instance.isLocked.toggle() }) {
                             let frameSize: CGFloat = 14 * 2.2
-                            Image(systemName: isLocked ? "lock.fill" : "lock.open")
+                            Image(systemName: instance.isLocked ? "lock.fill" : "lock.open")
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(overlayTextColor(brightness: brightness))
                                 .frame(width: frameSize, height: frameSize)
@@ -90,7 +89,7 @@ struct FullscreenSimulationView: View {
                         .buttonStyle(.plain)
 
                         // Controls pill (visible when unlocked)
-                        if !isLocked {
+                        if !instance.isLocked {
                             VStack(spacing: 6) {
                                 Button(action: { instance.togglePlayPause() }) {
                                     let isRunning = instance.state == .running

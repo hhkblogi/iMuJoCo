@@ -62,6 +62,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     fileprivate(set) var modelName: String = ""
 
     // UI state (persists across grid/fullscreen switches)
+    var isLocked: Bool = true
     var isBlinded: Bool = false
 
     // Stored properties for SwiftUI observation
