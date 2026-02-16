@@ -370,6 +370,12 @@ public:
     /// @note Call pause() first for thread safety
     void reset();
 
+    /// Reset simulation to a named keyframe
+    /// @param name Keyframe name to look up in the model
+    /// @return true if keyframe was found and applied
+    /// @note Also sets the active keyframe used by reset()
+    bool resetToKeyframe(const char* name);
+
     /// Step the simulation manually (when paused)
     void step();
 

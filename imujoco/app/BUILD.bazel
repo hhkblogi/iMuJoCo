@@ -88,8 +88,7 @@ ios_application(
     resources = [
         "app/Assets.xcassets",
         "app/PrivacyInfo.xcprivacy",
-        "app/Resources/Models/pendulum.xml",
-        "app/Resources/Models/simple_pendulum.xml",
+        "//models",
         "//imujoco/render:mujoco_metallib",
     ],
     visibility = ["//visibility:public"],
@@ -109,8 +108,7 @@ macos_application(
     resources = [
         "app/Assets.xcassets",
         "app/PrivacyInfo.xcprivacy",
-        "app/Resources/Models/pendulum.xml",
-        "app/Resources/Models/simple_pendulum.xml",
+        "//models",
         "//imujoco/render:mujoco_metallib",
     ],
     deps = [":app_lib"],
@@ -129,8 +127,7 @@ tvos_application(
     resources = [
         "app/Assets.xcassets",
         "app/PrivacyInfo.xcprivacy",
-        "app/Resources/Models/pendulum.xml",
-        "app/Resources/Models/simple_pendulum.xml",
+        "//models",
         "//imujoco/render:mujoco_metallib",
     ],
     deps = [":app_lib"],

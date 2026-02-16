@@ -1,0 +1,9 @@
+<!-- Humanoid (Supine) - iMuJoCo wrapper model
+     Includes the standard MuJoCo humanoid and overrides timestep for stability.
+     Use keyframe "supine" to initialize in supine position.
+-->
+<mujoco model="Humanoid (Supine)">
+  <include file="model/humanoid/humanoid.xml"/>
+
+  <option timestep="0.001"/>
+</mujoco>

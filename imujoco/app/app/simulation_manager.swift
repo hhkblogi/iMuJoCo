@@ -346,6 +346,7 @@ struct BundledModel {
     let name: String         // Display name
     let resource: String     // XML filename without extension
     let subdirectory: String?  // Subdirectory in bundle (nil = flat)
+    let keyframe: String?    // Initial keyframe name (nil = default state)
     let timestep: Double?    // Override model timestep (nil = use model default)
     let cameraElevation: Double?  // Override initial camera elevation (nil = use default)
     let cameraAzimuth: Double?    // Override initial camera azimuth (nil = use default)
@@ -368,14 +369,14 @@ final class SimulationGridManager: @unchecked Sendable {
 
     var bundledModels: [BundledModel] {
         [
-            BundledModel(name: "Humanoid (Supine)", resource: "humanoid", subdirectory: "model/humanoid",
-                         timestep: 0.001, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
+            BundledModel(name: "Humanoid (Supine)", resource: "humanoid_supine", subdirectory: nil,
+                         keyframe: "supine", timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
             BundledModel(name: "Pendulum", resource: "pendulum", subdirectory: nil,
-                         timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
+                         keyframe: nil, timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
             BundledModel(name: "Simple Pendulum", resource: "simple_pendulum", subdirectory: nil,
-                         timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
+                         keyframe: nil, timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
             BundledModel(name: "Unitree G1", resource: "scene", subdirectory: "unitree_g1",
-                         timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
+                         keyframe: nil, timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
         ]
     }
 
@@ -453,6 +454,9 @@ final class SimulationGridManager: @unchecked Sendable {
         }
 
         try await instance.loadModel(fromFile: modelPath)
+        if let keyframe = model.keyframe {
+            instance.runtime?.resetToKeyframe(keyframe)
+        }
         if let ts = model.timestep {
             instance.runtime?.setTimestep(ts)
         }

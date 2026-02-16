@@ -161,6 +161,14 @@ public final class MJRuntime {
         runtime.reset()
     }
 
+    /// Reset simulation to a named keyframe and set it as the active keyframe for future resets
+    /// - Parameter name: Keyframe name defined in the model XML
+    /// - Returns: true if keyframe was found and applied
+    @discardableResult
+    public func resetToKeyframe(_ name: String) -> Bool {
+        return runtime.resetToKeyframe(name)
+    }
+
     /// Step the simulation manually (when paused)
     public func step() {
         runtime.step()
