@@ -128,10 +128,6 @@ struct LongPressButton: View {
             .font(.system(size: iconSize, weight: .semibold))
             .foregroundColor(overlayTextColor(brightness: brightness))
             .frame(width: frameSize, height: frameSize)
-            .background(
-                Circle()
-                    .fill(Color.black.opacity(0.3))
-            )
             .overlay(
                 Circle()
                     .trim(from: 0, to: holdProgress)
@@ -279,50 +275,59 @@ struct SimulationCellView: View {
             countdownOverlay(progress: stopProgress, systemImage: "stop.fill", color: .red, iconSize: 28, ringWidth: 4)
 
             // Left control bar
-            HStack {
-                VStack(spacing: 8) {
-                    Button(action: { isLocked.toggle() }) {
-                        let frameSize = 10 * 2.2
-                        Image(systemName: isLocked ? "lock.fill" : "lock.open")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(isLocked ? .yellow : overlayTextColor(brightness: brightness))
-                            .frame(width: frameSize, height: frameSize)
-                            .background(Circle().fill(Color.black.opacity(0.3)))
+            VStack {
+                HStack {
+                    VStack(spacing: 6) {
+                        // Lock button (standalone toggle)
+                        Button(action: { isLocked.toggle() }) {
+                            let frameSize: CGFloat = 10 * 2.2
+                            Image(systemName: isLocked ? "lock.fill" : "lock.open")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(overlayTextColor(brightness: brightness))
+                                .frame(width: frameSize, height: frameSize)
+                        }
+                        .buttonStyle(.plain)
+
+                        // Controls pill (visible when unlocked)
+                        if !isLocked {
+                            VStack(spacing: 4) {
+                                Button(action: { instance.togglePlayPause() }) {
+                                    let isRunning = instance.state == .running
+                                    let frameSize: CGFloat = 10 * 2.2
+                                    Image(systemName: isRunning ? "pause.fill" : "play.fill")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundColor(overlayTextColor(brightness: brightness))
+                                        .frame(width: frameSize, height: frameSize)
+                                }
+                                .buttonStyle(.plain)
+                                LongPressButton(
+                                    systemImage: "arrow.counterclockwise",
+                                    duration: 3.0,
+                                    brightness: brightness,
+                                    iconSize: 10,
+                                    action: { instance.reset() },
+                                    holdProgress: $resetProgress
+                                )
+                                LongPressButton(
+                                    systemImage: "stop.fill",
+                                    duration: 3.0,
+                                    brightness: brightness,
+                                    iconSize: 10,
+                                    action: { instance.unload() },
+                                    holdProgress: $stopProgress
+                                )
+                            }
+                            .padding(3)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(Color.black.opacity(0.35))
+                            )
+                        }
                     }
-                    .buttonStyle(.plain)
-                    Button(action: { if !isLocked { instance.togglePlayPause() } }) {
-                        let isRunning = instance.state == .running
-                        let frameSize = 10 * 2.2
-                        Image(systemName: isRunning ? "pause.fill" : "play.fill")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(overlayTextColor(brightness: brightness))
-                            .frame(width: frameSize, height: frameSize)
-                            .background(Circle().fill(Color.black.opacity(0.3)))
-                    }
-                    .buttonStyle(.plain)
-                    .opacity(isLocked ? 0.3 : 1.0)
-                    LongPressButton(
-                        systemImage: "arrow.counterclockwise",
-                        duration: 3.0,
-                        brightness: brightness,
-                        iconSize: 10,
-                        action: { instance.reset() },
-                        holdProgress: $resetProgress
-                    )
-                    .opacity(isLocked ? 0.3 : 1.0)
-                    .allowsHitTesting(!isLocked)
-                    LongPressButton(
-                        systemImage: "stop.fill",
-                        duration: 3.0,
-                        brightness: brightness,
-                        iconSize: 10,
-                        action: { instance.unload() },
-                        holdProgress: $stopProgress
-                    )
-                    .opacity(isLocked ? 0.3 : 1.0)
-                    .allowsHitTesting(!isLocked)
+                    Spacer()
                 }
                 .padding(.leading, 6)
+                .padding(.top, 32)
                 Spacer()
             }
 
