@@ -129,7 +129,7 @@ struct FullscreenSimulationView: View {
                             }
                             .padding(4)
                             .background(
-                                RoundedRectangle(cornerRadius: 18)
+                                RoundedRectangle(cornerRadius: 10)
                                     .fill(Color.black.opacity(0.35))
                             )
                         }

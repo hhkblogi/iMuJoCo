@@ -324,7 +324,7 @@ struct SimulationCellView: View {
                             }
                             .padding(3)
                             .background(
-                                RoundedRectangle(cornerRadius: 14)
+                                RoundedRectangle(cornerRadius: 8)
                                     .fill(Color.black.opacity(0.35))
                             )
                         }
