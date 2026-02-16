@@ -34,7 +34,7 @@ typedef struct mjvOption_ mjvOption;
 
 constexpr int MJ_MAX_GEOMS = 10000;
 constexpr int MJ_MAX_LIGHTS = 8;
-constexpr uint16_t MJ_DEFAULT_UDP_PORT = 8888;
+constexpr uint16_t MJ_DEFAULT_UDP_PORT = 9000;
 
 // UDP Packet magic number (see mjc_fragment.h for fragment protocol)
 constexpr uint32_t MJ_PACKET_MAGIC_FRAG = 0x4D4A4647;  // "MJFG" - Fragment packet
@@ -54,7 +54,7 @@ struct MJRuntimeConfig {
     int32_t instanceIndex = 0;      ///< Instance ID (0-3)
     double targetFPS = 60.0;        ///< Target simulation FPS
     bool busyWait = false;          ///< Use busy wait for better timing (uses more CPU)
-    uint16_t udpPort = 0;           ///< UDP port for network I/O (0 = default: 8888 + instanceIndex)
+    uint16_t udpPort = 0;           ///< UDP port for network I/O (0 = default: 9000 + instanceIndex)
     uint32_t ctrlTimeoutMs = 500;   ///< ms without UDP packet before ctrl fallback (0 = disabled)
 };
 

@@ -104,7 +104,7 @@ public final class MJRuntime {
         config.instanceIndex = instanceIndex
         config.targetFPS = targetFPS
         config.busyWait = busyWait
-        config.udpPort = udpPort  // 0 = use default (8888 + instanceIndex)
+        config.udpPort = udpPort  // 0 = use default (9000 + instanceIndex)
         config.ctrlTimeoutMs = ctrlTimeoutMs  // 0 = disabled
 
         guard let ptr = MJSimulationRuntime.create(config) else {

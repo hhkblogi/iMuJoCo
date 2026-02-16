@@ -31,6 +31,175 @@ func overlayTertiaryTextColor(brightness: Float) -> Color {
     brightness > 0.5 ? .black.opacity(0.4) : .white.opacity(0.5)
 }
 
+// MARK: - Triple-Tap Gesture with Visual Hints
+
+/// Shows progress dots (● ● ○) and a countdown hint under the view as the user
+/// taps toward a triple-tap. Resets after 500ms of inactivity.
+private struct TripleTapModifier: ViewModifier {
+    let dotColor: Color
+    let targetLabel: String  // e.g. "fullscreen" or "grid"
+    let action: () -> Void
+
+    @State private var tapCount = 0
+    @State private var resetTask: Task<Void, Never>?
+
+    private var remaining: Int { 3 - tapCount }
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(tapCount == 1 ? 1.05 : tapCount == 2 ? 1.1 : 1.0)
+            .animation(.easeInOut(duration: 0.12), value: tapCount)
+            .overlay(alignment: .bottomLeading) {
+                if tapCount > 0 {
+                    HStack(spacing: 4) {
+                        HStack(spacing: 3) {
+                            ForEach(0..<3, id: \.self) { i in
+                                Circle()
+                                    .fill(i < tapCount ? dotColor : dotColor.opacity(0.3))
+                                    .frame(width: 4, height: 4)
+                            }
+                        }
+                        Text("\(remaining) tap\(remaining == 1 ? "" : "s") to \(targetLabel)")
+                            .font(.system(size: 9))
+                            .foregroundColor(dotColor.opacity(0.8))
+                    }
+                    .offset(y: 10)
+                    .transition(.opacity)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                handleTap()
+            }
+    }
+
+    private func handleTap() {
+        resetTask?.cancel()
+
+        withAnimation(.easeInOut(duration: 0.12)) {
+            tapCount += 1
+        }
+
+        if tapCount >= 3 {
+            withAnimation(.easeInOut(duration: 0.12)) {
+                tapCount = 0
+            }
+            action()
+            return
+        }
+
+        resetTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                tapCount = 0
+            }
+        }
+    }
+}
+
+extension View {
+    func onTripleTap(dotColor: Color, targetLabel: String, perform action: @escaping () -> Void) -> some View {
+        modifier(TripleTapModifier(dotColor: dotColor, targetLabel: targetLabel, action: action))
+    }
+}
+
+// MARK: - Long-Press Button with Countdown Ring
+
+/// A button that requires a sustained press to activate, with a circular
+/// progress ring that fills over the hold duration. Prevents accidental taps.
+/// Uses DragGesture + async timer instead of onLongPressGesture to avoid
+/// iOS "System gesture gate timed out" errors with long durations.
+struct LongPressButton: View {
+    let systemImage: String
+    let duration: Double
+    let brightness: Float
+    let iconSize: CGFloat
+    let action: () -> Void
+    @Binding var holdProgress: CGFloat  // exposed to parent for large overlay
+
+    @State private var isPressing = false
+    @State private var fired = false  // true after action fires; blocks re-trigger until finger lifts
+    @State private var holdTask: Task<Void, Never>?
+
+    var body: some View {
+        let frameSize = iconSize * 2.2
+        Image(systemName: systemImage)
+            .font(.system(size: iconSize, weight: .semibold))
+            .foregroundColor(overlayTextColor(brightness: brightness))
+            .frame(width: frameSize, height: frameSize)
+            .background(
+                Circle()
+                    .fill(Color.black.opacity(0.3))
+            )
+            .overlay(
+                Circle()
+                    .trim(from: 0, to: holdProgress)
+                    .stroke(Color.orange, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .padding(1)
+            )
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        guard !isPressing, !fired else { return }
+                        isPressing = true
+                        withAnimation(.linear(duration: duration)) {
+                            holdProgress = 1.0
+                        }
+                        holdTask = Task { @MainActor in
+                            try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+                            guard !Task.isCancelled else { return }
+                            action()
+                            fired = true
+                            isPressing = false
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                holdProgress = 0
+                            }
+                        }
+                    }
+                    .onEnded { _ in
+                        holdTask?.cancel()
+                        holdTask = nil
+                        isPressing = false
+                        fired = false
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            holdProgress = 0
+                        }
+                    }
+            )
+    }
+}
+
+// MARK: - Reset Countdown Overlay
+
+/// Large centered countdown ring shown while holding a long-press button.
+/// Displayed above the finger so the user can see progress clearly.
+@ViewBuilder
+func countdownOverlay(progress: CGFloat, systemImage: String, color: Color, iconSize: CGFloat, ringWidth: CGFloat) -> some View {
+    let size = iconSize * 3
+    ZStack {
+        // Dimmed background (only visible while pressing)
+        Circle()
+            .fill(Color.black.opacity(progress > 0 ? 0.4 : 0))
+            .frame(width: size, height: size)
+
+        // Countdown ring (fills clockwise along the rim)
+        Circle()
+            .trim(from: 0, to: progress)
+            .stroke(color, style: StrokeStyle(lineWidth: ringWidth, lineCap: .round))
+            .rotationEffect(.degrees(-90))
+            .frame(width: size - ringWidth, height: size - ringWidth)
+
+        // Icon (only visible while pressing)
+        Image(systemName: systemImage)
+            .font(.system(size: iconSize, weight: .bold))
+            .foregroundColor(color)
+            .opacity(progress > 0 ? 1 : 0)
+    }
+    .allowsHitTesting(false)
+}
+
 // MARK: - Shared Rate Color
 
 func rateColor(_ rate: Float) -> Color {
@@ -49,6 +218,9 @@ struct SimulationCellView: View {
     var instance: SimulationInstance
     var onTapFullscreen: () -> Void
     var onLoadModel: () -> Void
+
+    @State private var resetProgress: CGFloat = 0
+    @State private var stopProgress: CGFloat = 0
 
     #if os(tvOS)
     @FocusState private var isFocused: Bool
@@ -100,6 +272,34 @@ struct SimulationCellView: View {
             // Metal rendering view
             MuJoCoMetalView(dataSource: instance)
 
+            // Large centered countdown overlays (always present so trim animates)
+            countdownOverlay(progress: resetProgress, systemImage: "arrow.counterclockwise", color: .orange, iconSize: 28, ringWidth: 4)
+            countdownOverlay(progress: stopProgress, systemImage: "stop.fill", color: .red, iconSize: 28, ringWidth: 4)
+
+            // Left control bar
+            HStack {
+                VStack(spacing: 8) {
+                    LongPressButton(
+                        systemImage: "arrow.counterclockwise",
+                        duration: 3.0,
+                        brightness: brightness,
+                        iconSize: 10,
+                        action: { instance.reset() },
+                        holdProgress: $resetProgress
+                    )
+                    LongPressButton(
+                        systemImage: "stop.fill",
+                        duration: 3.0,
+                        brightness: brightness,
+                        iconSize: 10,
+                        action: { instance.unload() },
+                        holdProgress: $stopProgress
+                    )
+                }
+                .padding(.leading, 6)
+                Spacer()
+            }
+
             // Info overlay — text color adapts to scene brightness
             VStack(spacing: 0) {
                 // Top: title row, then metrics below (right-aligned)
@@ -110,7 +310,7 @@ struct SimulationCellView: View {
                         .fontWeight(.semibold)
                         .foregroundColor(overlayTextColor(brightness: brightness))
                         .lineLimit(1)
-                        .onTapGesture(count: 3) {
+                        .onTripleTap(dotColor: overlayTextColor(brightness: brightness), targetLabel: "fullscreen") {
                             onTapFullscreen()
                         }
 
@@ -135,7 +335,7 @@ struct SimulationCellView: View {
                 HStack {
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text(verbatim: ":\(instance.port)")
+                        Text(verbatim: "Port :\(instance.port)")
                             .font(.system(size: 9, weight: .medium))
                             .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
                         HStack(spacing: 4) {
@@ -251,6 +451,10 @@ struct SimulationCellView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black.opacity(0.9))
+        .contentShape(Rectangle())
+        .onTripleTap(dotColor: .gray, targetLabel: "fullscreen") {
+            onTapFullscreen()
+        }
     }
 }
 

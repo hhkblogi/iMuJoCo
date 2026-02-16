@@ -77,7 +77,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     // State polling timer
     private var stateUpdateTask: Task<Void, Never>?
 
-    init(id: Int, basePort: UInt16 = 8888) {
+    init(id: Int, basePort: UInt16 = 9000) {
         self.id = id
         self.port = basePort + UInt16(id)
     }
@@ -166,6 +166,10 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     @MainActor
     func reset() {
         guard let runtime = runtime else { return }
+        let wasRunning = runtime.state == .running
+        if wasRunning {
+            pause()  // joins physics thread — safe to mutate data
+        }
         runtime.reset()
         displayTime = 0.0
         displaySPS = 0
@@ -173,6 +177,9 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
         displayTXRate = 0.0
         displayRXRate = 0.0
         displaySceneBrightness = 0.0
+        if wasRunning {
+            start()
+        }
     }
 
     @MainActor
@@ -354,7 +361,7 @@ struct BundledModel {
 @Observable
 final class SimulationGridManager: @unchecked Sendable {
     static let gridSize = 4  // 2x2 grid
-    static let basePort: UInt16 = 8888
+    static let basePort: UInt16 = 9000
 
     private(set) var instances: [SimulationInstance]
     private(set) var fullscreenInstanceId: Int? = nil

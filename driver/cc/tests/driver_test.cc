@@ -17,7 +17,7 @@ TEST(DriverTest, ConfigDefaults) {
     DriverConfig config;
 
     EXPECT_EQ(config.host, "127.0.0.1");
-    EXPECT_EQ(config.port, 8888);
+    EXPECT_EQ(config.port, 9000);
     EXPECT_EQ(config.local_port, 0);
     EXPECT_EQ(config.timeout_ms, 100);
     EXPECT_TRUE(config.auto_start_receiving);
@@ -171,7 +171,7 @@ TEST(DriverTest, ErrorCallback) {
 TEST(DriverTest, DISABLED_ConnectToSimulation) {
     DriverConfig config;
     config.host = "127.0.0.1";
-    config.port = 8888;
+    config.port = 9000;
     config.timeout_ms = 1000;
 
     Driver driver(config);

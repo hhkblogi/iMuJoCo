@@ -7,17 +7,25 @@ import render
 struct FullscreenSimulationView: View {
     var instance: SimulationInstance
     var onExit: () -> Void
+    var onLoadModel: () -> Void
 
     @State private var showMetrics = true
+    @State private var resetProgress: CGFloat = 0
+    @State private var stopProgress: CGFloat = 0
 
     var body: some View {
         ZStack {
-            // Metal rendering view (full screen)
-            MuJoCoMetalView(dataSource: instance)
-                .ignoresSafeArea()
+            if instance.isActive {
+                // Metal rendering view (full screen)
+                MuJoCoMetalView(dataSource: instance)
+                    .ignoresSafeArea()
 
-            // Controls overlay (always visible)
-            controlsOverlay
+                // Controls overlay (always visible)
+                controlsOverlay
+            } else {
+                // Empty view — model not loaded
+                fullscreenEmptyView
+            }
         }
         .background(Color.black)
         #if os(iOS)
@@ -37,18 +45,47 @@ struct FullscreenSimulationView: View {
     // MARK: - Controls Overlay
 
     private var controlsOverlay: some View {
-        VStack {
-            // Top HUD
-            topHUD
-                .padding(.top, 8)
+        ZStack {
+            // Large centered countdown overlays (always present so trim animates)
+            countdownOverlay(progress: resetProgress, systemImage: "arrow.counterclockwise", color: .orange, iconSize: 40, ringWidth: 6)
+            countdownOverlay(progress: stopProgress, systemImage: "stop.fill", color: .red, iconSize: 40, ringWidth: 6)
 
-            Spacer()
-
-            // Bottom-right: port + status + time
+            // Left control bar
             HStack {
+                VStack(spacing: 12) {
+                    LongPressButton(
+                        systemImage: "arrow.counterclockwise",
+                        duration: 3.0,
+                        brightness: brightness,
+                        iconSize: 14,
+                        action: { instance.reset() },
+                        holdProgress: $resetProgress
+                    )
+                    LongPressButton(
+                        systemImage: "stop.fill",
+                        duration: 3.0,
+                        brightness: brightness,
+                        iconSize: 14,
+                        action: { instance.unload() },
+                        holdProgress: $stopProgress
+                    )
+                }
+                .padding(.leading, 12)
                 Spacer()
-                VStack(alignment: .trailing, spacing: 3) {
-                    Text(verbatim: ":\(instance.port)")
+            }
+
+            VStack {
+                // Top HUD
+                topHUD
+                    .padding(.top, 8)
+
+                Spacer()
+
+                // Bottom-right: port + status + time
+                HStack {
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 3) {
+                    Text(verbatim: "Port :\(instance.port)")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
                     HStack(spacing: 4) {
@@ -65,8 +102,9 @@ struct FullscreenSimulationView: View {
                 }
             }
             .padding(.bottom, 8)
+            }
+            .padding(.horizontal)
         }
-        .padding(.horizontal)
     }
 
     private var brightness: Float { instance.sceneBrightness }
@@ -82,7 +120,7 @@ struct FullscreenSimulationView: View {
                 .font(.headline)
                 .foregroundColor(overlayTextColor(brightness: brightness))
                 .lineLimit(1)
-                .onTapGesture(count: 3) {
+                .onTripleTap(dotColor: overlayTextColor(brightness: brightness), targetLabel: "grid view") {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         onExit()
                     }
@@ -153,6 +191,33 @@ struct FullscreenSimulationView: View {
             return .red
         }
     }
+
+    // MARK: - Empty View (no model loaded)
+
+    private var fullscreenEmptyView: some View {
+        VStack(spacing: 24) {
+            Image(systemName: "cube.transparent")
+                .font(.system(size: 60))
+                .foregroundColor(.gray.opacity(0.5))
+
+            Text("No Model Loaded")
+                .font(.title3)
+                .foregroundColor(.gray)
+
+            Button(action: onLoadModel) {
+                Label("Load Model", systemImage: "plus.circle.fill")
+                    .font(.headline)
+            }
+            .buttonStyle(.bordered)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .onTripleTap(dotColor: .gray, targetLabel: "grid view") {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                onExit()
+            }
+        }
+    }
 }
 
 // MARK: - Control Button
@@ -182,7 +247,8 @@ struct ControlButton: View {
 #Preview {
     FullscreenSimulationView(
         instance: SimulationInstance(id: 0),
-        onExit: {}
+        onExit: {},
+        onLoadModel: {}
     )
 }
 #endif

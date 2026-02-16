@@ -32,7 +32,7 @@ int main(int argc, char* argv[]) {
     Args args(argc, argv);
 
     std::string host = args.get("host", "127.0.0.1");
-    uint16_t port = static_cast<uint16_t>(args.get_int("port", 8888));
+    uint16_t port = static_cast<uint16_t>(args.get_int("port", 9000));
     int rate_hz = args.get_int("rate", 1000);
     double duration = args.get_double("duration", 0.0);
 
@@ -40,7 +40,7 @@ int main(int argc, char* argv[]) {
         std::cout << "Usage: " << args.program()
                   << " [--host HOST] [--port PORT] [--rate HZ] [--duration SEC]\n"
                   << "  --host      Simulation host (default: 127.0.0.1)\n"
-                  << "  --port      Simulation port (default: 8888)\n"
+                  << "  --port      Simulation port (default: 9000)\n"
                   << "  --rate      Control loop rate in Hz (default: 1000)\n"
                   << "  --duration  Run duration in seconds, 0=forever (default: 0)\n";
         return 0;
