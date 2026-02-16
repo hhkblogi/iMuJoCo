@@ -221,6 +221,7 @@ struct SimulationCellView: View {
 
     @State private var resetProgress: CGFloat = 0
     @State private var stopProgress: CGFloat = 0
+    @State private var isLocked: Bool = true
 
     #if os(tvOS)
     @FocusState private var isFocused: Bool
@@ -269,8 +270,9 @@ struct SimulationCellView: View {
 
     private var activeView: some View {
         ZStack {
-            // Metal rendering view
+            // Metal rendering view — disable gestures when locked
             MuJoCoMetalView(dataSource: instance)
+                .allowsHitTesting(!isLocked)
 
             // Large centered countdown overlays (always present so trim animates)
             countdownOverlay(progress: resetProgress, systemImage: "arrow.counterclockwise", color: .orange, iconSize: 28, ringWidth: 4)
@@ -279,7 +281,16 @@ struct SimulationCellView: View {
             // Left control bar
             HStack {
                 VStack(spacing: 8) {
-                    Button(action: { instance.togglePlayPause() }) {
+                    Button(action: { isLocked.toggle() }) {
+                        let frameSize = 10 * 2.2
+                        Image(systemName: isLocked ? "lock.fill" : "lock.open")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(isLocked ? .yellow : overlayTextColor(brightness: brightness))
+                            .frame(width: frameSize, height: frameSize)
+                            .background(Circle().fill(Color.black.opacity(0.3)))
+                    }
+                    .buttonStyle(.plain)
+                    Button(action: { if !isLocked { instance.togglePlayPause() } }) {
                         let isRunning = instance.state == .running
                         let frameSize = 10 * 2.2
                         Image(systemName: isRunning ? "pause.fill" : "play.fill")
@@ -289,6 +300,7 @@ struct SimulationCellView: View {
                             .background(Circle().fill(Color.black.opacity(0.3)))
                     }
                     .buttonStyle(.plain)
+                    .opacity(isLocked ? 0.3 : 1.0)
                     LongPressButton(
                         systemImage: "arrow.counterclockwise",
                         duration: 3.0,
@@ -297,6 +309,8 @@ struct SimulationCellView: View {
                         action: { instance.reset() },
                         holdProgress: $resetProgress
                     )
+                    .opacity(isLocked ? 0.3 : 1.0)
+                    .allowsHitTesting(!isLocked)
                     LongPressButton(
                         systemImage: "stop.fill",
                         duration: 3.0,
@@ -305,6 +319,8 @@ struct SimulationCellView: View {
                         action: { instance.unload() },
                         holdProgress: $stopProgress
                     )
+                    .opacity(isLocked ? 0.3 : 1.0)
+                    .allowsHitTesting(!isLocked)
                 }
                 .padding(.leading, 6)
                 Spacer()

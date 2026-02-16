@@ -12,12 +12,14 @@ struct FullscreenSimulationView: View {
     @State private var showMetrics = true
     @State private var resetProgress: CGFloat = 0
     @State private var stopProgress: CGFloat = 0
+    @State private var isLocked: Bool = true
 
     var body: some View {
         ZStack {
             if instance.isActive {
-                // Metal rendering view (full screen)
+                // Metal rendering view (full screen) — disable gestures when locked
                 MuJoCoMetalView(dataSource: instance)
+                    .allowsHitTesting(!isLocked)
                     .ignoresSafeArea()
 
                 // Controls overlay (always visible)
@@ -53,7 +55,16 @@ struct FullscreenSimulationView: View {
             // Left control bar
             HStack {
                 VStack(spacing: 12) {
-                    Button(action: { instance.togglePlayPause() }) {
+                    Button(action: { isLocked.toggle() }) {
+                        let frameSize = 14 * 2.2
+                        Image(systemName: isLocked ? "lock.fill" : "lock.open")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(isLocked ? .yellow : overlayTextColor(brightness: brightness))
+                            .frame(width: frameSize, height: frameSize)
+                            .background(Circle().fill(Color.black.opacity(0.3)))
+                    }
+                    .buttonStyle(.plain)
+                    Button(action: { if !isLocked { instance.togglePlayPause() } }) {
                         let isRunning = instance.state == .running
                         let frameSize = 14 * 2.2
                         Image(systemName: isRunning ? "pause.fill" : "play.fill")
@@ -63,6 +74,7 @@ struct FullscreenSimulationView: View {
                             .background(Circle().fill(Color.black.opacity(0.3)))
                     }
                     .buttonStyle(.plain)
+                    .opacity(isLocked ? 0.3 : 1.0)
                     LongPressButton(
                         systemImage: "arrow.counterclockwise",
                         duration: 3.0,
@@ -71,6 +83,8 @@ struct FullscreenSimulationView: View {
                         action: { instance.reset() },
                         holdProgress: $resetProgress
                     )
+                    .opacity(isLocked ? 0.3 : 1.0)
+                    .allowsHitTesting(!isLocked)
                     LongPressButton(
                         systemImage: "stop.fill",
                         duration: 3.0,
@@ -79,6 +93,8 @@ struct FullscreenSimulationView: View {
                         action: { instance.unload() },
                         holdProgress: $stopProgress
                     )
+                    .opacity(isLocked ? 0.3 : 1.0)
+                    .allowsHitTesting(!isLocked)
                 }
                 .padding(.leading, 12)
                 Spacer()
