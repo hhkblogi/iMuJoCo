@@ -61,7 +61,7 @@ struct SimulationGridView: View {
     @State private var deviceIP: String = "..."
     @State private var showingErrorAlert = false
     @State private var errorMessage: String = ""
-    @State private var ipExpanded = true
+    @State private var ipExpanded = false
 
     let columns = [
         GridItem(.flexible(), spacing: 8),
@@ -184,7 +184,7 @@ struct SimulationGridView: View {
 
                 if ipExpanded {
                     Text(deviceIP)
-                        .font(.system(.subheadline, design: .monospaced))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundColor(.white)
                         .transition(.opacity.combined(with: .move(edge: .trailing)))
                 }

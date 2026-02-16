@@ -37,6 +37,12 @@ struct FullscreenSimulationView: View {
             }
         }
         .background(Color.black)
+        .contentShape(Rectangle())
+        .onTripleTap(dotColor: instance.isActive ? overlayTextColor(brightness: brightness) : .gray, targetLabel: "grid view") {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                onExit()
+            }
+        }
         #if os(iOS)
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
@@ -111,6 +117,16 @@ struct FullscreenSimulationView: View {
                                     action: { instance.unload() },
                                     holdProgress: $stopProgress
                                 )
+                                if !instance.isBlinded {
+                                    Button(action: { instance.resetCamera() }) {
+                                        let frameSize: CGFloat = 14 * 2.2
+                                        Image(systemName: "camera.metering.center.weighted")
+                                            .font(.system(size: 14, weight: .semibold))
+                                            .foregroundColor(overlayTextColor(brightness: brightness))
+                                            .frame(width: frameSize, height: frameSize)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                             }
                             .padding(4)
                             .background(
@@ -172,11 +188,6 @@ struct FullscreenSimulationView: View {
                 .font(.headline)
                 .foregroundColor(overlayTextColor(brightness: brightness))
                 .lineLimit(1)
-                .onTripleTap(dotColor: overlayTextColor(brightness: brightness), targetLabel: "grid view") {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        onExit()
-                    }
-                }
 
             // Metrics row (right-aligned, under title)
             if showMetrics {
@@ -263,12 +274,6 @@ struct FullscreenSimulationView: View {
             .buttonStyle(.bordered)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
-        .onTripleTap(dotColor: .gray, targetLabel: "grid view") {
-            withAnimation(.easeInOut(duration: 0.3)) {
-                onExit()
-            }
-        }
     }
 }
 

@@ -47,8 +47,6 @@ private struct TripleTapModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .scaleEffect(tapCount == 1 ? 1.05 : tapCount == 2 ? 1.1 : 1.0)
-            .animation(.easeInOut(duration: 0.12), value: tapCount)
             .overlay(alignment: .bottomLeading) {
                 if tapCount > 0 {
                     HStack(spacing: 4) {
@@ -67,7 +65,6 @@ private struct TripleTapModifier: ViewModifier {
                     .transition(.opacity)
                 }
             }
-            .contentShape(Rectangle())
             .onTapGesture {
                 handleTap()
             }
@@ -333,6 +330,16 @@ struct SimulationCellView: View {
                                     action: { instance.unload() },
                                     holdProgress: $stopProgress
                                 )
+                                if !instance.isBlinded {
+                                    Button(action: { instance.resetCamera() }) {
+                                        let frameSize: CGFloat = 10 * 2.2
+                                        Image(systemName: "camera.metering.center.weighted")
+                                            .font(.system(size: 10, weight: .semibold))
+                                            .foregroundColor(overlayTextColor(brightness: brightness))
+                                            .frame(width: frameSize, height: frameSize)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                             }
                             .padding(3)
                             .background(
@@ -358,9 +365,6 @@ struct SimulationCellView: View {
                         .fontWeight(.semibold)
                         .foregroundColor(overlayTextColor(brightness: brightness))
                         .lineLimit(1)
-                        .onTripleTap(dotColor: overlayTextColor(brightness: brightness), targetLabel: "fullscreen") {
-                            onTapFullscreen()
-                        }
 
                     // Metrics (right-aligned, under title)
                     HStack {
@@ -403,6 +407,9 @@ struct SimulationCellView: View {
             }
         }
         .contentShape(Rectangle())
+        .onTripleTap(dotColor: overlayTextColor(brightness: brightness), targetLabel: "fullscreen") {
+            onTapFullscreen()
+        }
     }
 
     // MARK: - Performance Metrics View
