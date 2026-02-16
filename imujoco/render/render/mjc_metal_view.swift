@@ -293,10 +293,6 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         let pinchGesture = UIPinchGestureRecognizer(target: self, action: #selector(handle_pinch(_:)))
         addGestureRecognizer(pinchGesture)
 
-        // Double tap to reset camera
-        let doubleTapGesture = UITapGestureRecognizer(target: self, action: #selector(handle_double_tap(_:)))
-        doubleTapGesture.numberOfTapsRequired = 2
-        addGestureRecognizer(doubleTapGesture)
     }
 
     @objc private func handle_pan(_ gesture: UIPanGestureRecognizer) {
@@ -370,9 +366,6 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         }
     }
 
-    @objc private func handle_double_tap(_ gesture: UITapGestureRecognizer) {
-        dataSource?.resetCamera()
-    }
     #endif
 
     #if os(tvOS)

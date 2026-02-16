@@ -37,7 +37,7 @@ struct ContentView: View {
         #if os(iOS)
         .sheet(isPresented: $showingFullscreenModelPicker) {
             ModelPickerView(
-                modelNames: gridManager.bundledModelNames,
+                modelGroups: gridManager.bundledModelsBySource,
                 onSelectModel: { modelName in
                     loadFullscreenModel(name: modelName)
                 },
@@ -50,7 +50,7 @@ struct ContentView: View {
         #if os(macOS)
         .sheet(isPresented: $showingFullscreenModelPicker) {
             ModelPickerView(
-                modelNames: gridManager.bundledModelNames,
+                modelGroups: gridManager.bundledModelsBySource,
                 onSelectModel: { modelName in
                     loadFullscreenModel(name: modelName)
                 },

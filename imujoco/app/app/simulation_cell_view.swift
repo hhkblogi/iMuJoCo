@@ -47,27 +47,6 @@ private struct TripleTapModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .scaleEffect(tapCount == 1 ? 1.05 : tapCount == 2 ? 1.1 : 1.0)
-            .animation(.easeInOut(duration: 0.12), value: tapCount)
-            .overlay(alignment: .bottomLeading) {
-                if tapCount > 0 {
-                    HStack(spacing: 4) {
-                        HStack(spacing: 3) {
-                            ForEach(0..<3, id: \.self) { i in
-                                Circle()
-                                    .fill(i < tapCount ? dotColor : dotColor.opacity(0.3))
-                                    .frame(width: 4, height: 4)
-                            }
-                        }
-                        Text("\(remaining) tap\(remaining == 1 ? "" : "s") to \(targetLabel)")
-                            .font(.system(size: 9))
-                            .foregroundColor(dotColor.opacity(0.8))
-                    }
-                    .offset(y: 10)
-                    .transition(.opacity)
-                }
-            }
-            .contentShape(Rectangle())
             .onTapGesture {
                 handleTap()
             }
@@ -128,10 +107,6 @@ struct LongPressButton: View {
             .font(.system(size: iconSize, weight: .semibold))
             .foregroundColor(overlayTextColor(brightness: brightness))
             .frame(width: frameSize, height: frameSize)
-            .background(
-                Circle()
-                    .fill(Color.black.opacity(0.3))
-            )
             .overlay(
                 Circle()
                     .trim(from: 0, to: holdProgress)
@@ -269,34 +244,95 @@ struct SimulationCellView: View {
 
     private var activeView: some View {
         ZStack {
-            // Metal rendering view
-            MuJoCoMetalView(dataSource: instance)
+            // Metal rendering view — hidden when blinded to save GPU
+            if instance.isBlinded {
+                Color.black
+                Image(systemName: "eye.slash.fill")
+                    .font(.system(size: 24))
+                    .foregroundColor(.gray.opacity(0.3))
+            } else {
+                MuJoCoMetalView(dataSource: instance)
+                    .allowsHitTesting(!instance.isLocked)
+            }
 
             // Large centered countdown overlays (always present so trim animates)
             countdownOverlay(progress: resetProgress, systemImage: "arrow.counterclockwise", color: .orange, iconSize: 28, ringWidth: 4)
             countdownOverlay(progress: stopProgress, systemImage: "stop.fill", color: .red, iconSize: 28, ringWidth: 4)
 
             // Left control bar
-            HStack {
-                VStack(spacing: 8) {
-                    LongPressButton(
-                        systemImage: "arrow.counterclockwise",
-                        duration: 3.0,
-                        brightness: brightness,
-                        iconSize: 10,
-                        action: { instance.reset() },
-                        holdProgress: $resetProgress
-                    )
-                    LongPressButton(
-                        systemImage: "stop.fill",
-                        duration: 3.0,
-                        brightness: brightness,
-                        iconSize: 10,
-                        action: { instance.unload() },
-                        holdProgress: $stopProgress
-                    )
+            VStack {
+                HStack {
+                    VStack(spacing: 6) {
+                        // Lock button (standalone toggle)
+                        Button(action: { instance.isLocked.toggle() }) {
+                            let frameSize: CGFloat = 10 * 2.2
+                            Image(systemName: instance.isLocked ? "lock.fill" : "lock.open")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(overlayTextColor(brightness: brightness))
+                                .frame(width: frameSize, height: frameSize)
+                        }
+                        .buttonStyle(.plain)
+
+                        // Eye button (toggle rendering)
+                        Button(action: { instance.isBlinded.toggle() }) {
+                            let frameSize: CGFloat = 10 * 2.2
+                            Image(systemName: instance.isBlinded ? "eye.slash.fill" : "eye.fill")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(overlayTextColor(brightness: brightness))
+                                .frame(width: frameSize, height: frameSize)
+                        }
+                        .buttonStyle(.plain)
+
+                        // Controls pill (visible when unlocked)
+                        if !instance.isLocked {
+                            VStack(spacing: 4) {
+                                Button(action: { instance.togglePlayPause() }) {
+                                    let isRunning = instance.state == .running
+                                    let frameSize: CGFloat = 10 * 2.2
+                                    Image(systemName: isRunning ? "pause.fill" : "play.fill")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundColor(overlayTextColor(brightness: brightness))
+                                        .frame(width: frameSize, height: frameSize)
+                                }
+                                .buttonStyle(.plain)
+                                LongPressButton(
+                                    systemImage: "arrow.counterclockwise",
+                                    duration: 3.0,
+                                    brightness: brightness,
+                                    iconSize: 10,
+                                    action: { instance.reset() },
+                                    holdProgress: $resetProgress
+                                )
+                                LongPressButton(
+                                    systemImage: "stop.fill",
+                                    duration: 3.0,
+                                    brightness: brightness,
+                                    iconSize: 10,
+                                    action: { instance.unload() },
+                                    holdProgress: $stopProgress
+                                )
+                                if !instance.isBlinded {
+                                    Button(action: { instance.resetCamera() }) {
+                                        let frameSize: CGFloat = 10 * 2.2
+                                        Image(systemName: "camera.metering.center.weighted")
+                                            .font(.system(size: 10, weight: .semibold))
+                                            .foregroundColor(overlayTextColor(brightness: brightness))
+                                            .frame(width: frameSize, height: frameSize)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(3)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color.black.opacity(0.35))
+                            )
+                        }
+                    }
+                    Spacer()
                 }
                 .padding(.leading, 6)
+                .padding(.top, 32)
                 Spacer()
             }
 
@@ -310,9 +346,6 @@ struct SimulationCellView: View {
                         .fontWeight(.semibold)
                         .foregroundColor(overlayTextColor(brightness: brightness))
                         .lineLimit(1)
-                        .onTripleTap(dotColor: overlayTextColor(brightness: brightness), targetLabel: "fullscreen") {
-                            onTapFullscreen()
-                        }
 
                     // Metrics (right-aligned, under title)
                     HStack {
@@ -355,6 +388,9 @@ struct SimulationCellView: View {
             }
         }
         .contentShape(Rectangle())
+        .onTripleTap(dotColor: overlayTextColor(brightness: brightness), targetLabel: "fullscreen") {
+            onTapFullscreen()
+        }
     }
 
     // MARK: - Performance Metrics View

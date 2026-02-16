@@ -61,7 +61,7 @@ struct SimulationGridView: View {
     @State private var deviceIP: String = "..."
     @State private var showingErrorAlert = false
     @State private var errorMessage: String = ""
-    @State private var ipExpanded = true
+    @State private var ipExpanded = false
 
     let columns = [
         GridItem(.flexible(), spacing: 8),
@@ -102,7 +102,7 @@ struct SimulationGridView: View {
         #if os(iOS)
         .sheet(isPresented: $showingModelPicker) {
             ModelPickerView(
-                modelNames: gridManager.bundledModelNames,
+                modelGroups: gridManager.bundledModelsBySource,
                 onSelectModel: { modelName in
                     loadModel(name: modelName)
                 },
@@ -128,7 +128,7 @@ struct SimulationGridView: View {
         #if os(macOS)
         .sheet(isPresented: $showingModelPicker) {
             ModelPickerView(
-                modelNames: gridManager.bundledModelNames,
+                modelGroups: gridManager.bundledModelsBySource,
                 onSelectModel: { modelName in
                     loadModel(name: modelName)
                 },
@@ -184,7 +184,7 @@ struct SimulationGridView: View {
 
                 if ipExpanded {
                     Text(deviceIP)
-                        .font(.system(.subheadline, design: .monospaced))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundColor(.white)
                         .transition(.opacity.combined(with: .move(edge: .trailing)))
                 }
@@ -216,23 +216,62 @@ struct SimulationGridView: View {
 // MARK: - Model Picker
 
 struct ModelPickerView: View {
+    let modelGroups: [(source: ModelSource, models: [BundledModel])]
+    // Legacy support: flat name list (converted to ungrouped)
     let modelNames: [String]
     var onSelectModel: (String) -> Void
     var onDismiss: () -> Void
 
+    init(modelGroups: [(source: ModelSource, models: [BundledModel])],
+         onSelectModel: @escaping (String) -> Void,
+         onDismiss: @escaping () -> Void) {
+        self.modelGroups = modelGroups
+        self.modelNames = []
+        self.onSelectModel = onSelectModel
+        self.onDismiss = onDismiss
+    }
+
+    init(modelNames: [String],
+         onSelectModel: @escaping (String) -> Void,
+         onDismiss: @escaping () -> Void) {
+        self.modelGroups = []
+        self.modelNames = modelNames
+        self.onSelectModel = onSelectModel
+        self.onDismiss = onDismiss
+    }
+
     var body: some View {
         NavigationStack {
-            List(modelNames, id: \.self) { name in
-                Button(action: { onSelectModel(name) }) {
-                    HStack {
-                        Image(systemName: "cube.fill")
-                            .foregroundColor(.blue)
-                        Text(name)
-                        Spacer()
+            List {
+                if !modelGroups.isEmpty {
+                    ForEach(modelGroups, id: \.source) { group in
+                        Section(header: Text(group.source.rawValue)) {
+                            ForEach(group.models, id: \.name) { model in
+                                Button(action: { onSelectModel(model.name) }) {
+                                    HStack {
+                                        Text(model.name)
+                                        Spacer()
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
                     }
-                    .contentShape(Rectangle())
+                } else {
+                    ForEach(modelNames, id: \.self) { name in
+                        Button(action: { onSelectModel(name) }) {
+                            HStack {
+                                Image(systemName: "cube.fill")
+                                    .foregroundColor(.blue)
+                                Text(name)
+                                Spacer()
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-                .buttonStyle(.plain)
             }
             .navigationTitle("Select Model")
             #if os(iOS)
