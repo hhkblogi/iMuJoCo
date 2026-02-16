@@ -82,7 +82,7 @@ struct FullscreenSimulationView: View {
                 .font(.headline)
                 .foregroundColor(overlayTextColor(brightness: brightness))
                 .lineLimit(1)
-                .onTapGesture(count: 3) {
+                .onTripleTap(dotColor: overlayTextColor(brightness: brightness), targetLabel: "grid view") {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         onExit()
                     }

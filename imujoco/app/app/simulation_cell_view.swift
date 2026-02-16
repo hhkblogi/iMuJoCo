@@ -31,6 +31,79 @@ func overlayTertiaryTextColor(brightness: Float) -> Color {
     brightness > 0.5 ? .black.opacity(0.4) : .white.opacity(0.5)
 }
 
+// MARK: - Triple-Tap Gesture with Visual Hints
+
+/// Shows progress dots (● ● ○) and a countdown hint under the view as the user
+/// taps toward a triple-tap. Resets after 500ms of inactivity.
+private struct TripleTapModifier: ViewModifier {
+    let dotColor: Color
+    let targetLabel: String  // e.g. "fullscreen" or "grid"
+    let action: () -> Void
+
+    @State private var tapCount = 0
+    @State private var resetTask: Task<Void, Never>?
+
+    private var remaining: Int { 3 - tapCount }
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(tapCount == 1 ? 1.05 : tapCount == 2 ? 1.1 : 1.0)
+            .animation(.easeInOut(duration: 0.12), value: tapCount)
+            .overlay(alignment: .bottomLeading) {
+                if tapCount > 0 {
+                    HStack(spacing: 4) {
+                        HStack(spacing: 3) {
+                            ForEach(0..<3, id: \.self) { i in
+                                Circle()
+                                    .fill(i < tapCount ? dotColor : dotColor.opacity(0.3))
+                                    .frame(width: 4, height: 4)
+                            }
+                        }
+                        Text("\(remaining) tap\(remaining == 1 ? "" : "s") to \(targetLabel)")
+                            .font(.system(size: 9))
+                            .foregroundColor(dotColor.opacity(0.8))
+                    }
+                    .offset(y: 10)
+                    .transition(.opacity)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                handleTap()
+            }
+    }
+
+    private func handleTap() {
+        resetTask?.cancel()
+
+        withAnimation(.easeInOut(duration: 0.12)) {
+            tapCount += 1
+        }
+
+        if tapCount >= 3 {
+            withAnimation(.easeInOut(duration: 0.12)) {
+                tapCount = 0
+            }
+            action()
+            return
+        }
+
+        resetTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                tapCount = 0
+            }
+        }
+    }
+}
+
+extension View {
+    func onTripleTap(dotColor: Color, targetLabel: String, perform action: @escaping () -> Void) -> some View {
+        modifier(TripleTapModifier(dotColor: dotColor, targetLabel: targetLabel, action: action))
+    }
+}
+
 // MARK: - Shared Rate Color
 
 func rateColor(_ rate: Float) -> Color {
@@ -110,7 +183,7 @@ struct SimulationCellView: View {
                         .fontWeight(.semibold)
                         .foregroundColor(overlayTextColor(brightness: brightness))
                         .lineLimit(1)
-                        .onTapGesture(count: 3) {
+                        .onTripleTap(dotColor: overlayTextColor(brightness: brightness), targetLabel: "fullscreen") {
                             onTapFullscreen()
                         }
 
