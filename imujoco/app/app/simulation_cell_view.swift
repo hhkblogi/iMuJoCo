@@ -173,10 +173,10 @@ struct LongPressButton: View {
 
 // MARK: - Reset Countdown Overlay
 
-/// Large centered countdown ring shown while holding the reset button.
+/// Large centered countdown ring shown while holding a long-press button.
 /// Displayed above the finger so the user can see progress clearly.
 @ViewBuilder
-func resetCountdownOverlay(progress: CGFloat, iconSize: CGFloat, ringWidth: CGFloat) -> some View {
+func countdownOverlay(progress: CGFloat, systemImage: String, color: Color, iconSize: CGFloat, ringWidth: CGFloat) -> some View {
     let size = iconSize * 3
     ZStack {
         // Dimmed background (only visible while pressing)
@@ -187,14 +187,14 @@ func resetCountdownOverlay(progress: CGFloat, iconSize: CGFloat, ringWidth: CGFl
         // Countdown ring (fills clockwise along the rim)
         Circle()
             .trim(from: 0, to: progress)
-            .stroke(Color.orange, style: StrokeStyle(lineWidth: ringWidth, lineCap: .round))
+            .stroke(color, style: StrokeStyle(lineWidth: ringWidth, lineCap: .round))
             .rotationEffect(.degrees(-90))
             .frame(width: size - ringWidth, height: size - ringWidth)
 
         // Icon (only visible while pressing)
-        Image(systemName: "arrow.counterclockwise")
+        Image(systemName: systemImage)
             .font(.system(size: iconSize, weight: .bold))
-            .foregroundColor(.orange)
+            .foregroundColor(color)
             .opacity(progress > 0 ? 1 : 0)
     }
     .allowsHitTesting(false)
@@ -220,6 +220,7 @@ struct SimulationCellView: View {
     var onLoadModel: () -> Void
 
     @State private var resetProgress: CGFloat = 0
+    @State private var stopProgress: CGFloat = 0
 
     #if os(tvOS)
     @FocusState private var isFocused: Bool
@@ -271,8 +272,9 @@ struct SimulationCellView: View {
             // Metal rendering view
             MuJoCoMetalView(dataSource: instance)
 
-            // Large centered countdown ring (always present so trim animates)
-            resetCountdownOverlay(progress: resetProgress, iconSize: 28, ringWidth: 4)
+            // Large centered countdown overlays (always present so trim animates)
+            countdownOverlay(progress: resetProgress, systemImage: "arrow.counterclockwise", color: .orange, iconSize: 28, ringWidth: 4)
+            countdownOverlay(progress: stopProgress, systemImage: "stop.fill", color: .red, iconSize: 28, ringWidth: 4)
 
             // Left control bar
             HStack {
@@ -284,6 +286,14 @@ struct SimulationCellView: View {
                         iconSize: 10,
                         action: { instance.reset() },
                         holdProgress: $resetProgress
+                    )
+                    LongPressButton(
+                        systemImage: "stop.fill",
+                        duration: 3.0,
+                        brightness: brightness,
+                        iconSize: 10,
+                        action: { instance.unload() },
+                        holdProgress: $stopProgress
                     )
                 }
                 .padding(.leading, 6)

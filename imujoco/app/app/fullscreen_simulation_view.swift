@@ -10,6 +10,7 @@ struct FullscreenSimulationView: View {
 
     @State private var showMetrics = true
     @State private var resetProgress: CGFloat = 0
+    @State private var stopProgress: CGFloat = 0
 
     var body: some View {
         ZStack {
@@ -39,8 +40,9 @@ struct FullscreenSimulationView: View {
 
     private var controlsOverlay: some View {
         ZStack {
-            // Large centered countdown ring (always present so trim animates)
-            resetCountdownOverlay(progress: resetProgress, iconSize: 40, ringWidth: 6)
+            // Large centered countdown overlays (always present so trim animates)
+            countdownOverlay(progress: resetProgress, systemImage: "arrow.counterclockwise", color: .orange, iconSize: 40, ringWidth: 6)
+            countdownOverlay(progress: stopProgress, systemImage: "stop.fill", color: .red, iconSize: 40, ringWidth: 6)
 
             // Left control bar
             HStack {
@@ -52,6 +54,17 @@ struct FullscreenSimulationView: View {
                         iconSize: 14,
                         action: { instance.reset() },
                         holdProgress: $resetProgress
+                    )
+                    LongPressButton(
+                        systemImage: "stop.fill",
+                        duration: 3.0,
+                        brightness: brightness,
+                        iconSize: 14,
+                        action: {
+                            instance.unload()
+                            onExit()
+                        },
+                        holdProgress: $stopProgress
                     )
                 }
                 .padding(.leading, 12)
