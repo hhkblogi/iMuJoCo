@@ -342,8 +342,15 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
 
 // MARK: - Bundled Model Descriptor
 
+enum ModelSource: String, CaseIterable {
+    case imujoco = "iMuJoCo"
+    case mujoco = "MuJoCo"
+    case menagerie = "Menagerie"
+}
+
 struct BundledModel {
     let name: String         // Display name
+    let source: ModelSource  // Model origin/group
     let resource: String     // XML filename without extension
     let subdirectory: String?  // Subdirectory in bundle (nil = flat)
     let keyframe: String?    // Initial keyframe name (nil = default state)
@@ -369,17 +376,24 @@ final class SimulationGridManager: @unchecked Sendable {
 
     var bundledModels: [BundledModel] {
         [
-            BundledModel(name: "Humanoid (Supine)", resource: "humanoid_supine", subdirectory: nil,
+            BundledModel(name: "Humanoid (Supine)", source: .mujoco, resource: "humanoid_supine", subdirectory: nil,
                          keyframe: "supine", timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
-            BundledModel(name: "Simple Pendulum", resource: "simple_pendulum", subdirectory: nil,
+            BundledModel(name: "Simple Pendulum", source: .imujoco, resource: "simple_pendulum", subdirectory: nil,
                          keyframe: "start", timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
-            BundledModel(name: "Unitree G1", resource: "scene", subdirectory: "unitree_g1",
+            BundledModel(name: "Unitree G1", source: .menagerie, resource: "scene", subdirectory: "unitree_g1",
                          keyframe: nil, timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
         ]
     }
 
     var bundledModelNames: [String] {
         bundledModels.map { $0.name }
+    }
+
+    var bundledModelsBySource: [(source: ModelSource, models: [BundledModel])] {
+        ModelSource.allCases.compactMap { source in
+            let models = bundledModels.filter { $0.source == source }
+            return models.isEmpty ? nil : (source, models)
+        }
     }
 
     init() {
