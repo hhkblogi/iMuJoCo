@@ -126,7 +126,7 @@ struct LongPressButton: View {
         let frameSize = iconSize * 2.2
         Image(systemName: systemImage)
             .font(.system(size: iconSize, weight: .semibold))
-            .foregroundColor(isPressing ? .orange : overlayTextColor(brightness: brightness))
+            .foregroundColor(overlayTextColor(brightness: brightness))
             .frame(width: frameSize, height: frameSize)
             .background(
                 Circle()
@@ -179,24 +179,24 @@ struct LongPressButton: View {
 func resetCountdownOverlay(progress: CGFloat, iconSize: CGFloat, ringWidth: CGFloat) -> some View {
     let size = iconSize * 3
     ZStack {
-        // Dimmed background
+        // Dimmed background (only visible while pressing)
         Circle()
-            .fill(Color.black.opacity(0.4))
+            .fill(Color.black.opacity(progress > 0 ? 0.4 : 0))
             .frame(width: size, height: size)
 
-        // Progress ring
+        // Countdown ring (fills clockwise along the rim)
         Circle()
             .trim(from: 0, to: progress)
             .stroke(Color.orange, style: StrokeStyle(lineWidth: ringWidth, lineCap: .round))
             .rotationEffect(.degrees(-90))
             .frame(width: size - ringWidth, height: size - ringWidth)
 
-        // Icon
+        // Icon (only visible while pressing)
         Image(systemName: "arrow.counterclockwise")
             .font(.system(size: iconSize, weight: .bold))
             .foregroundColor(.orange)
+            .opacity(progress > 0 ? 1 : 0)
     }
-    .transition(.opacity)
     .allowsHitTesting(false)
 }
 
@@ -271,10 +271,8 @@ struct SimulationCellView: View {
             // Metal rendering view
             MuJoCoMetalView(dataSource: instance)
 
-            // Large centered countdown ring (visible above finger)
-            if resetProgress > 0 {
-                resetCountdownOverlay(progress: resetProgress, iconSize: 28, ringWidth: 4)
-            }
+            // Large centered countdown ring (always present so trim animates)
+            resetCountdownOverlay(progress: resetProgress, iconSize: 28, ringWidth: 4)
 
             // Left control bar
             HStack {

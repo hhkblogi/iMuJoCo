@@ -39,10 +39,8 @@ struct FullscreenSimulationView: View {
 
     private var controlsOverlay: some View {
         ZStack {
-            // Large centered countdown ring (visible above finger)
-            if resetProgress > 0 {
-                resetCountdownOverlay(progress: resetProgress, iconSize: 40, ringWidth: 6)
-            }
+            // Large centered countdown ring (always present so trim animates)
+            resetCountdownOverlay(progress: resetProgress, iconSize: 40, ringWidth: 6)
 
             // Left control bar
             HStack {
