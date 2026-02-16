@@ -372,7 +372,7 @@ final class SimulationGridManager: @unchecked Sendable {
             BundledModel(name: "Humanoid (Supine)", resource: "humanoid_supine", subdirectory: nil,
                          keyframe: "supine", timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
             BundledModel(name: "Simple Pendulum", resource: "simple_pendulum", subdirectory: nil,
-                         keyframe: nil, timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
+                         keyframe: "start", timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
             BundledModel(name: "Unitree G1", resource: "scene", subdirectory: "unitree_g1",
                          keyframe: nil, timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
         ]
