@@ -266,9 +266,16 @@ struct SimulationCellView: View {
 
     private var activeView: some View {
         ZStack {
-            // Metal rendering view — disable gestures when locked
-            MuJoCoMetalView(dataSource: instance)
-                .allowsHitTesting(!isLocked)
+            // Metal rendering view — hidden when blinded to save GPU
+            if instance.isBlinded {
+                Color.black
+                Image(systemName: "eye.slash.fill")
+                    .font(.system(size: 24))
+                    .foregroundColor(.gray.opacity(0.3))
+            } else {
+                MuJoCoMetalView(dataSource: instance)
+                    .allowsHitTesting(!isLocked)
+            }
 
             // Large centered countdown overlays (always present so trim animates)
             countdownOverlay(progress: resetProgress, systemImage: "arrow.counterclockwise", color: .orange, iconSize: 28, ringWidth: 4)
@@ -282,6 +289,16 @@ struct SimulationCellView: View {
                         Button(action: { isLocked.toggle() }) {
                             let frameSize: CGFloat = 10 * 2.2
                             Image(systemName: isLocked ? "lock.fill" : "lock.open")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundColor(overlayTextColor(brightness: brightness))
+                                .frame(width: frameSize, height: frameSize)
+                        }
+                        .buttonStyle(.plain)
+
+                        // Eye button (toggle rendering)
+                        Button(action: { instance.isBlinded.toggle() }) {
+                            let frameSize: CGFloat = 10 * 2.2
+                            Image(systemName: instance.isBlinded ? "eye.slash.fill" : "eye.fill")
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundColor(overlayTextColor(brightness: brightness))
                                 .frame(width: frameSize, height: frameSize)

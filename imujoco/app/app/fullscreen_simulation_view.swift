@@ -17,10 +17,17 @@ struct FullscreenSimulationView: View {
     var body: some View {
         ZStack {
             if instance.isActive {
-                // Metal rendering view (full screen) — disable gestures when locked
-                MuJoCoMetalView(dataSource: instance)
-                    .allowsHitTesting(!isLocked)
-                    .ignoresSafeArea()
+                // Metal rendering view — hidden when blinded to save GPU
+                if instance.isBlinded {
+                    Color.black.ignoresSafeArea()
+                    Image(systemName: "eye.slash.fill")
+                        .font(.system(size: 40))
+                        .foregroundColor(.gray.opacity(0.3))
+                } else {
+                    MuJoCoMetalView(dataSource: instance)
+                        .allowsHitTesting(!isLocked)
+                        .ignoresSafeArea()
+                }
 
                 // Controls overlay (always visible)
                 controlsOverlay
@@ -60,6 +67,16 @@ struct FullscreenSimulationView: View {
                         Button(action: { isLocked.toggle() }) {
                             let frameSize: CGFloat = 14 * 2.2
                             Image(systemName: isLocked ? "lock.fill" : "lock.open")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(overlayTextColor(brightness: brightness))
+                                .frame(width: frameSize, height: frameSize)
+                        }
+                        .buttonStyle(.plain)
+
+                        // Eye button (toggle rendering)
+                        Button(action: { instance.isBlinded.toggle() }) {
+                            let frameSize: CGFloat = 14 * 2.2
+                            Image(systemName: instance.isBlinded ? "eye.slash.fill" : "eye.fill")
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(overlayTextColor(brightness: brightness))
                                 .frame(width: frameSize, height: frameSize)

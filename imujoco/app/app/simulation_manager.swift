@@ -61,6 +61,9 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     private(set) var runtime: MJRuntime?
     fileprivate(set) var modelName: String = ""
 
+    // UI state (persists across grid/fullscreen switches)
+    var isBlinded: Bool = false
+
     // Stored properties for SwiftUI observation
     // Updated periodically from runtime stats (~10Hz polling)
     private(set) var displayTime: Double = 0.0
