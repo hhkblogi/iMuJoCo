@@ -451,6 +451,10 @@ struct SimulationCellView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black.opacity(0.9))
+        .contentShape(Rectangle())
+        .onTripleTap(dotColor: .gray, targetLabel: "fullscreen") {
+            onTapFullscreen()
+        }
     }
 }
 
