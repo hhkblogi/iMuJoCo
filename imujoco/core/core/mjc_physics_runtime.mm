@@ -322,11 +322,7 @@ public:
 
         model_ = mnew;
         data_ = dnew;
-
-        if (model_->nkey > 0) {
-            int keyId = mj_name2id(model_, mjOBJ_KEY, "supine");
-            mj_resetDataKeyframe(model_, data_, keyId >= 0 ? keyId : 0);
-        }
+        active_keyframe_ = -1;
 
         mj_forward(model_, data_);
         BuildActuatorTimeoutPolicy();
@@ -370,11 +366,7 @@ public:
 
         model_ = mnew;
         data_ = dnew;
-
-        if (model_->nkey > 0) {
-            int keyId = mj_name2id(model_, mjOBJ_KEY, "supine");
-            mj_resetDataKeyframe(model_, data_, keyId >= 0 ? keyId : 0);
-        }
+        active_keyframe_ = -1;
 
         mj_forward(model_, data_);
         BuildActuatorTimeoutPolicy();
@@ -440,8 +432,8 @@ public:
 
     void Reset() {
         if (model_ && data_) {
-            if (model_->nkey > 0) {
-                mj_resetDataKeyframe(model_, data_, 0);
+            if (active_keyframe_ >= 0 && active_keyframe_ < model_->nkey) {
+                mj_resetDataKeyframe(model_, data_, active_keyframe_);
             } else {
                 mj_resetData(model_, data_);
             }
@@ -454,6 +446,17 @@ public:
             ctrl_timed_out_ = false;
             last_ctrl_received_ = Clock::time_point{};
         }
+    }
+
+    bool ResetToKeyframe(const char* name) {
+        if (!model_ || !data_ || !name) return false;
+        int key_id = mj_name2id(model_, mjOBJ_KEY, name);
+        if (key_id < 0) return false;
+        active_keyframe_ = key_id;
+        mj_resetDataKeyframe(model_, data_, key_id);
+        mj_forward(model_, data_);
+        WriteFrameToBuffer();
+        return true;
     }
 
     void Step() {
@@ -1071,6 +1074,7 @@ private:
 
     mjModel* model_;
     mjData* data_;
+    int active_keyframe_ = -1;  // keyframe index for reset (-1 = use mj_resetData)
 
     mjvScene scene_;
     mjvCamera camera_;
@@ -1172,6 +1176,7 @@ void MJSimulationRuntime::unload() { impl_->Unload(); }
 void MJSimulationRuntime::start() { impl_->Start(); }
 void MJSimulationRuntime::pause() { impl_->Pause(); }
 void MJSimulationRuntime::reset() { impl_->Reset(); }
+bool MJSimulationRuntime::resetToKeyframe(const char* name) { return impl_->ResetToKeyframe(name); }
 void MJSimulationRuntime::step() { impl_->Step(); }
 
 MJRuntimeState MJSimulationRuntime::getState() const { return impl_->GetState(); }
