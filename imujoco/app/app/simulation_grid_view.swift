@@ -359,10 +359,26 @@ struct TVModelPickerView: View {
 struct LayoutIcon: View {
     let highlightedCell: Int?  // nil = grid view, 0-3 = fullscreen instance
     let isSelected: Bool
+    var size: CGFloat = 36
+    var tintColor: Color? = nil  // nil = default blue/gray
 
-    private let size: CGFloat = 36
     private let gap: CGFloat = 2
     private let cornerR: CGFloat = 2
+
+    private var activeColor: Color {
+        if let tint = tintColor { return tint }
+        return isSelected ? Color.blue : Color.gray
+    }
+
+    private var bgColor: Color {
+        if tintColor != nil { return isSelected ? activeColor.opacity(0.15) : Color.clear }
+        return isSelected ? Color.blue.opacity(0.2) : Color.clear
+    }
+
+    private var borderColor: Color {
+        if tintColor != nil { return isSelected ? activeColor.opacity(0.4) : activeColor.opacity(0.2) }
+        return isSelected ? Color.blue : Color.gray.opacity(0.3)
+    }
 
     var body: some View {
         let cellSize = (size - gap) / 2
@@ -377,14 +393,14 @@ struct LayoutIcon: View {
                 cell(3, cellSize: cellSize)
             }
         }
-        .padding(6)
+        .padding(size * 0.16)
         .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(isSelected ? Color.blue.opacity(0.2) : Color.clear)
+            RoundedRectangle(cornerRadius: size * 0.16)
+                .fill(bgColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .stroke(isSelected ? Color.blue : Color.gray.opacity(0.3), lineWidth: isSelected ? 1.5 : 1)
+            RoundedRectangle(cornerRadius: size * 0.16)
+                .stroke(borderColor, lineWidth: isSelected ? 1.5 : 1)
         )
     }
 
@@ -392,7 +408,7 @@ struct LayoutIcon: View {
     private func cell(_ index: Int, cellSize: CGFloat) -> some View {
         let active = highlightedCell == nil || highlightedCell == index
         RoundedRectangle(cornerRadius: cornerR)
-            .fill(active ? (isSelected ? Color.blue : Color.gray) : Color.gray.opacity(0.2))
+            .fill(active ? activeColor : activeColor.opacity(0.2))
             .frame(width: cellSize, height: cellSize)
     }
 }

@@ -21,10 +21,14 @@ struct ContentView: View {
                let instance = gridManager.instance(at: fsId) {
                 FullscreenSimulationView(
                     instance: instance,
+                    instanceIndex: fsId,
                     onExit: {
                         withAnimation(.easeInOut(duration: 0.3)) {
                             gridManager.exitFullscreen()
                         }
+                    },
+                    onSwitchInstance: { index in
+                        gridManager.enterFullscreen(index: index)
                     },
                     onLoadModel: {
                         showingFullscreenModelPicker = true

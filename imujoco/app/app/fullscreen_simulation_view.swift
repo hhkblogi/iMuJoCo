@@ -6,7 +6,9 @@ import render
 
 struct FullscreenSimulationView: View {
     var instance: SimulationInstance
+    var instanceIndex: Int
     var onExit: () -> Void
+    var onSwitchInstance: (Int) -> Void  // -1 = grid, 0-3 = instance
     var onLoadModel: () -> Void
 
     @State private var showMetrics = true
@@ -144,7 +146,7 @@ struct FullscreenSimulationView: View {
             VStack {
                 // Top HUD
                 topHUD
-                    .padding(.top, 8)
+                    .padding(.top, 4)
 
                 Spacer()
 
@@ -174,6 +176,10 @@ struct FullscreenSimulationView: View {
         }
     }
 
+    private let layoutOptions: [(highlightedCell: Int?, tag: Int)] = [
+        (nil, 0), (0, 1), (1, 2), (2, 3), (3, 4),
+    ]
+
     private var brightness: Float { instance.sceneBrightness }
 
     private var metricLabelColor: Color {
@@ -182,11 +188,24 @@ struct FullscreenSimulationView: View {
 
     private var topHUD: some View {
         VStack(alignment: .leading, spacing: 4) {
-            // Title row: model name — triple-click to exit fullscreen
-            Text(instance.modelName)
-                .font(.headline)
-                .foregroundColor(overlayTextColor(brightness: brightness))
-                .lineLimit(1)
+            // Layout switcher (right-aligned)
+            HStack {
+                // Title
+                Text(instance.modelName)
+                    .font(.headline)
+                    .foregroundColor(overlayTextColor(brightness: brightness))
+                    .lineLimit(1)
+
+                Spacer()
+
+                // Layout icon for current instance
+                LayoutIcon(
+                    highlightedCell: instanceIndex,
+                    isSelected: true,
+                    size: 20,
+                    tintColor: .gray.opacity(0.6)
+                )
+            }
 
             // Metrics row (right-aligned, under title)
             if showMetrics {
@@ -273,6 +292,16 @@ struct FullscreenSimulationView: View {
             .buttonStyle(.bordered)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .topTrailing) {
+            LayoutIcon(
+                highlightedCell: instanceIndex,
+                isSelected: true,
+                size: 20,
+                tintColor: .gray.opacity(0.6)
+            )
+            .padding(.top, 4)
+            .padding(.trailing, 16)
+        }
     }
 }
 
@@ -303,7 +332,9 @@ struct ControlButton: View {
 #Preview {
     FullscreenSimulationView(
         instance: SimulationInstance(id: 0),
+        instanceIndex: 0,
         onExit: {},
+        onSwitchInstance: { _ in },
         onLoadModel: {}
     )
 }
