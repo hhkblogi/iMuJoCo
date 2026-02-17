@@ -453,11 +453,6 @@ struct SettingsView: View {
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done", action: onDismiss)
-                }
-            }
         }
         #if os(iOS)
         .presentationDetents([.medium])
