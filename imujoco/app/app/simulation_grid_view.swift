@@ -433,7 +433,7 @@ struct SettingsView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Default View")
                             .font(.subheadline)
-                        HStack(spacing: 10) {
+                        HStack {
                             ForEach(viewOptions, id: \.tag) { option in
                                 Button(action: { defaultView = option.tag }) {
                                     LayoutIcon(
@@ -442,11 +442,13 @@ struct SettingsView: View {
                                     )
                                 }
                                 .buttonStyle(.plain)
+                                .frame(maxWidth: .infinity)
                             }
                         }
                     }
                 }
             }
+            .listStyle(.plain)
             .navigationTitle("Settings")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
