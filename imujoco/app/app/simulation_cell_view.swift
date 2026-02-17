@@ -491,10 +491,6 @@ struct SimulationCellView: View {
                 .font(.caption)
                 .foregroundColor(.gray)
             #else
-            Text("Empty")
-                .font(.caption)
-                .foregroundColor(.gray)
-
             Button(action: onLoadModel) {
                 Label("Load Model", systemImage: "plus.circle.fill")
                     .font(.caption)
