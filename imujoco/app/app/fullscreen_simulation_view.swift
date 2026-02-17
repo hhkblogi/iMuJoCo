@@ -62,7 +62,7 @@ struct FullscreenSimulationView: View {
                     highlightedCell: instanceIndex,
                     isSelected: true,
                     size: 20,
-                    tintColor: .gray.opacity(0.6)
+                    tintColor: overlaySecondaryTextColor(brightness: brightness)
                 )
                 .opacity(isNavigating ? 0 : 1)
                 .gesture(

@@ -671,12 +671,13 @@ public final class MJCMetalRender {
     private func renderAxesGizmo(encoder: MTLRenderCommandEncoder, viewMatrix: simd_float4x4,
                                  width: Int, height: Int) {
         let gizmoSize = Int(Float(min(width, height)) * 0.15)
-        let padding = 10
+        let leftPadding = 10
+        let bottomPadding = 100
 
-        // Set viewport to bottom-left corner
+        // Set viewport to bottom-left, above lock/eye buttons
         encoder.setViewport(MTLViewport(
-            originX: Double(padding),
-            originY: Double(height - gizmoSize - padding),
+            originX: Double(leftPadding),
+            originY: Double(height - gizmoSize - bottomPadding),
             width: Double(gizmoSize),
             height: Double(gizmoSize),
             znear: 0, zfar: 1
