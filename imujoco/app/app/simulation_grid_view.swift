@@ -82,6 +82,7 @@ struct SimulationGridView: View {
                         if let instance = gridManager.instance(at: index) {
                             SimulationCellView(
                                 instance: instance,
+                                instanceIndex: index,
                                 onTapFullscreen: {
                                     gridManager.enterFullscreen(index: index)
                                 },
@@ -218,6 +219,7 @@ struct SimulationGridView: View {
             deviceIP = "No Network"
         }
     }
+
 }
 
 // MARK: - Model Picker

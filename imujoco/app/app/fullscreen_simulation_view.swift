@@ -78,8 +78,12 @@ struct FullscreenSimulationView: View {
                             }
                         }
                         .onEnded { _ in
-                            if isNavigating, let cell = hoveredCell, cell != instanceIndex {
-                                onSwitchInstance(cell)
+                            if isNavigating, let cell = hoveredCell {
+                                if cell == -1 {
+                                    onExit()  // Center zone → grid view
+                                } else if cell != instanceIndex {
+                                    onSwitchInstance(cell)
+                                }
                             }
                             withAnimation(.easeOut(duration: 0.15)) {
                                 isNavigating = false
@@ -339,7 +343,7 @@ struct FullscreenSimulationView: View {
     @ViewBuilder
     private func navCell(_ index: Int, size: CGFloat) -> some View {
         let isCurrent = index == instanceIndex
-        let isHovered = hoveredCell == index
+        let isHovered = hoveredCell == index || hoveredCell == -1  // -1 = all cells (grid view)
 
         RoundedRectangle(cornerRadius: 4)
             .fill(isHovered ? Color.white.opacity(0.4) : (isCurrent ? Color.white.opacity(0.2) : Color.gray.opacity(0.15)))
@@ -361,8 +365,16 @@ struct FullscreenSimulationView: View {
             return nil  // Outside grid — no selection
         }
 
-        let col = relX < innerFrame.width / 2 ? 0 : 1
-        let row = relY < innerFrame.height / 2 ? 0 : 1
+        // Center zone: near the intersection of all 4 cells → grid view (-1)
+        let centerX = innerFrame.width / 2
+        let centerY = innerFrame.height / 2
+        let centerRadius: CGFloat = 18
+        if abs(relX - centerX) < centerRadius && abs(relY - centerY) < centerRadius {
+            return -1  // Grid view
+        }
+
+        let col = relX < centerX ? 0 : 1
+        let row = relY < centerY ? 0 : 1
         return row * 2 + col
     }
 
