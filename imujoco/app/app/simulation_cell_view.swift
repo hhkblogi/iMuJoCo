@@ -191,6 +191,7 @@ func rateColor(_ rate: Float) -> Color {
 
 struct SimulationCellView: View {
     var instance: SimulationInstance
+    var instanceIndex: Int
     var onTapFullscreen: () -> Void
     var onLoadModel: () -> Void
 
@@ -386,6 +387,22 @@ struct SimulationCellView: View {
                     .padding(6)
                 }
             }
+
+            // Bottom-center: fullscreen button
+            VStack {
+                Spacer()
+                Button(action: onTapFullscreen) {
+                    ZStack {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .scaleEffect(x: -1, y: 1)
+                    }
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundColor(.gray.opacity(0.6))
+                }
+                .buttonStyle(.plain)
+                .padding(.bottom, 6)
+            }
         }
         .contentShape(Rectangle())
         .onTripleTap(dotColor: overlayTextColor(brightness: brightness), targetLabel: "fullscreen") {
@@ -474,10 +491,6 @@ struct SimulationCellView: View {
                 .font(.caption)
                 .foregroundColor(.gray)
             #else
-            Text("Empty")
-                .font(.caption)
-                .foregroundColor(.gray)
-
             Button(action: onLoadModel) {
                 Label("Load Model", systemImage: "plus.circle.fill")
                     .font(.caption)
@@ -487,6 +500,19 @@ struct SimulationCellView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black.opacity(0.9))
+        .overlay(alignment: .bottom) {
+            Button(action: onTapFullscreen) {
+                ZStack {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .scaleEffect(x: -1, y: 1)
+                }
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundColor(.gray.opacity(0.6))
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, 6)
+        }
         .contentShape(Rectangle())
         .onTripleTap(dotColor: .gray, targetLabel: "fullscreen") {
             onTapFullscreen()
@@ -519,6 +545,7 @@ struct TVCellButtonStyle: ButtonStyle {
 #Preview {
     SimulationCellView(
         instance: SimulationInstance(id: 0),
+        instanceIndex: 0,
         onTapFullscreen: {},
         onLoadModel: {}
     )

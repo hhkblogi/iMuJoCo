@@ -6,12 +6,17 @@ import render
 
 struct FullscreenSimulationView: View {
     var instance: SimulationInstance
+    var instanceIndex: Int
     var onExit: () -> Void
+    var onSwitchInstance: (Int) -> Void  // -1 = grid, 0-3 = instance
     var onLoadModel: () -> Void
 
     @State private var showMetrics = true
     @State private var resetProgress: CGFloat = 0
     @State private var stopProgress: CGFloat = 0
+    @State private var isNavigating = false
+    @State private var hoveredCell: Int? = nil
+    @State private var navGridFrame: CGRect = .zero
 
     var body: some View {
         ZStack {
@@ -33,6 +38,60 @@ struct FullscreenSimulationView: View {
             } else {
                 // Empty view — model not loaded
                 fullscreenEmptyView
+            }
+
+            // Navigation grid overlay (press on layout icon)
+            if isNavigating {
+                VStack {
+                    Spacer()
+                    navGrid
+                        .background(GeometryReader { geo in
+                            Color.clear.preference(key: NavGridFrameKey.self, value: geo.frame(in: .global))
+                        })
+                        .padding(.bottom, 40)
+                }
+                .allowsHitTesting(false)
+                .transition(.opacity)
+                .onPreferenceChange(NavGridFrameKey.self) { navGridFrame = $0 }
+            }
+
+            // Bottom-center: layout icon with navigation gesture
+            VStack {
+                Spacer()
+                LayoutIcon(
+                    highlightedCell: instanceIndex,
+                    isSelected: true,
+                    size: 20,
+                    tintColor: .gray.opacity(0.6)
+                )
+                .opacity(isNavigating ? 0 : 1)
+                .gesture(
+                    DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                        .onChanged { value in
+                            if !isNavigating {
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    isNavigating = true
+                                    hoveredCell = instanceIndex
+                                }
+                            } else {
+                                hoveredCell = navCellAt(value.location)
+                            }
+                        }
+                        .onEnded { _ in
+                            if isNavigating, let cell = hoveredCell {
+                                if cell == -1 {
+                                    onExit()  // Center zone → grid view
+                                } else if cell != instanceIndex {
+                                    onSwitchInstance(cell)
+                                }
+                            }
+                            withAnimation(.easeOut(duration: 0.15)) {
+                                isNavigating = false
+                            }
+                            hoveredCell = nil
+                        }
+                )
+                .padding(.bottom, 12)
             }
         }
         .background(Color.black)
@@ -144,7 +203,7 @@ struct FullscreenSimulationView: View {
             VStack {
                 // Top HUD
                 topHUD
-                    .padding(.top, 8)
+                    .padding(.top, 4)
 
                 Spacer()
 
@@ -152,23 +211,23 @@ struct FullscreenSimulationView: View {
                 HStack {
                     Spacer()
                     VStack(alignment: .trailing, spacing: 3) {
-                    Text(verbatim: "Port :\(instance.port)")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(instance.state == .running ? Color.green : Color.yellow)
-                            .frame(width: 8, height: 8)
-                        Text(instance.stateDescription)
-                            .font(.caption)
+                        Text(verbatim: "Port :\(instance.port)")
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(instance.state == .running ? Color.green : Color.yellow)
+                                .frame(width: 8, height: 8)
+                            Text(instance.stateDescription)
+                                .font(.caption)
+                                .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
+                        }
+                        Text(formatSimulationTime(instance.simulationTime))
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundColor(overlayTextColor(brightness: brightness).opacity(0.8))
                     }
-                    Text(formatSimulationTime(instance.simulationTime))
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundColor(overlayTextColor(brightness: brightness).opacity(0.8))
                 }
-            }
-            .padding(.bottom, 8)
+                .padding(.bottom, 8)
             }
             .padding(.horizontal)
         }
@@ -182,11 +241,14 @@ struct FullscreenSimulationView: View {
 
     private var topHUD: some View {
         VStack(alignment: .leading, spacing: 4) {
-            // Title row: model name — triple-click to exit fullscreen
-            Text(instance.modelName)
-                .font(.headline)
-                .foregroundColor(overlayTextColor(brightness: brightness))
-                .lineLimit(1)
+            // Title
+            HStack {
+                Text(instance.modelName)
+                    .font(.headline)
+                    .foregroundColor(overlayTextColor(brightness: brightness))
+                    .lineLimit(1)
+                Spacer()
+            }
 
             // Metrics row (right-aligned, under title)
             if showMetrics {
@@ -254,6 +316,68 @@ struct FullscreenSimulationView: View {
         }
     }
 
+    // MARK: - Navigation Grid
+
+    private var navGrid: some View {
+        let gridSize: CGFloat = 140
+        let gap: CGFloat = 4
+        let cellSize = (gridSize - gap) / 2
+
+        return VStack(spacing: gap) {
+            HStack(spacing: gap) {
+                navCell(0, size: cellSize)
+                navCell(1, size: cellSize)
+            }
+            HStack(spacing: gap) {
+                navCell(2, size: cellSize)
+                navCell(3, size: cellSize)
+            }
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.black.opacity(0.7))
+        )
+    }
+
+    @ViewBuilder
+    private func navCell(_ index: Int, size: CGFloat) -> some View {
+        let isCurrent = index == instanceIndex
+        let isHovered = hoveredCell == index || hoveredCell == -1  // -1 = all cells (grid view)
+
+        RoundedRectangle(cornerRadius: 4)
+            .fill(isHovered ? Color.white.opacity(0.4) : (isCurrent ? Color.white.opacity(0.2) : Color.gray.opacity(0.15)))
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(isHovered ? Color.white.opacity(0.8) : Color.gray.opacity(0.3), lineWidth: isHovered ? 2 : 1)
+            )
+            .frame(width: size, height: size)
+    }
+
+    private func navCellAt(_ point: CGPoint) -> Int? {
+        guard navGridFrame.width > 0 else { return nil }
+        let padding: CGFloat = 8
+        let innerFrame = navGridFrame.insetBy(dx: padding, dy: padding)
+        let relX = point.x - innerFrame.minX
+        let relY = point.y - innerFrame.minY
+
+        guard relX >= 0, relX <= innerFrame.width, relY >= 0, relY <= innerFrame.height else {
+            return nil  // Outside grid — no selection
+        }
+
+        // Center zone: near the intersection of all 4 cells → grid view (-1)
+        let centerX = innerFrame.width / 2
+        let centerY = innerFrame.height / 2
+        let centerRadius: CGFloat = 18
+        if abs(relX - centerX) < centerRadius && abs(relY - centerY) < centerRadius {
+            return -1  // Grid view
+        }
+
+        let col = relX < centerX ? 0 : 1
+        let row = relY < centerY ? 0 : 1
+        return row * 2 + col
+    }
+
     // MARK: - Empty View (no model loaded)
 
     private var fullscreenEmptyView: some View {
@@ -273,6 +397,15 @@ struct FullscreenSimulationView: View {
             .buttonStyle(.bordered)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - Preference Key for Navigation Grid Frame
+
+private struct NavGridFrameKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        value = nextValue()
     }
 }
 
@@ -303,7 +436,9 @@ struct ControlButton: View {
 #Preview {
     FullscreenSimulationView(
         instance: SimulationInstance(id: 0),
+        instanceIndex: 0,
         onExit: {},
+        onSwitchInstance: { _ in },
         onLoadModel: {}
     )
 }
