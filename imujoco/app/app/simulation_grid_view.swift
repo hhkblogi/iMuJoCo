@@ -449,6 +449,14 @@ struct SettingsView: View {
                         }
                     }
                 }
+
+                Section {
+                    NavigationLink {
+                        AboutView()
+                    } label: {
+                        Label("About", systemImage: "info.circle")
+                    }
+                }
             }
             .listStyle(.plain)
             .navigationTitle("Settings")
@@ -462,6 +470,84 @@ struct SettingsView: View {
         #if os(macOS)
         .frame(minWidth: 450, minHeight: 200)
         #endif
+    }
+}
+
+// MARK: - About View
+
+struct AboutView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    private var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "–"
+    }
+
+    private var buildNumber: String {
+        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "–"
+    }
+
+    private let mujocoVersion = "3.4.0"
+
+    private let modelInfo: [(name: String, source: String, license: String)] = [
+        ("Humanoid (Supine)", "MuJoCo", "Apache 2.0"),
+        ("Simple Pendulum", "iMuJoCo", "Apache 2.0"),
+        ("Unitree G1", "Menagerie", "BSD-3"),
+    ]
+
+    var body: some View {
+        List {
+            Section("App") {
+                HStack {
+                    Text("Version")
+                    Spacer()
+                    Text("\(appVersion) (\(buildNumber))")
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Text("MuJoCo")
+                    Spacer()
+                    Text(mujocoVersion)
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Text("License")
+                    Spacer()
+                    Text("Apache 2.0")
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Text("App Icon")
+                    Spacer()
+                    Text("crabe.art")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Bundled Models") {
+                ForEach(modelInfo, id: \.name) { model in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(model.name)
+                        Text("\(model.source) · \(model.license)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+        }
+        .navigationTitle("About")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button(action: { dismiss() }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 14, weight: .medium))
+                }
+            }
+        }
     }
 }
 
