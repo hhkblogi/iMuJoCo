@@ -575,9 +575,16 @@ final class SimulationGridManager: @unchecked Sendable {
             let player = try AVAudioPlayer(data: Self.silentWAV)
             player.numberOfLoops = -1  // loop forever
             player.volume = 0
-            player.play()
-            silentPlayer = player
-            logger.info("Caffeine background audio started")
+            player.prepareToPlay()
+
+            if player.play() {
+                silentPlayer = player
+                logger.info("Caffeine background audio started")
+            } else {
+                logger.error("Caffeine background audio failed: AVAudioPlayer.play() returned false")
+                player.stop()
+                try? session.setActive(false, options: .notifyOthersOnDeactivation)
+            }
         } catch {
             logger.error("Caffeine background audio failed: \(error.localizedDescription)")
         }

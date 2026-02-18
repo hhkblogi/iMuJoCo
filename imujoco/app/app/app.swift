@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 @main
 struct MuJoCoApp: App {
@@ -21,11 +24,13 @@ struct MuJoCoApp: App {
                         #else
                         gridManager.beginBackgroundExecution()
                         #endif
-                    case .inactive, .active:
+                    case .active:
                         gridManager.endBackgroundExecution()
                         #if os(iOS)
                         gridManager.endCaffeineBackground()
                         #endif
+                    case .inactive:
+                        break
                     @unknown default:
                         break
                     }

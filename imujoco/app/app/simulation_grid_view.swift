@@ -187,12 +187,14 @@ struct SimulationGridView: View {
             Spacer()
 
             // Caffeine mode indicator
+            #if os(iOS)
             if caffeineMode >= 1 {
                 Image(systemName: caffeineMode >= 2 ? "cup.and.heat.waves.fill" : "cup.and.saucer.fill")
                     .font(.system(size: 14))
                     .foregroundColor(.white)
                     .padding(.trailing, 6)
             }
+            #endif
 
             // Collapsible IP address capsule
             HStack(spacing: ipExpanded ? 8 : 0) {
@@ -475,6 +477,7 @@ struct SettingsView: View {
                                     .foregroundStyle(.secondary)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("About Caffeine Mode")
                         }
                         HStack {
                             ForEach(
