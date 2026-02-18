@@ -287,7 +287,7 @@ void Driver::rx_thread_func() {
 
         stat_packets_received_.fetch_add(1, std::memory_order_relaxed);
         auto packet = imujoco::schema::GetStatePacket(result.data);
-        stat_last_state_time_ = packet->time();
+        stat_last_state_time_.store(packet->time(), std::memory_order_relaxed);
 
         dispatch_state(result.data, result.size);
     }
@@ -371,7 +371,7 @@ DriverStats Driver::GetStats() const {
     s.fragments_received = stat_fragments_received_.load(std::memory_order_relaxed);
     s.send_errors = stat_send_errors_.load(std::memory_order_relaxed);
     s.receive_errors = stat_receive_errors_.load(std::memory_order_relaxed);
-    s.last_state_time = stat_last_state_time_;
+    s.last_state_time = stat_last_state_time_.load(std::memory_order_relaxed);
     return s;
 }
 
@@ -382,7 +382,7 @@ void Driver::ResetStats() {
     stat_fragments_received_.store(0, std::memory_order_relaxed);
     stat_send_errors_.store(0, std::memory_order_relaxed);
     stat_receive_errors_.store(0, std::memory_order_relaxed);
-    stat_last_state_time_ = 0.0;
+    stat_last_state_time_.store(0.0, std::memory_order_relaxed);
 }
 
 const DriverConfig& Driver::Config() const {

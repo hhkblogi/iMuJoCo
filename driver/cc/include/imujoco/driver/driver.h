@@ -282,7 +282,7 @@ private:
     std::atomic<uint64_t> stat_fragments_received_{0};
     std::atomic<uint64_t> stat_send_errors_{0};
     std::atomic<uint64_t> stat_receive_errors_{0};
-    double stat_last_state_time_{0.0};  // Only written from RX thread
+    std::atomic<double> stat_last_state_time_{0.0};
 };
 
 }  // namespace imujoco::driver
