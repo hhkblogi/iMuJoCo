@@ -11,20 +11,21 @@ private let logger = Logger(subsystem: "com.mujoco.render", category: "MJCMetalR
 
 // MARK: - Shader Types
 
-struct MJCMetalUniforms {
-    var modelMatrix: simd_float4x4
+struct MJCFrameUniforms {
     var viewMatrix: simd_float4x4
     var projectionMatrix: simd_float4x4
-    var normal_matrix: simd_float4x4
-    var lightPosition: simd_float3
-    var _padding0: Float  // Alignment padding after lightPosition (float3 aligns to 16 bytes in Metal)
     var cameraPosition: simd_float3
-    var _padding1: Float  // Alignment padding after cameraPosition
+    var _padding: Float
+}
+
+struct MJCInstanceData {
+    var modelMatrix: simd_float4x4
+    var normalMatrix: simd_float4x4
     var color: simd_float4
     var emission: Float
     var specular: Float
     var shininess: Float
-    var checkerboardScale: Float  // >0 = procedural checkerboard cell size, 0 = disabled
+    var checkerboardScale: Float
 }
 
 struct MJCMetalVertex {
@@ -94,6 +95,10 @@ public final class MJCMetalRender {
     private let gizmoIndexBuffer: MTLBuffer
     private let gizmoIndexCounts: [(offset: Int, count: Int)]  // per-axis (X, Y, Z) index ranges
 
+    // Pre-computed gizmo constants (built once at init, zero per-frame cost)
+    private let gizmoLightBuffer: MJCLightBuffer
+    private let gizmoInstanceData: (MJCInstanceData, MJCInstanceData, MJCInstanceData)
+
     private var depth_texture: MTLTexture?
 
     // MARK: - Mesh Cache (static geometry)
@@ -109,18 +114,36 @@ public final class MJCMetalRender {
     private var meshCache: [Int: CachedMesh] = [:]
     private var meshCacheBuilt = false
 
+    // MARK: - Instancing Tracking (pre-allocated, zero heap alloc per frame)
+
+    /// Sorted array of meshIds present in meshCache (set once when cache is built).
+    private var cachedMeshIds: [Int] = []
+    /// Flat lookup: meshId → true if in meshCache. Size = maxMeshId+1.
+    private var meshIdValid: [Bool] = []
+    /// Per-meshId instance count this frame. Size = maxMeshId+1, zeroed each frame.
+    private var perMeshCount: [Int] = []
+    /// Per-meshId write cursor into instance buffer. Size = maxMeshId+1.
+    private var perMeshWriteIdx: [Int] = []
+    /// meshIds active this frame (have ≥1 instance). Pre-allocated, cleared each frame.
+    private var activeMeshIds: [Int] = []
+    /// Primitive draw info. Pre-allocated, cleared each frame.
+    private var primDrawList: [(instanceIndex: Int, vertexOffset: Int, indexOffset: Int, indexCount: Int)] = []
+
     // MARK: - Triple Buffering (dynamic primitive geometry)
 
     private static let inflightFrameCount = 3
     private var dynamicVertexBuffers: [MTLBuffer] = []
     private var dynamicIndexBuffers: [MTLBuffer] = []
+    private var dynamicInstanceBuffers: [MTLBuffer] = []
     private var bufferIndex = 0
     private let inflightSemaphore = DispatchSemaphore(value: inflightFrameCount)
 
     // Dynamic buffer capacity - sized for procedural primitives only (meshes use cached buffers).
-    // Reduced from 2M because dynamic buffers no longer hold mesh vertices.
-    private let max_vertices = 512 * 1024  // ~32MB per buffer at 64 bytes/vertex
-    private let max_indices = 512 * 1024   // ~2MB per buffer at 4 bytes/index
+    // A typical scene has ~10-30 primitive geoms (ground plane, capsules, spheres, etc.).
+    // At max tessellation (1000 verts / 6000 indices per geom), 32K vertices supports 32 geoms.
+    private let max_vertices = 32 * 1024   // ~2MB per buffer at 64 bytes/vertex
+    private let max_indices = 192 * 1024   // ~768KB per buffer at 4 bytes/index
+    private let maxInstances = 4096        // 4096 × 160 bytes = 640KB per buffer
 
     // MARK: - Brightness Readback (GPU → CPU)
 
@@ -239,6 +262,53 @@ public final class MJCMetalRender {
         self.gizmoIndexBuffer = gizmo.indexBuffer
         self.gizmoIndexCounts = gizmo.indexCounts
 
+        // Pre-compute gizmo light buffer (constant — never changes)
+        let emptyGizmoLight = MJCMetalLight(
+            pos: .zero, _pad0: 0, dir: .zero, _pad1: 0,
+            ambient: .zero, _pad2: 0, diffuse: .zero, _pad3: 0,
+            specular: .zero, _pad4: 0, attenuation: .zero, cutoff: 0,
+            exponent: 0, headlight: 0, directional: 0, _pad5: 0
+        )
+        self.gizmoLightBuffer = MJCLightBuffer(
+            lightCount: 1,
+            _pad: (0, 0, 0),
+            lights: (
+                MJCMetalLight(
+                    pos: simd_float3(0, 0, 5), _pad0: 0,
+                    dir: simd_float3(0, 0, -1), _pad1: 0,
+                    ambient: simd_float3(0.4, 0.4, 0.4), _pad2: 0,
+                    diffuse: simd_float3(0.8, 0.8, 0.8), _pad3: 0,
+                    specular: simd_float3(0.3, 0.3, 0.3), _pad4: 0,
+                    attenuation: simd_float3(1, 0, 0), cutoff: 180,
+                    exponent: 0, headlight: 0, directional: 1, _pad5: 0
+                ),
+                emptyGizmoLight, emptyGizmoLight, emptyGizmoLight,
+                emptyGizmoLight, emptyGizmoLight, emptyGizmoLight, emptyGizmoLight
+            )
+        )
+
+        // Pre-compute gizmo instance data (constant rotation matrices + material)
+        let xRot = simd_float4x4(columns: (
+            simd_float4(0, 0, -1, 0), simd_float4(0, 1, 0, 0),
+            simd_float4(1, 0, 0, 0), simd_float4(0, 0, 0, 1)
+        ))
+        let yRot = simd_float4x4(columns: (
+            simd_float4(1, 0, 0, 0), simd_float4(0, 0, -1, 0),
+            simd_float4(0, 1, 0, 0), simd_float4(0, 0, 0, 1)
+        ))
+        let zRot = simd_float4x4(1.0)
+        self.gizmoInstanceData = (
+            MJCInstanceData(modelMatrix: xRot, normalMatrix: xRot,
+                            color: simd_float4(1, 1, 1, 1),
+                            emission: 0.5, specular: 0.3, shininess: 5.0, checkerboardScale: 0),
+            MJCInstanceData(modelMatrix: yRot, normalMatrix: yRot,
+                            color: simd_float4(1, 1, 1, 1),
+                            emission: 0.5, specular: 0.3, shininess: 5.0, checkerboardScale: 0),
+            MJCInstanceData(modelMatrix: zRot, normalMatrix: zRot,
+                            color: simd_float4(1, 1, 1, 1),
+                            emission: 0.5, specular: 0.3, shininess: 5.0, checkerboardScale: 0)
+        )
+
         // Allocate triple-buffered dynamic buffers for procedural geometry
         for _ in 0..<Self.inflightFrameCount {
             guard let vBuf = device.makeBuffer(length: max_vertices * MemoryLayout<MJCMetalVertex>.stride,
@@ -249,6 +319,15 @@ public final class MJCMetalRender {
             }
             dynamicVertexBuffers.append(vBuf)
             dynamicIndexBuffers.append(iBuf)
+        }
+
+        // Allocate triple-buffered instance data buffers for instanced rendering
+        for _ in 0..<Self.inflightFrameCount {
+            guard let instBuf = device.makeBuffer(length: maxInstances * MemoryLayout<MJCInstanceData>.stride,
+                                                   options: .storageModeShared) else {
+                throw MJCRenderError.bufferAllocationFailed
+            }
+            dynamicInstanceBuffers.append(instBuf)
         }
 
         // Allocate triple-buffered readback buffers for brightness sampling (4×4 BGRA8 = 64 bytes each)
@@ -314,6 +393,17 @@ public final class MJCMetalRender {
         }
 
         logger.info("Built mesh cache: \(self.meshCache.count) meshes cached")
+
+        // Pre-allocate instancing tracking arrays (zero heap alloc per frame after this)
+        let maxId = meshCache.keys.max() ?? -1
+        let tableSize = maxId + 1
+        cachedMeshIds = meshCache.keys.sorted()
+        meshIdValid = [Bool](repeating: false, count: tableSize)
+        perMeshCount = [Int](repeating: 0, count: tableSize)
+        perMeshWriteIdx = [Int](repeating: 0, count: tableSize)
+        for mid in cachedMeshIds { meshIdValid[mid] = true }
+        activeMeshIds.reserveCapacity(tableSize)
+        primDrawList.reserveCapacity(256)
     }
 
     // MARK: - Rendering (Lock-Free Ring Buffer API)
@@ -350,6 +440,7 @@ public final class MJCMetalRender {
         bufferIndex = (bufferIndex + 1) % Self.inflightFrameCount
         let dynamicVB = dynamicVertexBuffers[currentBufferIndex]
         let dynamicIB = dynamicIndexBuffers[currentBufferIndex]
+        let instanceBuffer = dynamicInstanceBuffers[currentBufferIndex]
 
         // Read brightness from this slot's previous blit (guaranteed complete after semaphore wait)
         if brightnessReadbackValid[currentBufferIndex] {
@@ -465,6 +556,16 @@ public final class MJCMetalRender {
             return
         }
 
+        // Set frame uniforms once (shared across all geoms)
+        var frameUniforms = MJCFrameUniforms(
+            viewMatrix: viewMatrix,
+            projectionMatrix: projMatrix,
+            cameraPosition: eye,
+            _padding: 0
+        )
+        encoder.setVertexBytes(&frameUniforms, length: MemoryLayout<MJCFrameUniforms>.stride, index: 1)
+        encoder.setFragmentBytes(&frameUniforms, length: MemoryLayout<MJCFrameUniforms>.stride, index: 1)
+
         // Build and set light buffer (once per frame, shared across all geoms)
         let emptyLight = MJCMetalLight(
             pos: .zero, _pad0: 0, dir: .zero, _pad1: 0,
@@ -513,80 +614,116 @@ public final class MJCMetalRender {
         }
         encoder.setFragmentBytes(&lightBuffer, length: MemoryLayout<MJCLightBuffer>.stride, index: 2)
 
-        // Render each geometry from ring buffer frame data
-        var skippedGeoms = 0
+        // --- Counting pass: tally mesh instances per meshId (zero allocation) ---
+        let instanceData = instanceBuffer.contents().bindMemory(to: MJCInstanceData.self, capacity: maxInstances)
+        let meshIdTableSize = meshIdValid.count
+
+        // Reset per-mesh counts using only active meshIds from last frame
+        for mid in activeMeshIds { perMeshCount[mid] = 0 }
+        activeMeshIds.removeAll(keepingCapacity: true)
+        primDrawList.removeAll(keepingCapacity: true)
+
+        var totalMeshInstances = 0
+        var primitiveCount = 0
+        var fallbackCount = 0
+
         for i in 0..<geomCount {
             let geom = geomsPtr[i]
-            let isMesh = geom.type == 7  // mjGEOM_MESH
+            if geom.type == 7 {  // mjGEOM_MESH
+                let dataid = Int(geom.dataid)
+                let meshId = dataid >= 0 ? dataid / 2 : -1
+                if meshId >= 0 && meshId < meshIdTableSize && meshIdValid[meshId] {
+                    if perMeshCount[meshId] == 0 { activeMeshIds.append(meshId) }
+                    perMeshCount[meshId] += 1
+                    totalMeshInstances += 1
+                } else {
+                    fallbackCount += 1
+                }
+            } else {
+                primitiveCount += 1
+            }
+        }
 
-            // Build model matrix from geom pose (shared by mesh and primitive paths)
+        // Compute base-instance offsets (prefix sum over active meshIds)
+        var offset = 0
+        for mid in activeMeshIds {
+            perMeshWriteIdx[mid] = offset
+            offset += perMeshCount[mid]
+        }
+        let primBaseInstance = totalMeshInstances  // primitives packed after mesh instances
+
+        // --- Write pass: fill instance buffer + dynamic vertex/index data ---
+        var primInstanceIdx = primBaseInstance
+        var skippedGeoms = 0
+
+        for i in 0..<geomCount {
+            let geom = geomsPtr[i]
+
+            // Build model matrix from geom pose
             var modelMatrix = simd_float4x4(1.0)
             modelMatrix.columns.0 = simd_float4(geom.mat.0, geom.mat.3, geom.mat.6, 0)
             modelMatrix.columns.1 = simd_float4(geom.mat.1, geom.mat.4, geom.mat.7, 0)
             modelMatrix.columns.2 = simd_float4(geom.mat.2, geom.mat.5, geom.mat.8, 0)
             modelMatrix.columns.3 = simd_float4(geom.pos.0, geom.pos.1, geom.pos.2, 1)
 
-            let emission = geom.emission
-            let specular = geom.specular
-            let shininess = min(max(geom.shininess, 1.0), 10.0)
-
-            if isMesh {
-                // --- Cached mesh path: bind pre-built buffers, no CPU vertex copying ---
+            if geom.type == 7 {  // mjGEOM_MESH
                 let dataid = Int(geom.dataid)
                 let meshId = dataid >= 0 ? dataid / 2 : -1
 
-                guard meshId >= 0, let cached = meshCache[meshId] else {
+                if meshId >= 0 && meshId < meshIdTableSize && meshIdValid[meshId] {
+                    // Cached mesh: write instance at pre-computed offset
+                    let idx = perMeshWriteIdx[meshId]
+                    guard idx < maxInstances else { skippedGeoms += 1; continue }
+
+                    instanceData[idx] = MJCInstanceData(
+                        modelMatrix: modelMatrix,
+                        normalMatrix: Self.normal_matrix(from: modelMatrix),
+                        color: simd_float4(geom.rgba.0, geom.rgba.1, geom.rgba.2, geom.rgba.3),
+                        emission: geom.emission,
+                        specular: geom.specular,
+                        shininess: min(max(geom.shininess, 1.0), 10.0),
+                        checkerboardScale: 0
+                    )
+                    perMeshWriteIdx[meshId] = idx + 1
+                } else {
                     // Fallback: tiny placeholder box via dynamic buffer
+                    guard primInstanceIdx < maxInstances else { skippedGeoms += 1; continue }
                     if totalVertices + Self.max_vertices_per_geom > max_vertices ||
                        totalIndices + Self.max_indices_per_geom > max_indices {
                         skippedGeoms += 1; continue
                     }
+
                     var vertexCount = 0; var indexCount = 0
                     let color = simd_float4(geom.rgba.0, geom.rgba.1, geom.rgba.2, geom.rgba.3)
                     Self.generate_box(size: (0.02, 0.02, 0.02), color: color,
                                       vertices: vertexData.advanced(by: totalVertices),
                                       indices: indexData.advanced(by: totalIndices),
                                       vertexCount: &vertexCount, indexCount: &indexCount)
-                    if vertexCount > 0 && indexCount > 0 {
-                        var uniforms = MJCMetalUniforms(
-                            modelMatrix: modelMatrix, viewMatrix: viewMatrix,
-                            projectionMatrix: projMatrix, normal_matrix: Self.normal_matrix(from: modelMatrix),
-                            lightPosition: simd_float3(0, 0, 10), _padding0: 0,
-                            cameraPosition: eye, _padding1: 0,
-                            color: simd_float4(1, 1, 1, 1),
-                            emission: emission, specular: specular, shininess: shininess, checkerboardScale: 0)
-                        encoder.setVertexBuffer(dynamicVB, offset: totalVertices * MemoryLayout<MJCMetalVertex>.stride, index: 0)
-                        encoder.setVertexBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
-                        encoder.setFragmentBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
-                        encoder.drawIndexedPrimitives(type: .triangle, indexCount: indexCount, indexType: .uint32,
-                                                      indexBuffer: dynamicIB,
-                                                      indexBufferOffset: totalIndices * MemoryLayout<UInt32>.stride)
-                        totalVertices += vertexCount; totalIndices += indexCount
-                    }
-                    continue
+                    guard vertexCount > 0, indexCount > 0 else { continue }
+
+                    instanceData[primInstanceIdx] = MJCInstanceData(
+                        modelMatrix: modelMatrix,
+                        normalMatrix: Self.normal_matrix(from: modelMatrix),
+                        color: simd_float4(1, 1, 1, 1),
+                        emission: geom.emission,
+                        specular: geom.specular,
+                        shininess: min(max(geom.shininess, 1.0), 10.0),
+                        checkerboardScale: 0
+                    )
+                    primDrawList.append((instanceIndex: primInstanceIdx,
+                                         vertexOffset: totalVertices,
+                                         indexOffset: totalIndices,
+                                         indexCount: indexCount))
+                    primInstanceIdx += 1
+                    totalVertices += vertexCount
+                    totalIndices += indexCount
                 }
-
-                // Cached mesh: set geom color via uniforms (vertex color is white in cache)
-                var uniforms = MJCMetalUniforms(
-                    modelMatrix: modelMatrix, viewMatrix: viewMatrix,
-                    projectionMatrix: projMatrix, normal_matrix: Self.normal_matrix(from: modelMatrix),
-                    lightPosition: simd_float3(0, 0, 10), _padding0: 0,
-                    cameraPosition: eye, _padding1: 0,
-                    color: simd_float4(geom.rgba.0, geom.rgba.1, geom.rgba.2, geom.rgba.3),
-                    emission: emission, specular: specular, shininess: shininess, checkerboardScale: 0)
-
-                encoder.setVertexBuffer(cached.vertexBuffer, offset: 0, index: 0)
-                encoder.setVertexBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
-                encoder.setFragmentBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
-                encoder.drawIndexedPrimitives(type: .triangle, indexCount: cached.indexCount, indexType: .uint32,
-                                              indexBuffer: cached.indexBuffer, indexBufferOffset: 0)
-
             } else {
-                // --- Dynamic primitive path: write to triple-buffered shared buffer ---
+                // Primitive geom: write to dynamic buffer
+                guard primInstanceIdx < maxInstances else { skippedGeoms += 1; continue }
                 if totalVertices + Self.max_vertices_per_geom > max_vertices ||
                    totalIndices + Self.max_indices_per_geom > max_indices {
-                    skippedGeoms = geomCount - i
-                    break
+                    skippedGeoms += 1; continue
                 }
 
                 var vertexCount = 0
@@ -598,35 +735,72 @@ public final class MJCMetalRender {
                     vertexCount: &vertexCount,
                     indexCount: &indexCount
                 )
+                guard vertexCount > 0, indexCount > 0 else { continue }
 
-                if vertexCount > 0 && indexCount > 0 {
-                    // Primitives: color is baked into vertices, uniforms.color = white (passthrough)
-                    let isPlane = geom.type == 0
-                    var uniforms = MJCMetalUniforms(
-                        modelMatrix: modelMatrix, viewMatrix: viewMatrix,
-                        projectionMatrix: projMatrix, normal_matrix: Self.normal_matrix(from: modelMatrix),
-                        lightPosition: simd_float3(0, 0, 10), _padding0: 0,
-                        cameraPosition: eye, _padding1: 0,
-                        color: simd_float4(1, 1, 1, 1),
-                        emission: emission, specular: specular, shininess: shininess,
-                        checkerboardScale: isPlane ? 1.0 : 0)
-
-                    encoder.setVertexBuffer(dynamicVB, offset: totalVertices * MemoryLayout<MJCMetalVertex>.stride, index: 0)
-                    encoder.setVertexBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
-                    encoder.setFragmentBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
-                    encoder.drawIndexedPrimitives(type: .triangle, indexCount: indexCount, indexType: .uint32,
-                                                  indexBuffer: dynamicIB,
-                                                  indexBufferOffset: totalIndices * MemoryLayout<UInt32>.stride)
-                    totalVertices += vertexCount
-                    totalIndices += indexCount
-                }
+                let isPlane = geom.type == 0
+                instanceData[primInstanceIdx] = MJCInstanceData(
+                    modelMatrix: modelMatrix,
+                    normalMatrix: Self.normal_matrix(from: modelMatrix),
+                    color: simd_float4(1, 1, 1, 1),
+                    emission: geom.emission,
+                    specular: geom.specular,
+                    shininess: min(max(geom.shininess, 1.0), 10.0),
+                    checkerboardScale: isPlane ? 1.0 : 0
+                )
+                primDrawList.append((instanceIndex: primInstanceIdx,
+                                     vertexOffset: totalVertices,
+                                     indexOffset: totalIndices,
+                                     indexCount: indexCount))
+                primInstanceIdx += 1
+                totalVertices += vertexCount
+                totalIndices += indexCount
             }
+        }
+
+        // --- Draw calls ---
+
+        // Bind instance data buffer for both vertex and fragment shaders
+        encoder.setVertexBuffer(instanceBuffer, offset: 0, index: 3)
+        encoder.setFragmentBuffer(instanceBuffer, offset: 0, index: 3)
+
+        // Draw instanced mesh batches (one draw call per unique meshId)
+        offset = 0
+        for mid in activeMeshIds {
+            let count = perMeshCount[mid]
+            guard count > 0, let cached = meshCache[mid] else { offset += count; continue }
+            encoder.setVertexBuffer(cached.vertexBuffer, offset: 0, index: 0)
+            encoder.drawIndexedPrimitives(
+                type: .triangle,
+                indexCount: cached.indexCount,
+                indexType: .uint32,
+                indexBuffer: cached.indexBuffer,
+                indexBufferOffset: 0,
+                instanceCount: count,
+                baseVertex: 0,
+                baseInstance: offset
+            )
+            offset += count
+        }
+
+        // Draw primitive geoms (one draw call each, different vertex/index data)
+        for prim in primDrawList {
+            encoder.setVertexBuffer(dynamicVB, offset: prim.vertexOffset * MemoryLayout<MJCMetalVertex>.stride, index: 0)
+            encoder.drawIndexedPrimitives(
+                type: .triangle,
+                indexCount: prim.indexCount,
+                indexType: .uint32,
+                indexBuffer: dynamicIB,
+                indexBufferOffset: prim.indexOffset * MemoryLayout<UInt32>.stride,
+                instanceCount: 1,
+                baseVertex: 0,
+                baseInstance: prim.instanceIndex
+            )
         }
 
         // Warn if geometries were skipped due to buffer overflow
         if skippedGeoms > 0 {
             let rendered = geomCount - skippedGeoms
-            logger.warning("Skipped \(skippedGeoms)/\(geomCount) geometries due to buffer capacity (rendered \(rendered), vertices: \(totalVertices)/\(self.max_vertices), indices: \(totalIndices)/\(self.max_indices))")
+            logger.warning("Skipped \(skippedGeoms)/\(geomCount) geometries (rendered \(rendered), vertices: \(totalVertices)/\(self.max_vertices), indices: \(totalIndices)/\(self.max_indices))")
         }
 
         renderAxesGizmo(encoder: encoder, viewMatrix: viewMatrix, width: width, height: height, isFullscreen: isFullscreen)
@@ -669,6 +843,7 @@ public final class MJCMetalRender {
 
     /// Render a 3D XYZ orientation axes gizmo in the bottom-left corner.
     /// Rotates with the camera but stays fixed in the corner, never occluded by scene geometry.
+    /// All constant data (light buffer, instance data) pre-computed at init — zero heap alloc per frame.
     private func renderAxesGizmo(encoder: MTLRenderCommandEncoder, viewMatrix: simd_float4x4,
                                  width: Int, height: Int, isFullscreen: Bool = false) {
         let gizmoSize = Int(Float(min(width, height)) * 0.15)
@@ -696,88 +871,49 @@ public final class MJCMetalRender {
         let orthoProj = Self.orthographic(left: -1.0, right: 1.0, bottom: -1.0, top: 1.0,
                                           near: 0.1, far: 10)
 
-        // Simple directional light from camera direction for consistent gizmo shading
-        let emptyLight = MJCMetalLight(
-            pos: .zero, _pad0: 0, dir: .zero, _pad1: 0,
-            ambient: .zero, _pad2: 0, diffuse: .zero, _pad3: 0,
-            specular: .zero, _pad4: 0, attenuation: .zero, cutoff: 0,
-            exponent: 0, headlight: 0, directional: 0, _pad5: 0
+        // Set gizmo frame uniforms (only view/projection change per frame)
+        var gizmoFrameUniforms = MJCFrameUniforms(
+            viewMatrix: gizmoView,
+            projectionMatrix: orthoProj,
+            cameraPosition: simd_float3(0, 0, 3),
+            _padding: 0
         )
-        var gizmoLightBuffer = MJCLightBuffer(
-            lightCount: 1,
-            _pad: (0, 0, 0),
-            lights: (
-                MJCMetalLight(
-                    pos: simd_float3(0, 0, 5), _pad0: 0,
-                    dir: simd_float3(0, 0, -1), _pad1: 0,
-                    ambient: simd_float3(0.4, 0.4, 0.4), _pad2: 0,
-                    diffuse: simd_float3(0.8, 0.8, 0.8), _pad3: 0,
-                    specular: simd_float3(0.3, 0.3, 0.3), _pad4: 0,
-                    attenuation: simd_float3(1, 0, 0), cutoff: 180,
-                    exponent: 0, headlight: 0, directional: 1, _pad5: 0
-                ),
-                emptyLight, emptyLight, emptyLight,
-                emptyLight, emptyLight, emptyLight, emptyLight
-            )
-        )
-        encoder.setFragmentBytes(&gizmoLightBuffer, length: MemoryLayout<MJCLightBuffer>.stride, index: 2)
+        encoder.setVertexBytes(&gizmoFrameUniforms, length: MemoryLayout<MJCFrameUniforms>.stride, index: 1)
+        encoder.setFragmentBytes(&gizmoFrameUniforms, length: MemoryLayout<MJCFrameUniforms>.stride, index: 1)
 
-        // Axis rotation matrices: rotate local-Z arrow geometry to point along target axis
-        let axisRotations: [simd_float4x4] = [
-            // X axis (red): rotate 90° around Y → local Z becomes +X
-            simd_float4x4(columns: (
-                simd_float4(0, 0, -1, 0),
-                simd_float4(0, 1, 0, 0),
-                simd_float4(1, 0, 0, 0),
-                simd_float4(0, 0, 0, 1)
-            )),
-            // Y axis (green): rotate -90° around X → local Z becomes +Y
-            simd_float4x4(columns: (
-                simd_float4(1, 0, 0, 0),
-                simd_float4(0, 0, -1, 0),
-                simd_float4(0, 1, 0, 0),
-                simd_float4(0, 0, 0, 1)
-            )),
-            // Z axis (blue): identity (arrow already along Z)
-            simd_float4x4(1.0)
-        ]
+        // Use pre-computed gizmo light buffer (constant, built at init)
+        var lightBuf = gizmoLightBuffer
+        encoder.setFragmentBytes(&lightBuf, length: MemoryLayout<MJCLightBuffer>.stride, index: 2)
 
-        // World-space axis directions for depth sorting
-        let axisDirections: [simd_float3] = [
-            simd_float3(1, 0, 0), simd_float3(0, 1, 0), simd_float3(0, 0, 1)
-        ]
+        // Use pre-computed gizmo instance data (constant, built at init)
+        var instData = gizmoInstanceData
+        encoder.setVertexBytes(&instData, length: 3 * MemoryLayout<MJCInstanceData>.stride, index: 3)
+        encoder.setFragmentBytes(&instData, length: 3 * MemoryLayout<MJCInstanceData>.stride, index: 3)
 
         // Camera -forward direction (row 2 of view matrix) for back-to-front sorting
-        let viewRow2 = simd_float3(gizmoView.columns.0.z, gizmoView.columns.1.z, gizmoView.columns.2.z)
+        let vz = simd_float3(gizmoView.columns.0.z, gizmoView.columns.1.z, gizmoView.columns.2.z)
 
-        // Sort axes back-to-front: most negative dot = furthest from camera = draw first
-        var axisOrder = [0, 1, 2]
-        axisOrder.sort { simd_dot(axisDirections[$0], viewRow2) < simd_dot(axisDirections[$1], viewRow2) }
+        // Inline 3-element sorting network (no heap-allocated array)
+        // Dot products: X=vz.x, Y=vz.y, Z=vz.z (axis directions are unit basis vectors)
+        var a0 = 0, a1 = 1, a2 = 2
+        var d0 = vz.x, d1 = vz.y, d2 = vz.z
+        if d0 > d1 { swap(&a0, &a1); swap(&d0, &d1) }
+        if d1 > d2 { swap(&a1, &a2); swap(&d1, &d2) }
+        if d0 > d1 { swap(&a0, &a1) }
 
         // Draw axes back-to-front using pre-built gizmo geometry
         encoder.setVertexBuffer(gizmoVertexBuffer, offset: 0, index: 0)
-        for axisIdx in axisOrder {
-            let modelMatrix = axisRotations[axisIdx]
-            var uniforms = MJCMetalUniforms(
-                modelMatrix: modelMatrix,
-                viewMatrix: gizmoView,
-                projectionMatrix: orthoProj,
-                normal_matrix: Self.normal_matrix(from: modelMatrix),
-                lightPosition: simd_float3(0, 0, 5), _padding0: 0,
-                cameraPosition: simd_float3(0, 0, 3), _padding1: 0,
-                color: simd_float4(1, 1, 1, 1),
-                emission: 0.5, specular: 0.3, shininess: 5.0, checkerboardScale: 0
-            )
-            encoder.setVertexBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
-            encoder.setFragmentBytes(&uniforms, length: MemoryLayout<MJCMetalUniforms>.stride, index: 1)
-
+        for axisIdx in [a0, a1, a2] {
             let range = gizmoIndexCounts[axisIdx]
             encoder.drawIndexedPrimitives(
                 type: .triangle,
                 indexCount: range.count,
                 indexType: .uint32,
                 indexBuffer: gizmoIndexBuffer,
-                indexBufferOffset: range.offset * MemoryLayout<UInt32>.stride
+                indexBufferOffset: range.offset * MemoryLayout<UInt32>.stride,
+                instanceCount: 1,
+                baseVertex: 0,
+                baseInstance: axisIdx
             )
         }
 
