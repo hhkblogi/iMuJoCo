@@ -18,8 +18,10 @@ struct MuJoCoApp: App {
                         #if os(iOS)
                         if caffeineMode >= 2 {
                             gridManager.beginCaffeineBackground()
-                        } else {
+                        } else if caffeineMode >= 1 {
                             gridManager.beginBackgroundExecution()
+                        } else {
+                            gridManager.pauseAll()
                         }
                         #else
                         gridManager.beginBackgroundExecution()
@@ -28,8 +30,10 @@ struct MuJoCoApp: App {
                         #if os(iOS)
                         if caffeineMode >= 2 {
                             gridManager.endCaffeineBackground()
-                        } else {
+                        } else if caffeineMode >= 1 {
                             gridManager.endBackgroundExecution()
+                        } else {
+                            gridManager.resumeAll()
                         }
                         #else
                         gridManager.endBackgroundExecution()
@@ -43,6 +47,9 @@ struct MuJoCoApp: App {
                 #if os(iOS)
                 .onChange(of: caffeineMode) { _, level in
                     UIApplication.shared.isIdleTimerDisabled = level >= 1
+                    if level < 2 {
+                        gridManager.endCaffeineBackground()
+                    }
                 }
                 .onAppear {
                     UIApplication.shared.isIdleTimerDisabled = caffeineMode >= 1

@@ -518,6 +518,27 @@ final class SimulationGridManager: @unchecked Sendable {
         instances.firstIndex { !$0.isActive }
     }
 
+    // MARK: - Pause / Resume All
+
+    /// Tracks which instances were running before pauseAll, so resumeAll restores only those.
+    private var pausedIndices: [Int] = []
+
+    @MainActor
+    func pauseAll() {
+        pausedIndices = instances.indices.filter { instances[$0].state == .running }
+        for i in pausedIndices {
+            instances[i].pause()
+        }
+    }
+
+    @MainActor
+    func resumeAll() {
+        for i in pausedIndices {
+            instances[i].start()
+        }
+        pausedIndices = []
+    }
+
     // MARK: - Background Execution
 
     #if os(iOS)
