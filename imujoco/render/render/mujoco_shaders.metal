@@ -82,8 +82,8 @@ fragment float4 fragmentMain(VertexOut in [[stage_in]],
 
     // Procedural checkerboard for ground planes
     if (uniforms.checkerboardScale > 0.0) {
-        float2 cell = floor(in.worldPosition.xy / uniforms.checkerboardScale);
-        bool isDark = fmod(cell.x + cell.y, 2.0) != 0.0;
+        int2 cell = int2(floor(in.worldPosition.xy / uniforms.checkerboardScale));
+        bool isDark = (cell.x ^ cell.y) & 1;
         baseColor *= isDark ? 0.7 : 1.1;
     }
 

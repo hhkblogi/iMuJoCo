@@ -26,6 +26,9 @@ bazel_dep(name = "rules_xcodeproj", version = "2.12.1")
 # Google Test (for driver tests)
 bazel_dep(name = "googletest", version = "1.17.0.bcr.2")
 
+# Google Benchmark (for performance benchmarks)
+bazel_dep(name = "google_benchmark", version = "1.9.5")
+
 # Python support (for driver Python bindings)
 bazel_dep(name = "rules_python", version = "1.8.4")
 bazel_dep(name = "pybind11_bazel", version = "3.0.0")

@@ -937,24 +937,16 @@ public final class MJCMetalRender {
         ))
     }
 
-    /// Compute normal matrix (inverse transpose of upper-left 3x3) for correct lighting
-    /// with non-uniform scaling. Returns identity-based 4x4 matrix with 3x3 normal transform.
+    /// Compute normal matrix from model matrix for correct lighting.
+    /// MuJoCo geom transforms are rigid-body (orthonormal rotation + translation),
+    /// so the normal matrix is just the upper-left 3x3 rotation (inverse transpose
+    /// of an orthonormal matrix equals the matrix itself). This avoids an expensive
+    /// 3x3 matrix inverse per geom per frame.
     private static func normal_matrix(from modelMatrix: simd_float4x4) -> simd_float4x4 {
-        // Extract upper-left 3x3
-        let m = simd_float3x3(
-            simd_float3(modelMatrix.columns.0.x, modelMatrix.columns.0.y, modelMatrix.columns.0.z),
-            simd_float3(modelMatrix.columns.1.x, modelMatrix.columns.1.y, modelMatrix.columns.1.z),
-            simd_float3(modelMatrix.columns.2.x, modelMatrix.columns.2.y, modelMatrix.columns.2.z)
-        )
-
-        // Compute inverse transpose (handles non-uniform scaling correctly)
-        let invTranspose = m.inverse.transpose
-
-        // Pack back into 4x4 matrix
         return simd_float4x4(columns: (
-            simd_float4(invTranspose.columns.0.x, invTranspose.columns.0.y, invTranspose.columns.0.z, 0),
-            simd_float4(invTranspose.columns.1.x, invTranspose.columns.1.y, invTranspose.columns.1.z, 0),
-            simd_float4(invTranspose.columns.2.x, invTranspose.columns.2.y, invTranspose.columns.2.z, 0),
+            simd_float4(modelMatrix.columns.0.x, modelMatrix.columns.0.y, modelMatrix.columns.0.z, 0),
+            simd_float4(modelMatrix.columns.1.x, modelMatrix.columns.1.y, modelMatrix.columns.1.z, 0),
+            simd_float4(modelMatrix.columns.2.x, modelMatrix.columns.2.y, modelMatrix.columns.2.z, 0),
             simd_float4(0, 0, 0, 1)
         ))
     }

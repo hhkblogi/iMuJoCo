@@ -1,0 +1,25 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary")
+
+# ============================================================================
+# Benchmarks (run with: bazel run //benchmarks:<target> --config=release)
+# ============================================================================
+
+cc_binary(
+    name = "bm_fragment",
+    srcs = ["bm_fragment.cc"],
+    includes = ["../driver/cc/src"],
+    deps = [
+        "//driver:mujoco_driver",
+        "@google_benchmark//:benchmark_main",
+    ],
+)
+
+cc_binary(
+    name = "bm_flatbuffers",
+    srcs = ["bm_flatbuffers.cc"],
+    deps = [
+        "//schema:driver_schemas",
+        "@flatbuffers//:runtime_cc",
+        "@google_benchmark//:benchmark_main",
+    ],
+)
