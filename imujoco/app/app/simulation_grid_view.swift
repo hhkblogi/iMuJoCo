@@ -418,7 +418,7 @@ struct LayoutIcon: View {
 struct SettingsView: View {
     @Binding var defaultView: Int
     var onDismiss: () -> Void
-    @AppStorage("caffeineMode") private var caffeineMode: Bool = false
+    @AppStorage("caffeineMode") private var caffeineMode: Int = 0  // 0=off, 1=half, 2=full
     @State private var showCaffeineInfo = false
 
     // tag 0 = grid, 1-4 = fullscreen instance (highlightedCell 0-3)
@@ -455,9 +455,8 @@ struct SettingsView: View {
                 #if os(iOS)
                 Section {
                     HStack {
-                        Toggle(isOn: $caffeineMode) {
-                            Label("Caffeine Mode", systemImage: "cup.and.heat.waves.fill")
-                        }
+                        Label("Caffeine Mode", systemImage: "cup.and.heat.waves.fill")
+                        Spacer()
                         Button {
                             withAnimation { showCaffeineInfo.toggle() }
                         } label: {
@@ -469,12 +468,23 @@ struct SettingsView: View {
                     }
                     .listRowSeparator(.visible, edges: .all)
                     .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+                    Picker("", selection: $caffeineMode) {
+                        Text("Off").tag(0)
+                        Text("Half").tag(1)
+                        Text("Full").tag(2)
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowSeparator(.visible, edges: .all)
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                     if showCaffeineInfo {
-                        Text("Prevents the screen from dimming and auto-locking. Simulations keep running even when you lock the screen.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .listRowSeparator(.visible, edges: .all)
-                            .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("**Half** — Prevents screen from dimming and auto-locking.")
+                            Text("**Full** — Also keeps simulations running when you lock the screen.")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .listRowSeparator(.visible, edges: .all)
+                        .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                     }
                 }
                 #endif

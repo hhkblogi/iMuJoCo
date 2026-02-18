@@ -4,7 +4,7 @@ import SwiftUI
 struct MuJoCoApp: App {
     @State private var gridManager = SimulationGridManager()
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage("caffeineMode") private var caffeineMode: Bool = false
+    @AppStorage("caffeineMode") private var caffeineMode: Int = 0  // 0=off, 1=half, 2=full
 
     var body: some Scene {
         WindowGroup {
@@ -13,7 +13,7 @@ struct MuJoCoApp: App {
                     switch newPhase {
                     case .background:
                         #if os(iOS)
-                        if caffeineMode {
+                        if caffeineMode >= 2 {
                             gridManager.beginCaffeineBackground()
                         } else {
                             gridManager.beginBackgroundExecution()
@@ -31,11 +31,11 @@ struct MuJoCoApp: App {
                     }
                 }
                 #if os(iOS)
-                .onChange(of: caffeineMode) { _, enabled in
-                    UIApplication.shared.isIdleTimerDisabled = enabled
+                .onChange(of: caffeineMode) { _, level in
+                    UIApplication.shared.isIdleTimerDisabled = level >= 1
                 }
                 .onAppear {
-                    UIApplication.shared.isIdleTimerDisabled = caffeineMode
+                    UIApplication.shared.isIdleTimerDisabled = caffeineMode >= 1
                 }
                 #endif
         }
