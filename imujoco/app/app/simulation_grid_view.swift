@@ -509,8 +509,8 @@ struct SettingsView: View {
                         }
                         if showCaffeineInfo {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("**Half** — Prevents screen from dimming and auto-locking.")
-                                Text("**Full** — Also keeps simulations running when you lock the screen.")
+                                Text("**Half** — Screen stays on. Simulations pause when you leave the app.")
+                                Text("**Full** — Screen stays on. Simulations keep running even when you lock the screen.")
                             }
                             .font(.caption)
                             .foregroundStyle(.secondary)
