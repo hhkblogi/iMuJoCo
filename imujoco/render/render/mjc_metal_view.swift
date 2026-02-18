@@ -117,19 +117,25 @@ public struct MuJoCoMetalView: UIViewRepresentable {
     /// The data source providing frame data and camera control.
     public var dataSource: MJCRenderDataSource
 
+    /// Whether this view is displayed in fullscreen mode (affects gizmo positioning).
+    public var isFullscreen: Bool
+
     /// Creates a new MuJoCo Metal view with the specified data source.
-    public init(dataSource: MJCRenderDataSource) {
+    public init(dataSource: MJCRenderDataSource, isFullscreen: Bool = false) {
         self.dataSource = dataSource
+        self.isFullscreen = isFullscreen
     }
 
     public func makeUIView(context: Context) -> MuJoCoMTKView {
         let view = MuJoCoMTKView()
         view.dataSource = dataSource
+        view.isFullscreen = isFullscreen
         return view
     }
 
     public func updateUIView(_ uiView: MuJoCoMTKView, context: Context) {
         uiView.dataSource = dataSource
+        uiView.isFullscreen = isFullscreen
     }
 }
 #endif
@@ -146,19 +152,25 @@ public struct MuJoCoMetalView: NSViewRepresentable {
     /// The data source providing frame data and camera control.
     public var dataSource: MJCRenderDataSource
 
+    /// Whether this view is displayed in fullscreen mode (affects gizmo positioning).
+    public var isFullscreen: Bool
+
     /// Creates a new MuJoCo Metal view with the specified data source.
-    public init(dataSource: MJCRenderDataSource) {
+    public init(dataSource: MJCRenderDataSource, isFullscreen: Bool = false) {
         self.dataSource = dataSource
+        self.isFullscreen = isFullscreen
     }
 
     public func makeNSView(context: Context) -> MuJoCoMTKView {
         let view = MuJoCoMTKView()
         view.dataSource = dataSource
+        view.isFullscreen = isFullscreen
         return view
     }
 
     public func updateNSView(_ nsView: MuJoCoMTKView, context: Context) {
         nsView.dataSource = dataSource
+        nsView.isFullscreen = isFullscreen
     }
 }
 #endif
@@ -172,6 +184,9 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
             check_ready_to_render()
         }
     }
+
+    /// Whether this view is displayed in fullscreen mode (affects gizmo positioning).
+    public var isFullscreen: Bool = false
 
     private var render: MJCMetalRender?
 
@@ -544,7 +559,8 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
                 frame: frame,
                 meshData: dataSource.meshData,
                 drawable: drawable,
-                renderPassDescriptor: currentRenderPassDescriptor
+                renderPassDescriptor: currentRenderPassDescriptor,
+                isFullscreen: isFullscreen
             )
 
             // Pass GPU-computed brightness back to data source for UI overlay adaptation

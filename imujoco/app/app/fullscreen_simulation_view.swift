@@ -28,7 +28,7 @@ struct FullscreenSimulationView: View {
                         .font(.system(size: 40))
                         .foregroundColor(.gray.opacity(0.3))
                 } else {
-                    MuJoCoMetalView(dataSource: instance)
+                    MuJoCoMetalView(dataSource: instance, isFullscreen: true)
                         .allowsHitTesting(!instance.isLocked)
                         .ignoresSafeArea()
                 }
