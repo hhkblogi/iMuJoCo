@@ -476,6 +476,8 @@ struct SettingsView: View {
 // MARK: - About View
 
 struct AboutView: View {
+    @Environment(\.dismiss) private var dismiss
+
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "–"
     }
@@ -537,6 +539,15 @@ struct AboutView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button(action: { dismiss() }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 14, weight: .medium))
+                }
+            }
+        }
     }
 }
 
