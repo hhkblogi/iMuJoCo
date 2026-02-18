@@ -64,6 +64,7 @@ struct SimulationGridView: View {
     @State private var ipExpanded = false
     @State private var showingSettings = false
     @AppStorage("defaultView") private var defaultView: Int = 0
+    @AppStorage("caffeineMode") private var caffeineMode: Int = 0
 
     let columns = [
         GridItem(.flexible(), spacing: 8),
@@ -184,6 +185,14 @@ struct SimulationGridView: View {
             .buttonStyle(.plain)
 
             Spacer()
+
+            // Caffeine mode indicator
+            if caffeineMode >= 1 {
+                Image(systemName: caffeineMode >= 2 ? "cup.and.heat.waves.fill" : "cup.and.saucer.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(.white)
+                    .padding(.trailing, 6)
+            }
 
             // Collapsible IP address capsule
             HStack(spacing: ipExpanded ? 8 : 0) {
