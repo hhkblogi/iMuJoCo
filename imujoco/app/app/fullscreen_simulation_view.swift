@@ -65,6 +65,7 @@ struct FullscreenSimulationView: View {
                     tintColor: overlaySecondaryTextColor(brightness: brightness)
                 )
                 .opacity(isNavigating ? 0 : 1)
+                #if !os(tvOS)
                 .gesture(
                     DragGesture(minimumDistance: 0, coordinateSpace: .global)
                         .onChanged { value in
@@ -91,6 +92,7 @@ struct FullscreenSimulationView: View {
                             hoveredCell = nil
                         }
                 )
+                #endif
                 .padding(.bottom, 12)
             }
         }
