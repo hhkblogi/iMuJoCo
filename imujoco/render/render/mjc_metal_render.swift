@@ -671,8 +671,9 @@ public final class MJCMetalRender {
     private func renderAxesGizmo(encoder: MTLRenderCommandEncoder, viewMatrix: simd_float4x4,
                                  width: Int, height: Int) {
         let gizmoSize = Int(Float(min(width, height)) * 0.15)
+        let isFullscreen = min(width, height) > 600
         let leftPadding = 10
-        let bottomPadding = 100
+        let bottomPadding = isFullscreen ? 100 : 10
 
         // Set viewport to bottom-left, above lock/eye buttons
         encoder.setViewport(MTLViewport(
