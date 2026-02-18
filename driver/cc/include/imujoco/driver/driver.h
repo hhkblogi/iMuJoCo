@@ -246,9 +246,10 @@ private:
     // UDP socket (thread-safe for concurrent send/receive)
     std::unique_ptr<UdpSocket> socket_;
 
-    // TX: Fragmentation (protected by tx_mutex_)
+    // TX: Fragmentation and serialization (protected by tx_mutex_)
     std::mutex tx_mutex_;
     std::unique_ptr<FragmentedSender> sender_;
+    std::unique_ptr<flatbuffers::FlatBufferBuilder> tx_builder_;
     std::atomic<uint32_t> sequence_{0};
 
     // RX: Thread and reassembly (protected by rx_mutex_)
@@ -262,19 +263,26 @@ private:
     std::atomic<bool> connected_{false};
     std::atomic<bool> receiving_{false};
 
-    // Subscribers (protected by mutex)
+    // Subscribers (copy-on-write via shared_ptr)
     mutable std::mutex subscribers_mutex_;
-    std::map<SubscriptionId, StateCallback> subscribers_;
-    std::map<SubscriptionId, RawStateCallback> raw_subscribers_;
+    std::shared_ptr<const std::map<SubscriptionId, StateCallback>> subscribers_
+        = std::make_shared<std::map<SubscriptionId, StateCallback>>();
+    std::shared_ptr<const std::map<SubscriptionId, RawStateCallback>> raw_subscribers_
+        = std::make_shared<std::map<SubscriptionId, RawStateCallback>>();
     std::atomic<SubscriptionId> next_subscription_id_{1};
 
     // Error callback
     mutable std::mutex error_callback_mutex_;
     ErrorCallback error_callback_;
 
-    // Statistics
-    mutable std::mutex stats_mutex_;
-    DriverStats stats_;
+    // Statistics — atomic counters eliminate mutex from hot paths
+    std::atomic<uint64_t> stat_packets_sent_{0};
+    std::atomic<uint64_t> stat_packets_received_{0};
+    std::atomic<uint64_t> stat_fragments_sent_{0};
+    std::atomic<uint64_t> stat_fragments_received_{0};
+    std::atomic<uint64_t> stat_send_errors_{0};
+    std::atomic<uint64_t> stat_receive_errors_{0};
+    std::atomic<double> stat_last_state_time_{0.0};
 };
 
 }  // namespace imujoco::driver

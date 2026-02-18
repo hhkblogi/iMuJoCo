@@ -22,6 +22,7 @@ Driver::Driver(const DriverConfig& config)
     : config_(config),
       socket_(std::make_unique<UdpSocket>()),
       sender_(std::make_unique<FragmentedSender>()),
+      tx_builder_(std::make_unique<flatbuffers::FlatBufferBuilder>(256)),
       reassembler_(std::make_unique<ReassemblyManager>()) {
     recv_buffer_.resize(kMaxUDPPayload);
 }
@@ -108,14 +109,29 @@ void Driver::SendControl(const ControlCommand& cmd) {
                 now.time_since_epoch()).count());
     }
 
-    // Use FlatBuffers Pack to convert from Object API type (ControlPacketT)
-    // IMPORTANT: Must use FinishControlPacketBuffer to include file identifier "CTPK"
-    flatbuffers::FlatBufferBuilder builder(256);
-    auto offset = imujoco::schema::ControlPacket::Pack(builder, &packet);
-    imujoco::schema::FinishControlPacketBuffer(builder, offset);
+    // Build and send under tx_mutex_ to reuse the pooled builder
+    std::lock_guard<std::mutex> lock(tx_mutex_);
+    tx_builder_->Clear();
+    auto offset = imujoco::schema::ControlPacket::Pack(*tx_builder_, &packet);
+    imujoco::schema::FinishControlPacketBuffer(*tx_builder_, offset);
 
-    // Send with fragmentation
-    send_fragments(builder.GetBufferPointer(), builder.GetSize());
+    // Send with fragmentation (already holds tx_mutex_)
+    auto fragments = sender_->FragmentMessage(
+        tx_builder_->GetBufferPointer(), tx_builder_->GetSize());
+    if (fragments.empty()) {
+        stat_send_errors_.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+
+    for (const auto& fragment : fragments) {
+        auto sent = socket_->Send(std::span<const uint8_t>(fragment));
+        if (sent < 0) {
+            stat_send_errors_.fetch_add(1, std::memory_order_relaxed);
+            return;
+        }
+        stat_fragments_sent_.fetch_add(1, std::memory_order_relaxed);
+    }
+    stat_packets_sent_.fetch_add(1, std::memory_order_relaxed);
 }
 
 void Driver::SendControl(std::span<const double> ctrl) {
@@ -140,28 +156,20 @@ bool Driver::send_fragments(const uint8_t* data, size_t size) {
 
     auto fragments = sender_->FragmentMessage(data, size);
     if (fragments.empty()) {
-        std::lock_guard<std::mutex> slock(stats_mutex_);
-        stats_.send_errors++;
+        stat_send_errors_.fetch_add(1, std::memory_order_relaxed);
         return false;
     }
 
     for (const auto& fragment : fragments) {
         auto sent = socket_->Send(std::span<const uint8_t>(fragment));
         if (sent < 0) {
-            std::lock_guard<std::mutex> slock(stats_mutex_);
-            stats_.send_errors++;
+            stat_send_errors_.fetch_add(1, std::memory_order_relaxed);
             return false;
         }
-        {
-            std::lock_guard<std::mutex> slock(stats_mutex_);
-            stats_.fragments_sent++;
-        }
+        stat_fragments_sent_.fetch_add(1, std::memory_order_relaxed);
     }
 
-    {
-        std::lock_guard<std::mutex> slock(stats_mutex_);
-        stats_.packets_sent++;
-    }
+    stat_packets_sent_.fetch_add(1, std::memory_order_relaxed);
     return true;
 }
 
@@ -172,23 +180,36 @@ bool Driver::send_fragments(const uint8_t* data, size_t size) {
 SubscriptionId Driver::Subscribe(StateCallback callback) {
     std::lock_guard<std::mutex> lock(subscribers_mutex_);
     SubscriptionId id = next_subscription_id_++;
-    subscribers_[id] = std::move(callback);
+    auto copy = std::make_shared<std::map<SubscriptionId, StateCallback>>(*subscribers_);
+    (*copy)[id] = std::move(callback);
+    subscribers_ = std::move(copy);
     return id;
 }
 
 SubscriptionId Driver::SubscribeRaw(RawStateCallback callback) {
     std::lock_guard<std::mutex> lock(subscribers_mutex_);
     SubscriptionId id = next_subscription_id_++;
-    raw_subscribers_[id] = std::move(callback);
+    auto copy = std::make_shared<std::map<SubscriptionId, RawStateCallback>>(*raw_subscribers_);
+    (*copy)[id] = std::move(callback);
+    raw_subscribers_ = std::move(copy);
     return id;
 }
 
 bool Driver::Unsubscribe(SubscriptionId id) {
     std::lock_guard<std::mutex> lock(subscribers_mutex_);
-    if (subscribers_.erase(id) > 0) {
+    {
+        auto copy = std::make_shared<std::map<SubscriptionId, StateCallback>>(*subscribers_);
+        if (copy->erase(id) > 0) {
+            subscribers_ = std::move(copy);
+            return true;
+        }
+    }
+    auto copy = std::make_shared<std::map<SubscriptionId, RawStateCallback>>(*raw_subscribers_);
+    if (copy->erase(id) > 0) {
+        raw_subscribers_ = std::move(copy);
         return true;
     }
-    return raw_subscribers_.erase(id) > 0;
+    return false;
 }
 
 void Driver::OnError(ErrorCallback callback) {
@@ -243,15 +264,11 @@ void Driver::rx_thread_func() {
         }
 
         if (received < 0) {
-            std::lock_guard<std::mutex> lock(stats_mutex_);
-            stats_.receive_errors++;
+            stat_receive_errors_.fetch_add(1, std::memory_order_relaxed);
             continue;
         }
 
-        {
-            std::lock_guard<std::mutex> lock(stats_mutex_);
-            stats_.fragments_received++;
-        }
+        stat_fragments_received_.fetch_add(1, std::memory_order_relaxed);
 
         // Try to reassemble
         auto result = reassembler_->ProcessFragment(
@@ -264,17 +281,13 @@ void Driver::rx_thread_func() {
         // Validate the packet before dispatching
         auto verifier = flatbuffers::Verifier(result.data, result.size);
         if (!imujoco::schema::VerifyStatePacketBuffer(verifier)) {
-            std::lock_guard<std::mutex> lock(stats_mutex_);
-            stats_.receive_errors++;
+            stat_receive_errors_.fetch_add(1, std::memory_order_relaxed);
             continue;
         }
 
-        {
-            std::lock_guard<std::mutex> lock(stats_mutex_);
-            stats_.packets_received++;
-            auto packet = imujoco::schema::GetStatePacket(result.data);
-            stats_.last_state_time = packet->time();
-        }
+        stat_packets_received_.fetch_add(1, std::memory_order_relaxed);
+        auto packet = imujoco::schema::GetStatePacket(result.data);
+        stat_last_state_time_.store(packet->time(), std::memory_order_relaxed);
 
         dispatch_state(result.data, result.size);
     }
@@ -298,18 +311,17 @@ std::optional<SimulationState> Driver::parse_state_packet(const uint8_t* data, s
 }
 
 void Driver::dispatch_state(const uint8_t* data, size_t size) {
-    // Copy subscriber maps to avoid holding mutex during callbacks
-    // This prevents deadlock if callbacks try to Subscribe/Unsubscribe
-    std::map<SubscriptionId, RawStateCallback> raw_subs_copy;
-    std::map<SubscriptionId, StateCallback> subs_copy;
+    // Grab shared_ptr snapshots (one atomic ref-count increment each, no map copy)
+    std::shared_ptr<const std::map<SubscriptionId, RawStateCallback>> raw_subs;
+    std::shared_ptr<const std::map<SubscriptionId, StateCallback>> subs;
     {
         std::lock_guard<std::mutex> lock(subscribers_mutex_);
-        raw_subs_copy = raw_subscribers_;
-        subs_copy = subscribers_;
+        raw_subs = raw_subscribers_;
+        subs = subscribers_;
     }
 
     // Dispatch to raw subscribers first (no parsing needed)
-    for (const auto& [id, callback] : raw_subs_copy) {
+    for (const auto& [id, callback] : *raw_subs) {
         try {
             callback(std::span<const uint8_t>(data, size));
         } catch (const std::exception& e) {
@@ -320,10 +332,10 @@ void Driver::dispatch_state(const uint8_t* data, size_t size) {
     }
 
     // Parse and dispatch to regular subscribers only if there are any
-    if (!subs_copy.empty()) {
+    if (!subs->empty()) {
         auto state = parse_state_packet(data, size);
         if (state) {
-            for (const auto& [id, callback] : subs_copy) {
+            for (const auto& [id, callback] : *subs) {
                 try {
                     callback(*state);
                 } catch (const std::exception& e) {
@@ -352,13 +364,25 @@ void Driver::report_error(std::error_code ec, const std::string& message) {
 // ============================================================================
 
 DriverStats Driver::GetStats() const {
-    std::lock_guard<std::mutex> lock(stats_mutex_);
-    return stats_;
+    DriverStats s;
+    s.packets_sent = stat_packets_sent_.load(std::memory_order_relaxed);
+    s.packets_received = stat_packets_received_.load(std::memory_order_relaxed);
+    s.fragments_sent = stat_fragments_sent_.load(std::memory_order_relaxed);
+    s.fragments_received = stat_fragments_received_.load(std::memory_order_relaxed);
+    s.send_errors = stat_send_errors_.load(std::memory_order_relaxed);
+    s.receive_errors = stat_receive_errors_.load(std::memory_order_relaxed);
+    s.last_state_time = stat_last_state_time_.load(std::memory_order_relaxed);
+    return s;
 }
 
 void Driver::ResetStats() {
-    std::lock_guard<std::mutex> lock(stats_mutex_);
-    stats_ = DriverStats{};
+    stat_packets_sent_.store(0, std::memory_order_relaxed);
+    stat_packets_received_.store(0, std::memory_order_relaxed);
+    stat_fragments_sent_.store(0, std::memory_order_relaxed);
+    stat_fragments_received_.store(0, std::memory_order_relaxed);
+    stat_send_errors_.store(0, std::memory_order_relaxed);
+    stat_receive_errors_.store(0, std::memory_order_relaxed);
+    stat_last_state_time_.store(0.0, std::memory_order_relaxed);
 }
 
 const DriverConfig& Driver::Config() const {

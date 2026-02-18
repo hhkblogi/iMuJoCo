@@ -28,7 +28,10 @@ cc_library(
         "driver/state_generated.h",
     ],
     includes = ["driver"],
-    visibility = ["//driver:__pkg__"],
+    visibility = [
+        "//benchmarks:__pkg__",
+        "//driver:__pkg__",
+    ],
     deps = ["@flatbuffers//:runtime_cc"],
 )
 

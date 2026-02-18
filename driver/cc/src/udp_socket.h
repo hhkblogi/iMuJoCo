@@ -61,6 +61,16 @@ public:
             return false;
         }
 
+        // Increase socket buffers to reduce packet loss under burst traffic
+        int rcvbuf = 2 * 1024 * 1024;  // 2 MB receive buffer
+        int sndbuf = 1 * 1024 * 1024;  // 1 MB send buffer
+        if (setsockopt(socket_, SOL_SOCKET, SO_RCVBUF, &rcvbuf, sizeof(rcvbuf)) < 0) {
+            // Non-fatal: OS may cap the value; proceed with default buffer size
+        }
+        if (setsockopt(socket_, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf)) < 0) {
+            // Non-fatal: OS may cap the value; proceed with default buffer size
+        }
+
         sockaddr_in local_addr{};
         local_addr.sin_family = AF_INET;
         local_addr.sin_addr.s_addr = INADDR_ANY;

@@ -224,10 +224,11 @@ struct SimulationGridView: View {
     }
 
     private func updateDeviceIP() {
-        if let ip = getDeviceIPAddress() {
-            deviceIP = ip
-        } else {
-            deviceIP = "No Network"
+        Task.detached {
+            let ip = getDeviceIPAddress() ?? "No Network"
+            await MainActor.run {
+                deviceIP = ip
+            }
         }
     }
 
@@ -525,8 +526,10 @@ struct SettingsView: View {
                     } label: {
                         Label("About", systemImage: "info.circle")
                     }
+                    #if !os(tvOS)
                     .listRowSeparator(.visible, edges: .all)
                     .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+                    #endif
                 }
             }
             .listStyle(.plain)

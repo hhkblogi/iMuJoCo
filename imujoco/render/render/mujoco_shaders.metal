@@ -6,20 +6,21 @@ using namespace metal;
 
 // MARK: - Shared Types
 
-struct Uniforms {
-    float4x4 modelMatrix;
+struct FrameUniforms {
     float4x4 viewMatrix;
     float4x4 projectionMatrix;
-    float4x4 normalMatrix;
-    float3 lightPosition;
-    float _padding0;  // Explicit padding to match Swift struct (float3 aligns to 16 bytes)
     float3 cameraPosition;
-    float _padding1;  // Explicit padding to match Swift struct
+    float _padding;
+};
+
+struct InstanceData {
+    float4x4 modelMatrix;
+    float4x4 normalMatrix;
     float4 color;
     float emission;
     float specular;
     float shininess;
-    float checkerboardScale;  // >0 = procedural checkerboard cell size, 0 = disabled
+    float checkerboardScale;
 };
 
 struct Light {
@@ -54,36 +55,43 @@ struct VertexOut {
     float3 normal;
     float2 texCoord;
     float4 color;
+    uint instanceId [[flat]];
 };
 
 // MARK: - Vertex Shader
 
 vertex VertexOut vertexMain(VertexIn in [[stage_in]],
-                            constant Uniforms& uniforms [[buffer(1)]]) {
+                            constant FrameUniforms& frame [[buffer(1)]],
+                            constant InstanceData* instances [[buffer(3)]],
+                            uint iid [[instance_id]]) {
+    constant InstanceData& inst = instances[iid];
     VertexOut out;
-    float4 worldPos = uniforms.modelMatrix * float4(in.position, 1.0);
+    float4 worldPos = inst.modelMatrix * float4(in.position, 1.0);
     out.worldPosition = worldPos.xyz;
-    out.position = uniforms.projectionMatrix * uniforms.viewMatrix * worldPos;
-    out.normal = (uniforms.normalMatrix * float4(in.normal, 0.0)).xyz;
+    out.position = frame.projectionMatrix * frame.viewMatrix * worldPos;
+    out.normal = (inst.normalMatrix * float4(in.normal, 0.0)).xyz;
     out.texCoord = in.texCoord;
     out.color = in.color;
+    out.instanceId = iid;
     return out;
 }
 
 // MARK: - Fragment Shader
 
 fragment float4 fragmentMain(VertexOut in [[stage_in]],
-                             constant Uniforms& uniforms [[buffer(1)]],
-                             constant LightBuffer& lightBuf [[buffer(2)]]) {
+                             constant FrameUniforms& frame [[buffer(1)]],
+                             constant LightBuffer& lightBuf [[buffer(2)]],
+                             constant InstanceData* instances [[buffer(3)]]) {
+    constant InstanceData& inst = instances[in.instanceId];
     float3 N = normalize(in.normal);
-    float3 V = normalize(uniforms.cameraPosition - in.worldPosition);
-    float3 baseColor = in.color.rgb * uniforms.color.rgb;
-    float alpha = in.color.a * uniforms.color.a;
+    float3 V = normalize(frame.cameraPosition - in.worldPosition);
+    float3 baseColor = in.color.rgb * inst.color.rgb;
+    float alpha = in.color.a * inst.color.a;
 
     // Procedural checkerboard for ground planes
-    if (uniforms.checkerboardScale > 0.0) {
-        float2 cell = floor(in.worldPosition.xy / uniforms.checkerboardScale);
-        bool isDark = fmod(cell.x + cell.y, 2.0) != 0.0;
+    if (inst.checkerboardScale > 0.0) {
+        int2 cell = int2(floor(in.worldPosition.xy / inst.checkerboardScale));
+        bool isDark = (cell.x ^ cell.y) & 1;
         baseColor *= isDark ? 0.7 : 1.1;
     }
 
@@ -91,7 +99,7 @@ fragment float4 fragmentMain(VertexOut in [[stage_in]],
 
     // No lights: fall back to unlit base color + emission
     if (lightBuf.lightCount <= 0) {
-        float3 unlit = baseColor + baseColor * uniforms.emission;
+        float3 unlit = baseColor + baseColor * inst.emission;
         return float4(clamp(unlit, 0.0, 1.0), alpha);
     }
 
@@ -118,16 +126,16 @@ fragment float4 fragmentMain(VertexOut in [[stage_in]],
         result += light.diffuse * baseColor * NdotL;
 
         // Specular: Blinn-Phong
-        if (NdotL > 0.0 && uniforms.specular > 0.0) {
+        if (NdotL > 0.0 && inst.specular > 0.0) {
             float3 H = normalize(L + V);
             float NdotH = max(dot(N, H), 0.0);
-            float spec = pow(NdotH, uniforms.shininess * 128.0);
-            result += light.specular * uniforms.specular * spec;
+            float spec = pow(NdotH, inst.shininess * 128.0);
+            result += light.specular * inst.specular * spec;
         }
     }
 
     // Emission
-    result += baseColor * uniforms.emission;
+    result += baseColor * inst.emission;
 
     // Slightly dim overall lighting for a softer look
     result *= 0.85;

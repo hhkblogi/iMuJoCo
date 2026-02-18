@@ -62,7 +62,7 @@ class UDPServer {
 public:
     UDPServer() : socket_fd_(-1), port_(0), has_client_(false),
                   packets_received_(0), packets_sent_(0), send_sequence_(0),
-                  fb_builder_(4096) {}
+                  fb_builder_(16384), cleanup_counter_(0) {}
 
     ~UDPServer() { Close(); }
 
@@ -132,7 +132,10 @@ public:
 
         // Hot-path: skip per-packet logging
 
-        reassembly_manager_.CleanupStale();
+        // Throttle stale cleanup to every 64th packet to avoid per-packet overhead
+        if (++cleanup_counter_ % 64 == 0) {
+            reassembly_manager_.CleanupStale();
+        }
 
         if (recv_len >= static_cast<ssize_t>(MJ_FRAGMENT_HEADER_SIZE)) {
             const MJFragmentHeader* frag_header = reinterpret_cast<const MJFragmentHeader*>(buffer);
@@ -242,6 +245,7 @@ private:
     imujoco::FragmentedSender fragmented_sender_;
     imujoco::ReassemblyManager reassembly_manager_;
     std::vector<uint8_t> reassembly_buffer_;
+    uint32_t cleanup_counter_;
 };
 
 // MARK: - MJSimulationRuntimeImpl
@@ -977,22 +981,10 @@ private:
             const mjvGeom& src = scene_.geoms[i];
             MJGeomInstance& dst = frame->geoms[i];
 
-            dst.pos[0] = src.pos[0];
-            dst.pos[1] = src.pos[1];
-            dst.pos[2] = src.pos[2];
-
-            for (int j = 0; j < 9; j++) {
-                dst.mat[j] = src.mat[j];
-            }
-
-            dst.size[0] = src.size[0];
-            dst.size[1] = src.size[1];
-            dst.size[2] = src.size[2];
-
-            dst.rgba[0] = src.rgba[0];
-            dst.rgba[1] = src.rgba[1];
-            dst.rgba[2] = src.rgba[2];
-            dst.rgba[3] = src.rgba[3];
+            std::memcpy(dst.pos, src.pos, 3 * sizeof(float));
+            std::memcpy(dst.mat, src.mat, 9 * sizeof(float));
+            std::memcpy(dst.size, src.size, 3 * sizeof(float));
+            std::memcpy(dst.rgba, src.rgba, 4 * sizeof(float));
 
             dst.type = src.type;
             dst.dataid = src.dataid;

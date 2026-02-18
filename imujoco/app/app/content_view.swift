@@ -12,9 +12,10 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            // Grid view (always present, but hidden when fullscreen)
-            SimulationGridView(gridManager: gridManager)
-                .opacity(gridManager.isFullscreen ? 0 : 1)
+            // Grid view (removed from hierarchy when fullscreen to save GPU)
+            if !gridManager.isFullscreen {
+                SimulationGridView(gridManager: gridManager)
+            }
 
             // Fullscreen view
             if let fsId = gridManager.fullscreenInstanceId,

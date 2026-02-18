@@ -115,9 +115,23 @@ struct LongPressButton: View {
                     .padding(1)
             )
             #if os(tvOS)
-            .onLongPressGesture(minimumDuration: duration) {
-                action()
-            }
+            .onLongPressGesture(
+                minimumDuration: duration,
+                pressing: { pressing in
+                    if pressing {
+                        withAnimation(.linear(duration: duration)) {
+                            holdProgress = 1.0
+                        }
+                    } else {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            holdProgress = 0
+                        }
+                    }
+                },
+                perform: {
+                    action()
+                }
+            )
             #else
             .gesture(
                 DragGesture(minimumDistance: 0)
