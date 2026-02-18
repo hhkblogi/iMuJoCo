@@ -418,6 +418,8 @@ struct LayoutIcon: View {
 struct SettingsView: View {
     @Binding var defaultView: Int
     var onDismiss: () -> Void
+    @AppStorage("caffeineMode") private var caffeineMode: Bool = false
+    @State private var showCaffeineInfo = false
 
     // tag 0 = grid, 1-4 = fullscreen instance (highlightedCell 0-3)
     private let viewOptions: [(highlightedCell: Int?, tag: Int)] = [
@@ -450,12 +452,41 @@ struct SettingsView: View {
                     }
                 }
 
+                #if os(iOS)
+                Section {
+                    HStack {
+                        Toggle(isOn: $caffeineMode) {
+                            Label("Caffeine Mode", systemImage: "cup.and.heat.waves.fill")
+                        }
+                        Button {
+                            withAnimation { showCaffeineInfo.toggle() }
+                        } label: {
+                            Image(systemName: "info.circle")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .listRowSeparator(.visible, edges: .all)
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+                    if showCaffeineInfo {
+                        Text("Prevents the screen from dimming and auto-locking. Simulations keep running even when you lock the screen.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .listRowSeparator(.visible, edges: .all)
+                            .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+                    }
+                }
+                #endif
+
                 Section {
                     NavigationLink {
                         AboutView()
                     } label: {
                         Label("About", systemImage: "info.circle")
                     }
+                    .listRowSeparator(.visible, edges: .all)
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                 }
             }
             .listStyle(.plain)
