@@ -525,6 +525,7 @@ final class SimulationGridManager: @unchecked Sendable {
 
     @MainActor
     func pauseAll() {
+        guard pausedIndices.isEmpty else { return }
         pausedIndices = instances.indices.filter { instances[$0].state == .running }
         for i in pausedIndices {
             instances[i].pause()
@@ -533,7 +534,7 @@ final class SimulationGridManager: @unchecked Sendable {
 
     @MainActor
     func resumeAll() {
-        for i in pausedIndices {
+        for i in pausedIndices where i < instances.count {
             instances[i].start()
         }
         pausedIndices = []
