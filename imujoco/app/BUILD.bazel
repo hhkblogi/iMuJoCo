@@ -76,6 +76,7 @@ apple_resource_group(
 
 ios_application(
     name = "app",
+    app_icons = glob(["app/AppIcon.icon/**"]),
     bundle_id = "com.hhkblogi.imujoco.app",
     entitlements = "app_ios.entitlements",
     families = [
@@ -85,8 +86,7 @@ ios_application(
     infoplists = ["Info.plist"],
     minimum_os_version = "26.0",
     provisioning_profile = ":xcode_profile",
-    resources = [
-        "app/Assets.xcassets",
+    resources = glob(["app/Assets.xcassets/**"]) + [
         "app/PrivacyInfo.xcprivacy",
         "//models",
         "//imujoco/render:mujoco_metallib",
@@ -101,12 +101,12 @@ ios_application(
 
 macos_application(
     name = "app_macos",
+    app_icons = glob(["app/AppIcon.icon/**"]),
     bundle_id = "com.hhkblogi.imujoco.app",
     entitlements = "app.entitlements",
     infoplists = ["Info.plist"],
     minimum_os_version = "26.0",
-    resources = [
-        "app/Assets.xcassets",
+    resources = glob(["app/Assets.xcassets/**"]) + [
         "app/PrivacyInfo.xcprivacy",
         "//models",
         "//imujoco/render:mujoco_metallib",
@@ -124,8 +124,7 @@ tvos_application(
     entitlements = "app_ios.entitlements",
     infoplists = ["Info.plist"],
     minimum_os_version = "26.0",
-    resources = [
-        "app/Assets.xcassets",
+    resources = glob(["app/Assets.xcassets/**"]) + [
         "app/PrivacyInfo.xcprivacy",
         "//models",
         "//imujoco/render:mujoco_metallib",
