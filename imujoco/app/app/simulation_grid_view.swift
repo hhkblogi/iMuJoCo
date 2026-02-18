@@ -64,6 +64,7 @@ struct SimulationGridView: View {
     @State private var ipExpanded = false
     @State private var showingSettings = false
     @AppStorage("defaultView") private var defaultView: Int = 0
+    @AppStorage("caffeineMode") private var caffeineMode: Int = 1
 
     let columns = [
         GridItem(.flexible(), spacing: 8),
@@ -184,6 +185,16 @@ struct SimulationGridView: View {
             .buttonStyle(.plain)
 
             Spacer()
+
+            // Caffeine mode indicator
+            #if os(iOS)
+            if caffeineMode >= 1 {
+                Image(systemName: caffeineMode >= 2 ? "cup.and.heat.waves.fill" : "cup.and.saucer.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(.white)
+                    .padding(.trailing, 6)
+            }
+            #endif
 
             // Collapsible IP address capsule
             HStack(spacing: ipExpanded ? 8 : 0) {
@@ -418,6 +429,8 @@ struct LayoutIcon: View {
 struct SettingsView: View {
     @Binding var defaultView: Int
     var onDismiss: () -> Void
+    @AppStorage("caffeineMode") private var caffeineMode: Int = 1  // 0=off, 1=half, 2=full
+    @State private var showCaffeineInfo = false
 
     // tag 0 = grid, 1-4 = fullscreen instance (highlightedCell 0-3)
     private let viewOptions: [(highlightedCell: Int?, tag: Int)] = [
@@ -450,12 +463,70 @@ struct SettingsView: View {
                     }
                 }
 
+                #if os(iOS)
+                Section {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("Caffeine Mode")
+                                .font(.subheadline)
+                            Button {
+                                showCaffeineInfo.toggle()
+                            } label: {
+                                Image(systemName: "info.circle")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("About Caffeine Mode")
+                        }
+                        HStack {
+                            ForEach(
+                                [(0, "Off", "cup.and.saucer"), (1, "Half", "cup.and.saucer.fill"), (2, "Full", "cup.and.heat.waves.fill")],
+                                id: \.0
+                            ) { tag, label, icon in
+                                Button(action: { caffeineMode = tag }) {
+                                    VStack(spacing: 4) {
+                                        Image(systemName: icon)
+                                            .font(.system(size: 18))
+                                        Text(label)
+                                            .font(.caption2)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(caffeineMode == tag ? Color.blue.opacity(0.2) : Color.clear)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(caffeineMode == tag ? Color.blue : Color.gray.opacity(0.3), lineWidth: caffeineMode == tag ? 1.5 : 1)
+                                    )
+                                    .foregroundColor(caffeineMode == tag ? .blue : .gray)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("\(label), \(caffeineMode == tag ? "selected" : "not selected")")
+                            }
+                        }
+                        if showCaffeineInfo {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("**Half** — Screen stays on. Simulations pause when you leave the app.")
+                                Text("**Full** — Screen stays on. Simulations keep running even when you lock the screen.")
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                #endif
+
                 Section {
                     NavigationLink {
                         AboutView()
                     } label: {
                         Label("About", systemImage: "info.circle")
                     }
+                    .listRowSeparator(.visible, edges: .all)
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                 }
             }
             .listStyle(.plain)

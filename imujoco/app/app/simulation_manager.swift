@@ -11,6 +11,9 @@ import MJCPhysicsRuntime
 #if canImport(UIKit)
 import UIKit
 #endif
+#if canImport(AVFoundation)
+import AVFoundation
+#endif
 
 private let logger = Logger(subsystem: "com.mujoco.app", category: "SimulationManager")
 
@@ -515,6 +518,28 @@ final class SimulationGridManager: @unchecked Sendable {
         instances.firstIndex { !$0.isActive }
     }
 
+    // MARK: - Pause / Resume All
+
+    /// Tracks which instances were running before pauseAll, so resumeAll restores only those.
+    private var pausedIndices: [Int] = []
+
+    @MainActor
+    func pauseAll() {
+        guard pausedIndices.isEmpty else { return }
+        pausedIndices = instances.indices.filter { instances[$0].state == .running }
+        for i in pausedIndices {
+            instances[i].pause()
+        }
+    }
+
+    @MainActor
+    func resumeAll() {
+        for i in pausedIndices where i < instances.count {
+            instances[i].start()
+        }
+        pausedIndices = []
+    }
+
     // MARK: - Background Execution
 
     #if os(iOS)
@@ -550,8 +575,78 @@ final class SimulationGridManager: @unchecked Sendable {
         UIApplication.shared.endBackgroundTask(backgroundTaskID)
         backgroundTaskID = .invalid
     }
+    // MARK: - Caffeine Background (silent audio keep-alive)
+
+    private var silentPlayer: AVAudioPlayer?
+
+    @MainActor
+    func beginCaffeineBackground() {
+        guard silentPlayer == nil else { return }
+
+        let hasRunning = instances.contains { $0.state == .running }
+        guard hasRunning else {
+            logger.debug("No running simulations, skipping caffeine background")
+            return
+        }
+
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, options: .mixWithOthers)
+            try session.setActive(true)
+
+            let player = try AVAudioPlayer(data: Self.silentWAV)
+            player.numberOfLoops = -1  // loop forever
+            player.volume = 0
+            player.prepareToPlay()
+
+            if player.play() {
+                silentPlayer = player
+                logger.info("Caffeine background audio started")
+            } else {
+                logger.error("Caffeine background audio failed: AVAudioPlayer.play() returned false")
+                player.stop()
+                try? session.setActive(false, options: .notifyOthersOnDeactivation)
+            }
+        } catch {
+            logger.error("Caffeine background audio failed: \(error.localizedDescription)")
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
+    }
+
+    @MainActor
+    func endCaffeineBackground() {
+        guard let player = silentPlayer else { return }
+        player.stop()
+        silentPlayer = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        logger.info("Caffeine background audio stopped")
+    }
+
+    /// Minimal 1-second silent WAV (44100 Hz, mono, 16-bit).
+    private static let silentWAV: Data = {
+        let sampleRate: UInt32 = 44100
+        let numSamples: UInt32 = sampleRate
+        let dataSize = numSamples * 2  // 16-bit mono
+        var d = Data(capacity: 44 + Int(dataSize))
+        func append16(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+        func append32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
+        d.append(contentsOf: [0x52,0x49,0x46,0x46])  // "RIFF"
+        append32(36 + dataSize)
+        d.append(contentsOf: [0x57,0x41,0x56,0x45])  // "WAVE"
+        d.append(contentsOf: [0x66,0x6D,0x74,0x20])  // "fmt "
+        append32(16); append16(1); append16(1)        // PCM, mono
+        append32(sampleRate); append32(sampleRate * 2) // byte rate
+        append16(2); append16(16)                      // block align, bits
+        d.append(contentsOf: [0x64,0x61,0x74,0x61])  // "data"
+        append32(dataSize)
+        d.append(Data(count: Int(dataSize)))           // silence
+        return d
+    }()
+
     #else
     func beginBackgroundExecution() {}
     func endBackgroundExecution() {}
+    func beginCaffeineBackground() {}
+    func endCaffeineBackground() {}
     #endif
 }
