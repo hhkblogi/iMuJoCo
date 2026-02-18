@@ -386,10 +386,6 @@ struct FullscreenSimulationView: View {
                 .font(.system(size: 60))
                 .foregroundColor(.gray.opacity(0.5))
 
-            Text("No Model Loaded")
-                .font(.title3)
-                .foregroundColor(.gray)
-
             Button(action: onLoadModel) {
                 Label("Load Model", systemImage: "plus.circle.fill")
                     .font(.headline)
