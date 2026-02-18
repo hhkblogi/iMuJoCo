@@ -507,6 +507,18 @@ struct AboutView: View {
                     Text(mujocoVersion)
                         .foregroundStyle(.secondary)
                 }
+                HStack {
+                    Text("License")
+                    Spacer()
+                    Text("Apache 2.0")
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Text("App Icon")
+                    Spacer()
+                    Text("crabe.art")
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("Bundled Models") {
@@ -520,14 +532,6 @@ struct AboutView: View {
                 }
             }
 
-            Section("Credits") {
-                HStack {
-                    Text("App Icon")
-                    Spacer()
-                    Text("crabe.art")
-                        .foregroundStyle(.secondary)
-                }
-            }
         }
         .navigationTitle("About")
         #if os(iOS)
