@@ -18,8 +18,6 @@ struct MuJoCoApp: App {
                         #if os(iOS)
                         if caffeineMode >= 2 {
                             gridManager.beginCaffeineBackground()
-                        } else if caffeineMode >= 1 {
-                            gridManager.beginBackgroundExecution()
                         } else {
                             gridManager.pauseAll()
                         }
@@ -30,8 +28,6 @@ struct MuJoCoApp: App {
                         #if os(iOS)
                         if caffeineMode >= 2 {
                             gridManager.endCaffeineBackground()
-                        } else if caffeineMode >= 1 {
-                            gridManager.endBackgroundExecution()
                         } else {
                             gridManager.resumeAll()
                         }
