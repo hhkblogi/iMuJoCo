@@ -392,13 +392,9 @@ struct SimulationCellView: View {
             VStack {
                 Spacer()
                 Button(action: onTapFullscreen) {
-                    ZStack {
-                        Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        Image(systemName: "arrow.up.left.and.arrow.down.right")
-                            .scaleEffect(x: -1, y: 1)
-                    }
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
+                    Image(systemName: "viewfinder")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
                 }
                 .buttonStyle(.plain)
                 .padding(.bottom, 6)
@@ -502,13 +498,9 @@ struct SimulationCellView: View {
         .background(Color.black.opacity(0.9))
         .overlay(alignment: .bottom) {
             Button(action: onTapFullscreen) {
-                ZStack {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .scaleEffect(x: -1, y: 1)
-                }
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundColor(.gray.opacity(0.6))
+                Image(systemName: "viewfinder")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.gray.opacity(0.6))
             }
             .buttonStyle(.plain)
             .padding(.bottom, 6)
