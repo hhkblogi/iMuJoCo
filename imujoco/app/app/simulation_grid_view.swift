@@ -454,37 +454,54 @@ struct SettingsView: View {
 
                 #if os(iOS)
                 Section {
-                    HStack {
-                        Label("Caffeine Mode", systemImage: "cup.and.heat.waves.fill")
-                        Spacer()
-                        Button {
-                            withAnimation { showCaffeineInfo.toggle() }
-                        } label: {
-                            Image(systemName: "info.circle")
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("Caffeine Mode")
                                 .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                            Button {
+                                showCaffeineInfo.toggle()
+                            } label: {
+                                Image(systemName: "info.circle")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
-                    }
-                    .listRowSeparator(.visible, edges: .all)
-                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
-                    Picker("", selection: $caffeineMode) {
-                        Text("Off").tag(0)
-                        Text("Half").tag(1)
-                        Text("Full").tag(2)
-                    }
-                    .pickerStyle(.segmented)
-                    .listRowSeparator(.visible, edges: .all)
-                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
-                    if showCaffeineInfo {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("**Half** — Prevents screen from dimming and auto-locking.")
-                            Text("**Full** — Also keeps simulations running when you lock the screen.")
+                        HStack {
+                            ForEach(
+                                [(0, "Off", "cup.and.saucer"), (1, "Half", "cup.and.saucer.fill"), (2, "Full", "cup.and.heat.waves.fill")],
+                                id: \.0
+                            ) { tag, label, icon in
+                                Button(action: { caffeineMode = tag }) {
+                                    VStack(spacing: 4) {
+                                        Image(systemName: icon)
+                                            .font(.system(size: 18))
+                                        Text(label)
+                                            .font(.caption2)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(caffeineMode == tag ? Color.blue.opacity(0.2) : Color.clear)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(caffeineMode == tag ? Color.blue : Color.gray.opacity(0.3), lineWidth: caffeineMode == tag ? 1.5 : 1)
+                                    )
+                                    .foregroundColor(caffeineMode == tag ? .blue : .gray)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .listRowSeparator(.visible, edges: .all)
-                        .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+                        if showCaffeineInfo {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("**Half** — Prevents screen from dimming and auto-locking.")
+                                Text("**Full** — Also keeps simulations running when you lock the screen.")
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 #endif
