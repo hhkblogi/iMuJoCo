@@ -331,7 +331,8 @@ public final class MJCMetalRender {
     public func Render(frame: MJFrameData,
                        meshData: MJMeshData? = nil,
                        drawable: CAMetalDrawable,
-                       renderPassDescriptor: MTLRenderPassDescriptor?) {
+                       renderPassDescriptor: MTLRenderPassDescriptor?,
+                       isFullscreen: Bool = false) {
 
         // MJFrameData is exposed to Swift as a reference type (SWIFT_IMMORTAL_REFERENCE).
         // IMPORTANT: The underlying storage is managed via thread-local storage and is only
@@ -444,7 +445,7 @@ public final class MJCMetalRender {
 
         // Handle empty frame
         if geomCount == 0 {
-            renderAxesGizmo(encoder: encoder, viewMatrix: viewMatrix, width: width, height: height)
+            renderAxesGizmo(encoder: encoder, viewMatrix: viewMatrix, width: width, height: height, isFullscreen: isFullscreen)
             encoder.endEncoding()
             blitBrightnessSample(commandBuffer: commandBuffer, texture: drawable.texture,
                                  width: width, height: height, bufferIndex: currentBufferIndex)
@@ -455,7 +456,7 @@ public final class MJCMetalRender {
 
         // Get pointer to geoms array (using free function - member functions returning pointers not supported)
         guard let geomsPtr = MJFrameDataGetGeoms(frame) else {
-            renderAxesGizmo(encoder: encoder, viewMatrix: viewMatrix, width: width, height: height)
+            renderAxesGizmo(encoder: encoder, viewMatrix: viewMatrix, width: width, height: height, isFullscreen: isFullscreen)
             encoder.endEncoding()
             blitBrightnessSample(commandBuffer: commandBuffer, texture: drawable.texture,
                                  width: width, height: height, bufferIndex: currentBufferIndex)
@@ -628,7 +629,7 @@ public final class MJCMetalRender {
             logger.warning("Skipped \(skippedGeoms)/\(geomCount) geometries due to buffer capacity (rendered \(rendered), vertices: \(totalVertices)/\(self.max_vertices), indices: \(totalIndices)/\(self.max_indices))")
         }
 
-        renderAxesGizmo(encoder: encoder, viewMatrix: viewMatrix, width: width, height: height)
+        renderAxesGizmo(encoder: encoder, viewMatrix: viewMatrix, width: width, height: height, isFullscreen: isFullscreen)
 
         encoder.endEncoding()
 
@@ -669,14 +670,15 @@ public final class MJCMetalRender {
     /// Render a 3D XYZ orientation axes gizmo in the bottom-left corner.
     /// Rotates with the camera but stays fixed in the corner, never occluded by scene geometry.
     private func renderAxesGizmo(encoder: MTLRenderCommandEncoder, viewMatrix: simd_float4x4,
-                                 width: Int, height: Int) {
+                                 width: Int, height: Int, isFullscreen: Bool = false) {
         let gizmoSize = Int(Float(min(width, height)) * 0.15)
-        let padding = 10
+        let leftPadding = 10
+        let bottomPadding = isFullscreen ? 100 : 10
 
-        // Set viewport to bottom-left corner
+        // Set viewport to bottom-left, above lock/eye buttons
         encoder.setViewport(MTLViewport(
-            originX: Double(padding),
-            originY: Double(height - gizmoSize - padding),
+            originX: Double(leftPadding),
+            originY: Double(height - gizmoSize - bottomPadding),
             width: Double(gizmoSize),
             height: Double(gizmoSize),
             znear: 0, zfar: 1

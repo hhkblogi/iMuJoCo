@@ -28,7 +28,7 @@ struct FullscreenSimulationView: View {
                         .font(.system(size: 40))
                         .foregroundColor(.gray.opacity(0.3))
                 } else {
-                    MuJoCoMetalView(dataSource: instance)
+                    MuJoCoMetalView(dataSource: instance, isFullscreen: true)
                         .allowsHitTesting(!instance.isLocked)
                         .ignoresSafeArea()
                 }
@@ -62,7 +62,7 @@ struct FullscreenSimulationView: View {
                     highlightedCell: instanceIndex,
                     isSelected: true,
                     size: 20,
-                    tintColor: .gray.opacity(0.6)
+                    tintColor: overlaySecondaryTextColor(brightness: brightness)
                 )
                 .opacity(isNavigating ? 0 : 1)
                 .gesture(
@@ -385,10 +385,6 @@ struct FullscreenSimulationView: View {
             Image(systemName: "cube.transparent")
                 .font(.system(size: 60))
                 .foregroundColor(.gray.opacity(0.5))
-
-            Text("No Model Loaded")
-                .font(.title3)
-                .foregroundColor(.gray)
 
             Button(action: onLoadModel) {
                 Label("Load Model", systemImage: "plus.circle.fill")
