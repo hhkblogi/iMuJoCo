@@ -25,9 +25,14 @@ struct MuJoCoApp: App {
                         gridManager.beginBackgroundExecution()
                         #endif
                     case .active:
-                        gridManager.endBackgroundExecution()
                         #if os(iOS)
-                        gridManager.endCaffeineBackground()
+                        if caffeineMode >= 2 {
+                            gridManager.endCaffeineBackground()
+                        } else {
+                            gridManager.endBackgroundExecution()
+                        }
+                        #else
+                        gridManager.endBackgroundExecution()
                         #endif
                     case .inactive:
                         break

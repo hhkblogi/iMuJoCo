@@ -587,6 +587,7 @@ final class SimulationGridManager: @unchecked Sendable {
             }
         } catch {
             logger.error("Caffeine background audio failed: \(error.localizedDescription)")
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         }
     }
 
@@ -623,5 +624,7 @@ final class SimulationGridManager: @unchecked Sendable {
     #else
     func beginBackgroundExecution() {}
     func endBackgroundExecution() {}
+    func beginCaffeineBackground() {}
+    func endCaffeineBackground() {}
     #endif
 }

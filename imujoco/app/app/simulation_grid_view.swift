@@ -429,7 +429,7 @@ struct LayoutIcon: View {
 struct SettingsView: View {
     @Binding var defaultView: Int
     var onDismiss: () -> Void
-    @AppStorage("caffeineMode") private var caffeineMode: Int = 0  // 0=off, 1=half, 2=full
+    @AppStorage("caffeineMode") private var caffeineMode: Int = 1  // 0=off, 1=half, 2=full
     @State private var showCaffeineInfo = false
 
     // tag 0 = grid, 1-4 = fullscreen instance (highlightedCell 0-3)
@@ -504,6 +504,7 @@ struct SettingsView: View {
                                     .foregroundColor(caffeineMode == tag ? .blue : .gray)
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityLabel("\(label), \(caffeineMode == tag ? "selected" : "not selected")")
                             }
                         }
                         if showCaffeineInfo {
