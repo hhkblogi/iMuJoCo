@@ -4,7 +4,7 @@ import SwiftUI
 struct MuJoCoApp: App {
     @State private var gridManager = SimulationGridManager()
     @Environment(\.scenePhase) private var scenePhase
-    @AppStorage("caffeineMode") private var caffeineMode: Int = 0  // 0=off, 1=half, 2=full
+    @AppStorage("caffeineMode") private var caffeineMode: Int = 1  // 0=off, 1=half, 2=full
 
     var body: some Scene {
         WindowGroup {

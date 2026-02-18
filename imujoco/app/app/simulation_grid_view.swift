@@ -64,7 +64,7 @@ struct SimulationGridView: View {
     @State private var ipExpanded = false
     @State private var showingSettings = false
     @AppStorage("defaultView") private var defaultView: Int = 0
-    @AppStorage("caffeineMode") private var caffeineMode: Int = 0
+    @AppStorage("caffeineMode") private var caffeineMode: Int = 1
 
     let columns = [
         GridItem(.flexible(), spacing: 8),
