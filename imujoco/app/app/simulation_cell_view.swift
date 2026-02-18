@@ -114,6 +114,11 @@ struct LongPressButton: View {
                     .rotationEffect(.degrees(-90))
                     .padding(1)
             )
+            #if os(tvOS)
+            .onLongPressGesture(minimumDuration: duration) {
+                action()
+            }
+            #else
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in
@@ -143,6 +148,7 @@ struct LongPressButton: View {
                         }
                     }
             )
+            #endif
     }
 }
 
