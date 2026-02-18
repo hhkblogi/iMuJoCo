@@ -398,7 +398,7 @@ struct SimulationCellView: View {
                             .scaleEffect(x: -1, y: 1)
                     }
                     .font(.system(size: 8, weight: .semibold))
-                    .foregroundColor(.gray.opacity(0.6))
+                    .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
                 }
                 .buttonStyle(.plain)
                 .padding(.bottom, 6)
