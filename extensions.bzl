@@ -78,28 +78,6 @@ def _mujoco_deps_impl(_ctx):
         name = "mujoco_menagerie",
         build_file = "//:third_party/mujoco_menagerie.BUILD",
         patch_cmds = [
-            # Cassie uses a texture-only material → all-white without texture support.
-            # Add per-part rgba colors extracted from the texture to match the reference render:
-            #   teal (0.05,0.55,0.49) = main body panels (pelvis, hips, knee, shin, tarsus)
-            #   silver (0.6,0.6,0.6)  = mechanical linkages (rods, springs, feet)
-            "F=agility_cassie/cassie.xml && " +
-            # 1) Add teal rgba fallback to the default cassie material
-            "sed -i '' 's|<material name=\"cassie\" texture=\"cassie\"/>|<material name=\"cassie\" texture=\"cassie\" rgba=\"0.05 0.55 0.49 1\"/>\\n    <material name=\"cassie-silver\" rgba=\"0.6 0.6 0.6 1\"/>|' $F && " +
-            # 2) Override silver-colored geoms (linkages, springs, feet)
-            "sed -i '' " +
-            "-e 's|mesh=\"left-achilles-rod\" euler|mesh=\"left-achilles-rod\" material=\"cassie-silver\" euler|' " +
-            "-e 's|mesh=\"right-achilles-rod\" euler|mesh=\"right-achilles-rod\" material=\"cassie-silver\" euler|' " +
-            "-e 's|mesh=\"left-knee-spring\" euler|mesh=\"left-knee-spring\" material=\"cassie-silver\" euler|' " +
-            "-e 's|mesh=\"right-knee-spring\" euler|mesh=\"right-knee-spring\" material=\"cassie-silver\" euler|' " +
-            "-e 's|mesh=\"left-heel-spring\" euler|mesh=\"left-heel-spring\" material=\"cassie-silver\" euler|' " +
-            "-e 's|mesh=\"right-heel-spring\" euler|mesh=\"right-heel-spring\" material=\"cassie-silver\" euler|' " +
-            "-e 's|mesh=\"left-foot-crank\" euler|mesh=\"left-foot-crank\" material=\"cassie-silver\" euler|' " +
-            "-e 's|mesh=\"right-foot-crank\" euler|mesh=\"right-foot-crank\" material=\"cassie-silver\" euler|' " +
-            "-e 's|mesh=\"left-plantar-rod\" euler|mesh=\"left-plantar-rod\" material=\"cassie-silver\" euler|' " +
-            "-e 's|mesh=\"right-plantar-rod\" euler|mesh=\"right-plantar-rod\" material=\"cassie-silver\" euler|' " +
-            "-e 's|mesh=\"left-foot\" euler|mesh=\"left-foot\" material=\"cassie-silver\" euler|' " +
-            "-e 's|mesh=\"right-foot\" euler|mesh=\"right-foot\" material=\"cassie-silver\" euler|' " +
-            "$F",
             # Dim Cassie scene lighting for better color contrast
             "sed -i '' " +
             "-e 's|diffuse=\"0.6 0.6 0.6\" ambient=\"0.3 0.3 0.3\"|diffuse=\"0.4 0.4 0.4\" ambient=\"0.2 0.2 0.2\"|' " +

@@ -306,6 +306,10 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
         runtime?.meshData
     }
 
+    public var textureData: MJTextureData? {
+        runtime?.textureData
+    }
+
     public var cameraAzimuth: Double {
         get { runtime?.cameraAzimuth ?? 90.0 }
         set { runtime?.cameraAzimuth = newValue }

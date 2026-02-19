@@ -50,6 +50,10 @@ public protocol MJCRenderDataSource: AnyObject {
     /// Returns nil if no model is loaded or model has no meshes.
     var meshData: MJMeshData? { get }
 
+    /// Get pre-loaded texture data for rendering (available after model load).
+    /// Returns nil if no model is loaded or model has no textures.
+    var textureData: MJTextureData? { get }
+
     /// Camera azimuth angle in degrees (horizontal rotation).
     var cameraAzimuth: Double { get set }
 
@@ -558,6 +562,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
             render.Render(
                 frame: frame,
                 meshData: dataSource.meshData,
+                textureData: dataSource.textureData,
                 drawable: drawable,
                 renderPassDescriptor: currentRenderPassDescriptor,
                 isFullscreen: isFullscreen

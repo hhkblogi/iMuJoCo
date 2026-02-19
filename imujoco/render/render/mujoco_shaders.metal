@@ -81,12 +81,15 @@ vertex VertexOut vertexMain(VertexIn in [[stage_in]],
 fragment float4 fragmentMain(VertexOut in [[stage_in]],
                              constant FrameUniforms& frame [[buffer(1)]],
                              constant LightBuffer& lightBuf [[buffer(2)]],
-                             constant InstanceData* instances [[buffer(3)]]) {
+                             constant InstanceData* instances [[buffer(3)]],
+                             texture2d<float> albedoTexture [[texture(0)]],
+                             sampler texSampler [[sampler(0)]]) {
     constant InstanceData& inst = instances[in.instanceId];
     float3 N = normalize(in.normal);
     float3 V = normalize(frame.cameraPosition - in.worldPosition);
-    float3 baseColor = in.color.rgb * inst.color.rgb;
-    float alpha = in.color.a * inst.color.a;
+    float4 texColor = albedoTexture.sample(texSampler, in.texCoord);
+    float3 baseColor = texColor.rgb * in.color.rgb * inst.color.rgb;
+    float alpha = texColor.a * in.color.a * inst.color.a;
 
     // Procedural checkerboard for ground planes
     if (inst.checkerboardScale > 0.0) {

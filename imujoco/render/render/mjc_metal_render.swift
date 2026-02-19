@@ -114,18 +114,35 @@ public final class MJCMetalRender {
     private var meshCache: [Int: CachedMesh] = [:]
     private var meshCacheBuilt = false
 
+    // MARK: - Texture Cache (static textures)
+
+    /// texId → MTLTexture (populated lazily on first frame with texture data)
+    private var textureCache: [Int: MTLTexture] = [:]
+    /// matId → texId mapping (-1 entries removed)
+    private var matTexMap: [Int32: Int] = [:]
+    /// 1×1 white RGBA placeholder for non-textured geoms
+    private var placeholderTexture: MTLTexture!
+    /// Nearest-neighbor sampler (correct for small palette textures)
+    private var samplerState: MTLSamplerState!
+    private var textureCacheBuilt = false
+
     // MARK: - Instancing Tracking (pre-allocated, zero heap alloc per frame)
 
     /// Sorted array of meshIds present in meshCache (set once when cache is built).
     private var cachedMeshIds: [Int] = []
     /// Flat lookup: meshId → true if in meshCache. Size = maxMeshId+1.
     private var meshIdValid: [Bool] = []
-    /// Per-meshId instance count this frame. Size = maxMeshId+1, zeroed each frame.
-    private var perMeshCount: [Int] = []
-    /// Per-meshId write cursor into instance buffer. Size = maxMeshId+1.
-    private var perMeshWriteIdx: [Int] = []
-    /// meshIds active this frame (have ≥1 instance). Pre-allocated, cleared each frame.
-    private var activeMeshIds: [Int] = []
+    /// Draw group key: (meshId, texId) for texture-aware instanced batching.
+    private struct DrawGroupKey: Hashable {
+        let meshId: Int
+        let texId: Int  // -1 = no texture
+    }
+    /// Per draw-group instance count this frame. Zeroed each frame.
+    private var perGroupCount: [DrawGroupKey: Int] = [:]
+    /// Per draw-group write cursor into instance buffer.
+    private var perGroupWriteIdx: [DrawGroupKey: Int] = [:]
+    /// Draw groups active this frame. Pre-allocated, cleared each frame.
+    private var activeGroups: [DrawGroupKey] = []
     /// Primitive draw info. Pre-allocated, cleared each frame.
     private var primDrawList: [(instanceIndex: Int, vertexOffset: Int, indexOffset: Int, indexCount: Int)] = []
 
@@ -309,6 +326,29 @@ public final class MJCMetalRender {
                             emission: 0.5, specular: 0.3, shininess: 5.0, checkerboardScale: 0)
         )
 
+        // Create 1×1 white RGBA placeholder texture (for non-textured geoms)
+        let placeholderDesc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .rgba8Unorm, width: 1, height: 1, mipmapped: false)
+        placeholderDesc.usage = .shaderRead
+        guard let placeholder = device.makeTexture(descriptor: placeholderDesc) else {
+            throw MJCRenderError.bufferAllocationFailed
+        }
+        let white: [UInt8] = [255, 255, 255, 255]
+        placeholder.replace(region: MTLRegionMake2D(0, 0, 1, 1),
+                            mipmapLevel: 0, withBytes: white, bytesPerRow: 4)
+        self.placeholderTexture = placeholder
+
+        // Create nearest-neighbor sampler (correct for small palette textures like Cassie's 4×4)
+        let samplerDesc = MTLSamplerDescriptor()
+        samplerDesc.minFilter = .nearest
+        samplerDesc.magFilter = .nearest
+        samplerDesc.sAddressMode = .clampToEdge
+        samplerDesc.tAddressMode = .clampToEdge
+        guard let sampler = device.makeSamplerState(descriptor: samplerDesc) else {
+            throw MJCRenderError.bufferAllocationFailed
+        }
+        self.samplerState = sampler
+
         // Allocate triple-buffered dynamic buffers for procedural geometry
         for _ in 0..<Self.inflightFrameCount {
             guard let vBuf = device.makeBuffer(length: max_vertices * MemoryLayout<MJCMetalVertex>.stride,
@@ -366,13 +406,14 @@ public final class MJCMetalRender {
                 continue
             }
             let vPtr = vBuf.contents().bindMemory(to: MJCMetalVertex.self, capacity: nv)
-            let vertBase = Int(info.vertexOffset) * 6
+            let vertBase = Int(info.vertexOffset) * Int(MJ_VERTEX_FLOATS)
             let whiteColor = simd_float4(1, 1, 1, 1)
             for v in 0..<nv {
-                let srcIdx = vertBase + v * 6
+                let srcIdx = vertBase + v * Int(MJ_VERTEX_FLOATS)
                 let pos = simd_float3(meshVertPtr[srcIdx], meshVertPtr[srcIdx + 1], meshVertPtr[srcIdx + 2])
                 let normal = simd_float3(meshVertPtr[srcIdx + 3], meshVertPtr[srcIdx + 4], meshVertPtr[srcIdx + 5])
-                vPtr[v] = MJCMetalVertex(position: pos, normal: normal, texCoord: .zero, color: whiteColor)
+                let uv = simd_float2(meshVertPtr[srcIdx + 6], meshVertPtr[srcIdx + 7])
+                vPtr[v] = MJCMetalVertex(position: pos, normal: normal, texCoord: uv, color: whiteColor)
             }
 
             // Build index data
@@ -399,11 +440,57 @@ public final class MJCMetalRender {
         let tableSize = maxId + 1
         cachedMeshIds = meshCache.keys.sorted()
         meshIdValid = [Bool](repeating: false, count: tableSize)
-        perMeshCount = [Int](repeating: 0, count: tableSize)
-        perMeshWriteIdx = [Int](repeating: 0, count: tableSize)
         for mid in cachedMeshIds { meshIdValid[mid] = true }
-        activeMeshIds.reserveCapacity(tableSize)
+        activeGroups.reserveCapacity(tableSize)
         primDrawList.reserveCapacity(256)
+    }
+
+    // MARK: - Texture Cache Builder
+
+    /// Build MTLTextures for all model textures. Called once when textureData first becomes available.
+    private func buildTextureCache(textureData: MJTextureData) {
+        guard !textureCacheBuilt else { return }
+
+        guard let texInfoPtr = MJTextureDataGetTextures(textureData),
+              let pixelPtr = MJTextureDataGetPixels(textureData) else {
+            return
+        }
+        textureCacheBuilt = true
+
+        let texCount = Int(textureData.textureCount())
+        for i in 0..<texCount {
+            let info = texInfoPtr[i]
+            let w = Int(info.width)
+            let h = Int(info.height)
+            guard w > 0, h > 0 else { continue }
+
+            let desc = MTLTextureDescriptor.texture2DDescriptor(
+                pixelFormat: .rgba8Unorm, width: w, height: h, mipmapped: false)
+            desc.usage = .shaderRead
+            guard let tex = device.makeTexture(descriptor: desc) else {
+                logger.warning("Failed to allocate texture \(i) (\(w)×\(h))")
+                continue
+            }
+
+            let srcPtr = pixelPtr.advanced(by: Int(info.dataOffset))
+            tex.replace(region: MTLRegionMake2D(0, 0, w, h),
+                        mipmapLevel: 0, withBytes: srcPtr, bytesPerRow: w * 4)
+            textureCache[i] = tex
+        }
+
+        // Build matId → texId mapping
+        matTexMap.removeAll()
+        if let matTexIdPtr = MJTextureDataGetMatTexId(textureData) {
+            let matCount = Int(textureData.materialCount())
+            for m in 0..<matCount {
+                let texId = matTexIdPtr[m]
+                if texId >= 0 {
+                    matTexMap[Int32(m)] = Int(texId)
+                }
+            }
+        }
+
+        logger.info("Built texture cache: \(self.textureCache.count) textures, \(self.matTexMap.count) material mappings")
     }
 
     // MARK: - Rendering (Lock-Free Ring Buffer API)
@@ -420,6 +507,7 @@ public final class MJCMetalRender {
     ///   - renderPassDescriptor: Optional render pass descriptor. If nil, a default is created.
     public func Render(frame: MJFrameData,
                        meshData: MJMeshData? = nil,
+                       textureData: MJTextureData? = nil,
                        drawable: CAMetalDrawable,
                        renderPassDescriptor: MTLRenderPassDescriptor?,
                        isFullscreen: Bool = false) {
@@ -432,6 +520,11 @@ public final class MJCMetalRender {
         // Build mesh cache lazily on first frame with mesh data
         if !meshCacheBuilt, let md = meshData {
             buildMeshCache(meshData: md)
+        }
+
+        // Build texture cache lazily on first frame with texture data
+        if !textureCacheBuilt, let td = textureData {
+            buildTextureCache(textureData: td)
         }
 
         // Triple buffering: wait for a free buffer slot
@@ -614,13 +707,14 @@ public final class MJCMetalRender {
         }
         encoder.setFragmentBytes(&lightBuffer, length: MemoryLayout<MJCLightBuffer>.stride, index: 2)
 
-        // --- Counting pass: tally mesh instances per meshId (zero allocation) ---
+        // --- Counting pass: tally mesh instances per (meshId, texId) group ---
         let instanceData = instanceBuffer.contents().bindMemory(to: MJCInstanceData.self, capacity: maxInstances)
         let meshIdTableSize = meshIdValid.count
 
-        // Reset per-mesh counts using only active meshIds from last frame
-        for mid in activeMeshIds { perMeshCount[mid] = 0 }
-        activeMeshIds.removeAll(keepingCapacity: true)
+        // Reset per-group counts
+        perGroupCount.removeAll(keepingCapacity: true)
+        perGroupWriteIdx.removeAll(keepingCapacity: true)
+        activeGroups.removeAll(keepingCapacity: true)
         primDrawList.removeAll(keepingCapacity: true)
 
         var totalMeshInstances = 0
@@ -633,8 +727,13 @@ public final class MJCMetalRender {
                 let dataid = Int(geom.dataid)
                 let meshId = dataid >= 0 ? dataid / 2 : -1
                 if meshId >= 0 && meshId < meshIdTableSize && meshIdValid[meshId] {
-                    if perMeshCount[meshId] == 0 { activeMeshIds.append(meshId) }
-                    perMeshCount[meshId] += 1
+                    let texId = matTexMap[geom.matid] ?? -1
+                    let key = DrawGroupKey(meshId: meshId, texId: texId)
+                    if perGroupCount[key] == nil {
+                        activeGroups.append(key)
+                        perGroupCount[key] = 0
+                    }
+                    perGroupCount[key]! += 1
                     totalMeshInstances += 1
                 } else {
                     fallbackCount += 1
@@ -644,11 +743,11 @@ public final class MJCMetalRender {
             }
         }
 
-        // Compute base-instance offsets (prefix sum over active meshIds)
+        // Compute base-instance offsets (prefix sum over active groups)
         var offset = 0
-        for mid in activeMeshIds {
-            perMeshWriteIdx[mid] = offset
-            offset += perMeshCount[mid]
+        for key in activeGroups {
+            perGroupWriteIdx[key] = offset
+            offset += perGroupCount[key]!
         }
         let primBaseInstance = totalMeshInstances  // primitives packed after mesh instances
 
@@ -672,7 +771,9 @@ public final class MJCMetalRender {
 
                 if meshId >= 0 && meshId < meshIdTableSize && meshIdValid[meshId] {
                     // Cached mesh: write instance at pre-computed offset
-                    let idx = perMeshWriteIdx[meshId]
+                    let texId = matTexMap[geom.matid] ?? -1
+                    let key = DrawGroupKey(meshId: meshId, texId: texId)
+                    let idx = perGroupWriteIdx[key]!
                     guard idx < maxInstances else { skippedGeoms += 1; continue }
 
                     instanceData[idx] = MJCInstanceData(
@@ -684,7 +785,7 @@ public final class MJCMetalRender {
                         shininess: min(max(geom.shininess, 1.0), 10.0),
                         checkerboardScale: 0
                     )
-                    perMeshWriteIdx[meshId] = idx + 1
+                    perGroupWriteIdx[key] = idx + 1
                 } else {
                     // Fallback: tiny placeholder box via dynamic buffer
                     guard primInstanceIdx < maxInstances else { skippedGeoms += 1; continue }
@@ -763,11 +864,17 @@ public final class MJCMetalRender {
         encoder.setVertexBuffer(instanceBuffer, offset: 0, index: 3)
         encoder.setFragmentBuffer(instanceBuffer, offset: 0, index: 3)
 
-        // Draw instanced mesh batches (one draw call per unique meshId)
+        // Draw instanced mesh batches (one draw call per (meshId, texId) group)
         offset = 0
-        for mid in activeMeshIds {
-            let count = perMeshCount[mid]
-            guard count > 0, let cached = meshCache[mid] else { offset += count; continue }
+        for key in activeGroups {
+            let count = perGroupCount[key]!
+            guard count > 0, let cached = meshCache[key.meshId] else { offset += count; continue }
+
+            // Bind texture for this group
+            let tex = (key.texId >= 0) ? (textureCache[key.texId] ?? placeholderTexture!) : placeholderTexture!
+            encoder.setFragmentTexture(tex, index: 0)
+            encoder.setFragmentSamplerState(samplerState, index: 0)
+
             encoder.setVertexBuffer(cached.vertexBuffer, offset: 0, index: 0)
             encoder.drawIndexedPrimitives(
                 type: .triangle,
@@ -782,7 +889,9 @@ public final class MJCMetalRender {
             offset += count
         }
 
-        // Draw primitive geoms (one draw call each, different vertex/index data)
+        // Draw primitive geoms (one draw call each, bind placeholder texture)
+        encoder.setFragmentTexture(placeholderTexture, index: 0)
+        encoder.setFragmentSamplerState(samplerState, index: 0)
         for prim in primDrawList {
             encoder.setVertexBuffer(dynamicVB, offset: prim.vertexOffset * MemoryLayout<MJCMetalVertex>.stride, index: 0)
             encoder.drawIndexedPrimitives(
@@ -900,6 +1009,10 @@ public final class MJCMetalRender {
         if d0 > d1 { swap(&a0, &a1); swap(&d0, &d1) }
         if d1 > d2 { swap(&a1, &a2); swap(&d1, &d2) }
         if d0 > d1 { swap(&a0, &a1) }
+
+        // Bind placeholder texture for gizmo (no texturing)
+        encoder.setFragmentTexture(placeholderTexture, index: 0)
+        encoder.setFragmentSamplerState(samplerState, index: 0)
 
         // Draw axes back-to-front using pre-built gizmo geometry
         encoder.setVertexBuffer(gizmoVertexBuffer, offset: 0, index: 0)
