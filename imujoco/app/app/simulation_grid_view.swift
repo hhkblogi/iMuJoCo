@@ -240,31 +240,20 @@ struct SimulationGridView: View {
 private struct PressableRow<Content: View>: View {
     let action: () -> Void
     @ViewBuilder let content: () -> Content
-    @State private var isPressed = false
-    @State private var rowSize: CGSize = .zero
 
     var body: some View {
-        content()
-            .opacity(isPressed ? 0.5 : 1.0)
+        Button(action: action) {
+            content()
+        }
+        .buttonStyle(PressableButtonStyle())
+    }
+}
+
+private struct PressableButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
             .contentShape(Rectangle())
-            .background(GeometryReader { geo in
-                Color.clear.onAppear { rowSize = geo.size }
-            })
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        let inside = value.location.x >= 0
-                            && value.location.y >= 0
-                            && value.location.x <= rowSize.width
-                            && value.location.y <= rowSize.height
-                        isPressed = inside
-                    }
-                    .onEnded { _ in
-                        if isPressed { action() }
-                        isPressed = false
-                    }
-            )
-            .accessibilityAddTraits(.isButton)
+            .opacity(configuration.isPressed ? 0.5 : 1.0)
     }
 }
 
@@ -298,24 +287,19 @@ struct ModelPickerView: View {
             List {
                 if !modelGroups.isEmpty {
                     ForEach(modelGroups, id: \.source) { group in
-                        Text(group.source.rawValue)
-                            .font(.subheadline)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-                            .listRowSeparator(.hidden)
-                        VStack(spacing: 0) {
+                        Section {
                             ForEach(group.models, id: \.name) { model in
                                 PressableRow(action: { onSelectModel(model.name) }) {
                                     HStack {
                                         Text(model.name)
                                         Spacer()
                                     }
-                                    .padding(.vertical, 6)
+                                    .padding(.vertical, 2)
                                 }
                             }
+                        } header: {
+                            Text(group.source.rawValue)
                         }
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
                     }
                 } else {
                     ForEach(modelNames, id: \.self) { name in
@@ -331,7 +315,7 @@ struct ModelPickerView: View {
                 }
             }
             .navigationTitle("Select Model")
-            .listStyle(.plain)
+            .listStyle(.insetGrouped)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -342,7 +326,7 @@ struct ModelPickerView: View {
             }
         }
         #if os(iOS)
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
         #endif
         #if os(macOS)
         .frame(minWidth: 300, minHeight: 250)
