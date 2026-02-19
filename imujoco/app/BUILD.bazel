@@ -5,7 +5,7 @@ load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_apple//apple:resources.bzl", "apple_resource_group")
 load("@rules_apple//apple:tvos.bzl", "tvos_application")
 load("@rules_xcodeproj//xcodeproj:xcode_provisioning_profile.bzl", "xcode_provisioning_profile")
-load(":team_config.bzl", "TEAM_ID")
+load(":team_config.bzl", "APPSTORE_PROFILE_NAME", "TEAM_ID")
 
 # ============================================================================
 # App Swift library
@@ -52,6 +52,12 @@ xcode_provisioning_profile(
     team_id = TEAM_ID,
 )
 
+local_provisioning_profile(
+    name = "appstore_profile",
+    profile_name = APPSTORE_PROFILE_NAME,
+    team_id = TEAM_ID,
+)
+
 # ============================================================================
 # Menagerie robot models (directory structure must be preserved for MuJoCo)
 # ============================================================================
@@ -90,6 +96,31 @@ ios_application(
     infoplists = ["Info.plist"],
     minimum_os_version = "26.0",
     provisioning_profile = ":xcode_profile",
+    resources = glob(["app/Assets.xcassets/**"]) + [
+        "app/PrivacyInfo.xcprivacy",
+        "//models",
+        "//imujoco/render:mujoco_metallib",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [":app_lib"],
+)
+
+# ============================================================================
+# iOS application — App Store submission
+# ============================================================================
+
+ios_application(
+    name = "app_appstore",
+    app_icons = glob(["app/AppIcon.icon/**"]),
+    bundle_id = "com.hhkblogi.imujoco.app",
+    entitlements = "app_ios.entitlements",
+    families = [
+        "iphone",
+        "ipad",
+    ],
+    infoplists = ["Info.plist"],
+    minimum_os_version = "26.0",
+    provisioning_profile = ":appstore_profile",
     resources = glob(["app/Assets.xcassets/**"]) + [
         "app/PrivacyInfo.xcprivacy",
         "//models",

@@ -3,3 +3,6 @@
 # team_config.bzl is gitignored and will not be committed.
 
 TEAM_ID = "YOUR_TEAM_ID_HERE"
+
+# App Store distribution provisioning profile name (shown in Apple Developer portal)
+APPSTORE_PROFILE_NAME = "YOUR_APPSTORE_PROFILE_NAME_HERE"
