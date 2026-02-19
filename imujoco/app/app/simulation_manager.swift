@@ -390,6 +390,8 @@ final class SimulationGridManager: @unchecked Sendable {
                          keyframe: nil, timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
             BundledModel(name: "Humanoid (Supine)", source: .mujoco, resource: "humanoid_supine", subdirectory: nil,
                          keyframe: "supine", timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
+            BundledModel(name: "100 Humanoids", source: .mujoco, resource: "100_humanoids", subdirectory: "model/humanoid",
+                         keyframe: nil, timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
             BundledModel(name: "Simple Pendulum", source: .imujoco, resource: "simple_pendulum", subdirectory: nil,
                          keyframe: "start", timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
             BundledModel(name: "Agility Cassie", source: .menagerie, resource: "scene", subdirectory: "agility_cassie",

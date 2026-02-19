@@ -112,6 +112,6 @@ filegroup(
 
 filegroup(
     name = "humanoid_model",
-    srcs = ["model/humanoid/humanoid.xml"],
+    srcs = glob(["model/humanoid/*.xml"]),
     visibility = ["//visibility:public"],
 )
