@@ -597,6 +597,18 @@ struct SettingsView: View {
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel("About Caffeine Mode")
+                            .popover(isPresented: $showCaffeineInfo) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("**Half** — Screen stays on. Simulations pause when you leave the app.")
+                                    Text("**Full** — Screen stays on. Simulations keep running even when you lock the screen.")
+                                }
+                                .fixedSize(horizontal: false, vertical: true)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 260)
+                                .padding()
+                                .presentationCompactAdaptation(.popover)
+                            }
                         }
                         HStack {
                             ForEach(
@@ -626,14 +638,6 @@ struct SettingsView: View {
                                 .accessibilityLabel("\(label), \(caffeineMode == tag ? "selected" : "not selected")")
                             }
                         }
-                        if showCaffeineInfo {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("**Half** — Screen stays on. Simulations pause when you leave the app.")
-                                Text("**Full** — Screen stays on. Simulations keep running even when you lock the screen.")
-                            }
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        }
                     }
                 }
                 #endif
@@ -642,7 +646,7 @@ struct SettingsView: View {
                     NavigationLink {
                         AboutView()
                     } label: {
-                        Label("About", systemImage: "info.circle")
+                        Text("About iMuJoCo")
                     }
                     #if !os(tvOS)
                     .listRowSeparator(.visible, edges: .all)
