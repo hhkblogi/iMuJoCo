@@ -26,16 +26,9 @@ private let logger = Logger(subsystem: "com.mujoco.render", category: "MuJoCoMTK
 /// ## Example Implementation
 /// ```swift
 /// class MyRuntime: MJCRenderDataSource {
-///     var latestFrame: MJFrameData? {
-///         return source.latestFrame
-///     }
-///     // ... implement other requirements
-/// }
-///
-/// // Safe usage - access frame properties within a single scope:
-/// if let frame = runtime.latestFrame {
-///     let count = frame.geomCount()
-///     // Use frame data here - do not store beyond this scope
+///     var latestFrame: MJFrameData? { source.latestFrame }
+///     var meshData: MJMeshData? { source.meshData }
+///     var textureData: MJTextureData? { source.textureData }
 /// }
 /// ```
 public protocol MJCRenderDataSource: AnyObject {
@@ -49,6 +42,10 @@ public protocol MJCRenderDataSource: AnyObject {
     /// Get pre-loaded mesh data for rendering (available after model load).
     /// Returns nil if no model is loaded or model has no meshes.
     var meshData: MJMeshData? { get }
+
+    /// Get pre-loaded texture data for rendering (available after model load).
+    /// Returns nil if no model is loaded or model has no textures.
+    var textureData: MJTextureData? { get }
 
     /// Camera azimuth angle in degrees (horizontal rotation).
     var cameraAzimuth: Double { get set }
@@ -558,6 +555,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
             render.Render(
                 frame: frame,
                 meshData: dataSource.meshData,
+                textureData: dataSource.textureData,
                 drawable: drawable,
                 renderPassDescriptor: currentRenderPassDescriptor,
                 isFullscreen: isFullscreen

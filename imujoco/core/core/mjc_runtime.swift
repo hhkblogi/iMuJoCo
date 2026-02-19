@@ -287,4 +287,10 @@ public final class MJRuntime {
     public var meshData: MJMeshData? {
         return runtime.getMeshData()
     }
+
+    /// Get pre-loaded texture data for rendering (available after model load).
+    /// Returns nil if no model is loaded or model has no textures.
+    public var textureData: MJTextureData? {
+        return runtime.getTextureData()
+    }
 }

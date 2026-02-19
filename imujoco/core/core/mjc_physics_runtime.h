@@ -105,7 +105,11 @@ struct MJGeomInstance {
     float emission = 0.0f;                  ///< Emission
     float specular = 0.5f;                  ///< Specular
     float shininess = 0.5f;                 ///< Shininess
+    int32_t matid = -1;                     ///< Material index in mjModel (-1 = none)
 };
+
+/// Vertex stride: pos(3) + normal(3) + uv(2) = 8 floats per vertex.
+static constexpr int MJ_VERTEX_FLOATS = 8;
 
 // MARK: - Mesh Data (pre-loaded mesh geometry for rendering)
 
@@ -119,7 +123,7 @@ struct MJMeshInfo {
 
 /// Internal storage for all mesh geometry data. Not exposed to Swift directly.
 struct MJMeshDataStorage {
-    std::vector<float> vertices;      ///< Interleaved pos(3)+normal(3) per vertex
+    std::vector<float> vertices;      ///< Interleaved pos(3)+normal(3)+uv(2) per vertex
     std::vector<int32_t> faces;       ///< Triangle face indices (3 per face)
     std::vector<MJMeshInfo> meshes;   ///< Per-mesh metadata
     int32_t meshCount = 0;            ///< Number of meshes
@@ -131,7 +135,7 @@ class MJMeshData;
 /// Get pointer to per-mesh info array.
 const MJMeshInfo* MJMeshDataGetMeshes(const MJMeshData* data);
 
-/// Get pointer to interleaved vertex data (pos[3]+normal[3] per vertex).
+/// Get pointer to interleaved vertex data (pos[3]+normal[3]+uv[2] per vertex).
 const float* MJMeshDataGetVertices(const MJMeshData* data);
 
 /// Get pointer to face index data (3 ints per triangle).
@@ -153,6 +157,56 @@ public:
 
 private:
     const MJMeshDataStorage* storage_;
+};
+
+// MARK: - Texture Data (pre-loaded texture pixels for rendering)
+
+/// Per-texture metadata.
+struct MJTextureInfo {
+    int32_t width = 0;
+    int32_t height = 0;
+    int32_t nchannel = 0;       ///< Original channel count (for reference)
+    int32_t dataOffset = 0;     ///< Byte offset into RGBA pixel buffer
+};
+
+/// Internal storage for all texture data. Not exposed to Swift directly.
+struct MJTextureDataStorage {
+    std::vector<uint8_t> pixels;        ///< All textures as RGBA, concatenated
+    std::vector<MJTextureInfo> textures;
+    std::vector<int32_t> matTexId;      ///< [materialCount] → texId or -1 (RGB role)
+    int32_t textureCount = 0;
+    int32_t materialCount = 0;
+};
+
+// Forward declare for friend access
+class MJTextureData;
+
+/// Get pointer to per-texture info array.
+const MJTextureInfo* MJTextureDataGetTextures(const MJTextureData* data);
+
+/// Get pointer to concatenated RGBA pixel data.
+const uint8_t* MJTextureDataGetPixels(const MJTextureData* data);
+
+/// Get pointer to material→texture ID mapping (size = materialCount, -1 = no texture).
+const int32_t* MJTextureDataGetMatTexId(const MJTextureData* data);
+
+/// Swift-facing wrapper for texture data (reference semantics).
+class SWIFT_IMMORTAL_REFERENCE MJTextureData {
+public:
+    explicit MJTextureData(const MJTextureDataStorage* storage) : storage_(storage) {}
+
+    MJTextureData(const MJTextureData&) = delete;
+    MJTextureData& operator=(const MJTextureData&) = delete;
+
+    int32_t textureCount() const { return storage_ ? storage_->textureCount : 0; }
+    int32_t materialCount() const { return storage_ ? storage_->materialCount : 0; }
+
+    friend const MJTextureInfo* MJTextureDataGetTextures(const MJTextureData* data);
+    friend const uint8_t* MJTextureDataGetPixels(const MJTextureData* data);
+    friend const int32_t* MJTextureDataGetMatTexId(const MJTextureData* data);
+
+private:
+    const MJTextureDataStorage* storage_;
 };
 
 // MARK: - FrameDataStorage (internal ring buffer storage - not exposed to Swift)
@@ -446,6 +500,10 @@ public:
     /// Get pre-loaded mesh data for rendering (available after model load)
     /// @return Pointer to mesh data, or nullptr if no model is loaded or model has no meshes
     MJMeshData* getMeshData();
+
+    /// Get pre-loaded texture data for rendering (available after model load)
+    /// @return Pointer to texture data, or nullptr if no model is loaded or model has no textures
+    MJTextureData* getTextureData();
 
 private:
     /// Private constructor - use create()

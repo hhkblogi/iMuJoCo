@@ -306,6 +306,10 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
         runtime?.meshData
     }
 
+    public var textureData: MJTextureData? {
+        runtime?.textureData
+    }
+
     public var cameraAzimuth: Double {
         get { runtime?.cameraAzimuth ?? 90.0 }
         set { runtime?.cameraAzimuth = newValue }
@@ -388,6 +392,8 @@ final class SimulationGridManager: @unchecked Sendable {
                          keyframe: "supine", timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
             BundledModel(name: "Simple Pendulum", source: .imujoco, resource: "simple_pendulum", subdirectory: nil,
                          keyframe: "start", timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
+            BundledModel(name: "Agility Cassie", source: .menagerie, resource: "scene", subdirectory: "agility_cassie",
+                         keyframe: "home", timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
             BundledModel(name: "Unitree G1", source: .menagerie, resource: "scene", subdirectory: "unitree_g1",
                          keyframe: nil, timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
             BundledModel(name: "Unitree H1", source: .menagerie, resource: "scene", subdirectory: "unitree_h1",

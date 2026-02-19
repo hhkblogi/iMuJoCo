@@ -77,6 +77,13 @@ def _mujoco_deps_impl(_ctx):
     http_archive(
         name = "mujoco_menagerie",
         build_file = "//:third_party/mujoco_menagerie.BUILD",
+        patch_cmds = [
+            # Dim Cassie scene lighting for better color contrast
+            "sed -i '' " +
+            "-e 's|diffuse=\"0.6 0.6 0.6\" ambient=\"0.3 0.3 0.3\"|diffuse=\"0.4 0.4 0.4\" ambient=\"0.2 0.2 0.2\"|' " +
+            "-e 's|<light pos=\"0 0 3\" dir=\"0 0 -1\" directional=\"false\"/>|<light pos=\"0 0 3\" dir=\"0 0 -1\" directional=\"false\" diffuse=\"0.4 0.4 0.4\"/>|' " +
+            "agility_cassie/scene.xml",
+        ],
         strip_prefix = "mujoco_menagerie-a03e87bf13502b0b48ebbf2808928fd96ebf9cf3",
         urls = ["https://github.com/google-deepmind/mujoco_menagerie/archive/a03e87bf13502b0b48ebbf2808928fd96ebf9cf3.tar.gz"],
     )

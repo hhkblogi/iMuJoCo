@@ -332,6 +332,7 @@ public:
         BuildActuatorTimeoutPolicy();
         WriteFrameToBuffer();
         ExtractMeshData();
+        ExtractTextureData();
 
         state_ = MJRuntimeState::Loaded;
         return true;
@@ -376,6 +377,7 @@ public:
         BuildActuatorTimeoutPolicy();
         WriteFrameToBuffer();
         ExtractMeshData();
+        ExtractTextureData();
 
         state_ = MJRuntimeState::Loaded;
         return true;
@@ -386,6 +388,8 @@ public:
 
         mesh_data_.reset();
         mesh_storage_.reset();
+        texture_data_.reset();
+        texture_storage_.reset();
 
         if (data_) { mj_deleteData(data_); data_ = nullptr; }
         if (model_) { mj_deleteModel(model_); model_ = nullptr; }
@@ -660,6 +664,14 @@ public:
         return mesh_data_.get();
     }
 
+    MJTextureData* GetTextureData() {
+        if (!texture_storage_ || texture_storage_->textureCount == 0) return nullptr;
+        if (!texture_data_) {
+            texture_data_ = std::make_unique<MJTextureData>(texture_storage_.get());
+        }
+        return texture_data_.get();
+    }
+
 private:
     // Per-actuator timeout policy: true = zero on timeout, false = hold last value
     void BuildActuatorTimeoutPolicy() {
@@ -707,7 +719,7 @@ private:
         }
         int totalUnrolledVerts = totalFaces * 3;
 
-        storage->vertices.resize(totalUnrolledVerts * 6);  // 6 floats per vertex (pos[3] + normal[3])
+        storage->vertices.resize(totalUnrolledVerts * MJ_VERTEX_FLOATS);  // 8 floats per vertex (pos[3] + normal[3] + uv[2])
         storage->faces.resize(totalUnrolledVerts);          // Sequential indices (0, 1, 2, ...)
 
         int vertOffset = 0;   // In unrolled vertices
@@ -724,6 +736,10 @@ private:
             storage->meshes[m].faceOffset = faceOffset;
             storage->meshes[m].faceCount = nf;
 
+            // Check if mesh has texture coords
+            bool hasTC = (model_->mesh_texcoordadr[m] >= 0);
+            int tcStart = hasTC ? model_->mesh_texcoordadr[m] : 0;
+
             // Unroll each face: look up position via mesh_face, normal via mesh_facenormal
             for (int f = 0; f < nf; f++) {
                 for (int c = 0; c < 3; c++) {
@@ -733,7 +749,7 @@ private:
 
                     int vSrc = (srcVertStart + vi) * 3;
                     int nSrc = (srcNormStart + ni) * 3;
-                    int dstIdx = (vertOffset + f * 3 + c) * 6;
+                    int dstIdx = (vertOffset + f * 3 + c) * MJ_VERTEX_FLOATS;
 
                     // Position
                     storage->vertices[dstIdx + 0] = model_->mesh_vert[vSrc + 0];
@@ -743,6 +759,16 @@ private:
                     storage->vertices[dstIdx + 3] = model_->mesh_normal[nSrc + 0];
                     storage->vertices[dstIdx + 4] = model_->mesh_normal[nSrc + 1];
                     storage->vertices[dstIdx + 5] = model_->mesh_normal[nSrc + 2];
+                    // UV texture coordinates
+                    if (hasTC) {
+                        int ti = model_->mesh_facetexcoord[faceIdx];
+                        int tcSrc = (tcStart + ti) * 2;
+                        storage->vertices[dstIdx + 6] = model_->mesh_texcoord[tcSrc + 0];
+                        storage->vertices[dstIdx + 7] = model_->mesh_texcoord[tcSrc + 1];
+                    } else {
+                        storage->vertices[dstIdx + 6] = 0.0f;
+                        storage->vertices[dstIdx + 7] = 0.0f;
+                    }
 
                     // Sequential index (0-based per mesh)
                     storage->faces[faceOffset * 3 + f * 3 + c] = f * 3 + c;
@@ -757,6 +783,87 @@ private:
                     storage->meshCount, totalUnrolledVerts, totalFaces);
 
         mesh_storage_ = std::move(storage);
+    }
+
+    void ExtractTextureData() {
+        texture_data_.reset();
+        texture_storage_.reset();
+
+        if (!model_ || model_->ntex == 0) return;
+
+        auto storage = std::make_unique<MJTextureDataStorage>();
+        storage->textureCount = model_->ntex;
+        storage->textures.resize(model_->ntex);
+
+        // Calculate total RGBA pixels needed
+        size_t totalRGBABytes = 0;
+        for (int i = 0; i < model_->ntex; i++) {
+            totalRGBABytes += static_cast<size_t>(model_->tex_width[i]) *
+                              static_cast<size_t>(model_->tex_height[i]) * 4;
+        }
+        storage->pixels.resize(totalRGBABytes);
+
+        size_t dstOffset = 0;
+        for (int i = 0; i < model_->ntex; i++) {
+            int w = model_->tex_width[i];
+            int h = model_->tex_height[i];
+            int nc = model_->tex_nchannel[i];
+            int srcAdr = model_->tex_adr[i];
+            int numPixels = w * h;
+
+            storage->textures[i].width = w;
+            storage->textures[i].height = h;
+            storage->textures[i].nchannel = nc;
+            storage->textures[i].dataOffset = static_cast<int32_t>(dstOffset);
+
+            const uint8_t* src = model_->tex_data + srcAdr;
+            uint8_t* dst = storage->pixels.data() + dstOffset;
+
+            if (nc == 4) {
+                // Already RGBA
+                std::memcpy(dst, src, numPixels * 4);
+            } else if (nc == 3) {
+                // RGB → RGBA (insert alpha=255)
+                for (int p = 0; p < numPixels; p++) {
+                    dst[p * 4 + 0] = src[p * 3 + 0];
+                    dst[p * 4 + 1] = src[p * 3 + 1];
+                    dst[p * 4 + 2] = src[p * 3 + 2];
+                    dst[p * 4 + 3] = 255;
+                }
+            } else if (nc == 1) {
+                // Grayscale → RGBA
+                for (int p = 0; p < numPixels; p++) {
+                    dst[p * 4 + 0] = src[p];
+                    dst[p * 4 + 1] = src[p];
+                    dst[p * 4 + 2] = src[p];
+                    dst[p * 4 + 3] = 255;
+                }
+            } else {
+                // Unsupported channel count: fill with magenta for debugging
+                os_log_error(OS_LOG_DEFAULT,
+                             "ExtractTextureData: unsupported channel count %d for texture %d", nc, i);
+                for (int p = 0; p < numPixels; p++) {
+                    dst[p * 4 + 0] = 255;
+                    dst[p * 4 + 1] = 0;
+                    dst[p * 4 + 2] = 255;
+                    dst[p * 4 + 3] = 255;
+                }
+            }
+
+            dstOffset += static_cast<size_t>(numPixels) * 4;
+        }
+
+        // Build material → texture ID mapping
+        storage->materialCount = model_->nmat;
+        storage->matTexId.resize(model_->nmat);
+        for (int m = 0; m < model_->nmat; m++) {
+            storage->matTexId[m] = model_->mat_texid[m * mjNTEXROLE + mjTEXROLE_RGB];
+        }
+
+        os_log_info(OS_LOG_DEFAULT, "Extracted texture data: %d textures, %zu RGBA bytes, %d materials",
+                    storage->textureCount, totalRGBABytes, storage->materialCount);
+
+        texture_storage_ = std::move(storage);
     }
 
     void PhysicsLoop() {
@@ -991,6 +1098,7 @@ private:
             dst.emission = src.emission;
             dst.specular = src.specular;
             dst.shininess = src.shininess;
+            dst.matid = src.matid;
         }
 
         // Copy lights from mjvScene
@@ -1093,6 +1201,10 @@ private:
     // Pre-loaded mesh data (extracted from mjModel at load time)
     std::unique_ptr<MJMeshDataStorage> mesh_storage_;
     std::unique_ptr<MJMeshData> mesh_data_;
+
+    // Pre-loaded texture data (extracted from mjModel at load time)
+    std::unique_ptr<MJTextureDataStorage> texture_storage_;
+    std::unique_ptr<MJTextureData> texture_data_;
 };
 
 // MARK: - Version Info
@@ -1128,6 +1240,23 @@ const float* MJMeshDataGetVertices(const MJMeshData* data) {
 const int32_t* MJMeshDataGetFaces(const MJMeshData* data) {
     if (!data || !data->storage_ || data->storage_->faces.empty()) return nullptr;
     return data->storage_->faces.data();
+}
+
+// MARK: - MJTextureData Free Functions
+
+const MJTextureInfo* MJTextureDataGetTextures(const MJTextureData* data) {
+    if (!data || !data->storage_ || data->storage_->textures.empty()) return nullptr;
+    return data->storage_->textures.data();
+}
+
+const uint8_t* MJTextureDataGetPixels(const MJTextureData* data) {
+    if (!data || !data->storage_ || data->storage_->pixels.empty()) return nullptr;
+    return data->storage_->pixels.data();
+}
+
+const int32_t* MJTextureDataGetMatTexId(const MJTextureData* data) {
+    if (!data || !data->storage_ || data->storage_->matTexId.empty()) return nullptr;
+    return data->storage_->matTexId.data();
 }
 
 // MARK: - MJSimulationRuntime Public Interface
@@ -1201,3 +1330,4 @@ mjvOption* MJSimulationRuntime::getOption() { return impl_->GetOption(); }
 const mjModel* MJSimulationRuntime::getModel() const { return impl_->GetModel(); }
 const mjData* MJSimulationRuntime::getData() const { return impl_->GetData(); }
 MJMeshData* MJSimulationRuntime::getMeshData() { return impl_->GetMeshData(); }
+MJTextureData* MJSimulationRuntime::getTextureData() { return impl_->GetTextureData(); }

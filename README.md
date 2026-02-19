@@ -172,5 +172,6 @@ Apache License 2.0 - see [LICENSE](LICENSE) for details.
 - Car — [MuJoCo](https://github.com/google-deepmind/mujoco) · Apache 2.0
 - Humanoid (Supine) — [MuJoCo](https://github.com/google-deepmind/mujoco) · Apache 2.0
 - Simple Pendulum — iMuJoCo · Apache 2.0
+- Agility Cassie — [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie) · BSD-3
 - Unitree G1 — [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie) · BSD-3
 - Unitree H1 — [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie) · BSD-3
