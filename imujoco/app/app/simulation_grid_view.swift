@@ -151,11 +151,6 @@ struct SimulationGridView: View {
         .sheet(isPresented: $showingSettings) {
             SettingsView(defaultView: $defaultView, defaultLocked: $defaultLocked, onDismiss: { showingSettings = false })
         }
-        .onChange(of: defaultLocked) { _, newValue in
-            for instance in gridManager.activeInstances {
-                instance.isLocked = newValue
-            }
-        }
     }
 
     // MARK: - Model Loading
