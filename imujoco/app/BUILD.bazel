@@ -60,6 +60,7 @@ apple_resource_group(
     name = "menagerie_models",
     structured_resources = [
         "@mujoco_menagerie//:unitree_g1",
+        "@mujoco_menagerie//:unitree_h1",
     ],
 )
 

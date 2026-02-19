@@ -391,6 +391,8 @@ final class SimulationGridManager: @unchecked Sendable {
                          keyframe: "start", timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
             BundledModel(name: "Unitree G1", source: .menagerie, resource: "scene", subdirectory: "unitree_g1",
                          keyframe: nil, timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
+            BundledModel(name: "Unitree H1", source: .menagerie, resource: "scene", subdirectory: "unitree_h1",
+                         keyframe: nil, timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
         ]
     }
 
