@@ -26,6 +26,16 @@ filegroup(
 )
 
 filegroup(
+    name = "anybotics_anymal_c",
+    srcs = glob([
+        "anybotics_anymal_c/**/*.xml",
+        "anybotics_anymal_c/**/*.obj",
+        "anybotics_anymal_c/**/*.png",
+        "anybotics_anymal_c/LICENSE",
+    ]),
+)
+
+filegroup(
     name = "unitree_h1",
     srcs = glob(
         [

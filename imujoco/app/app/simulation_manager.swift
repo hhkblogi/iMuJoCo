@@ -394,6 +394,8 @@ final class SimulationGridManager: @unchecked Sendable {
                          keyframe: "start", timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
             BundledModel(name: "Agility Cassie", source: .menagerie, resource: "scene", subdirectory: "agility_cassie",
                          keyframe: "home", timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
+            BundledModel(name: "ANYmal C", source: .menagerie, resource: "scene", subdirectory: "anybotics_anymal_c",
+                         keyframe: nil, timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
             BundledModel(name: "Unitree G1", source: .menagerie, resource: "scene", subdirectory: "unitree_g1",
                          keyframe: nil, timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
             BundledModel(name: "Unitree H1", source: .menagerie, resource: "scene", subdirectory: "unitree_h1",
