@@ -65,6 +65,7 @@ struct SimulationGridView: View {
     @State private var showingSettings = false
     @AppStorage("defaultView") private var defaultView: Int = 0
     @AppStorage("caffeineMode") private var caffeineMode: Int = 1
+    @AppStorage("defaultLocked") private var defaultLocked: Bool = true
 
     let columns = [
         GridItem(.flexible(), spacing: 8),
@@ -148,7 +149,7 @@ struct SimulationGridView: View {
             Text(errorMessage)
         }
         .sheet(isPresented: $showingSettings) {
-            SettingsView(defaultView: $defaultView, onDismiss: { showingSettings = false })
+            SettingsView(defaultView: $defaultView, defaultLocked: $defaultLocked, onDismiss: { showingSettings = false })
         }
     }
 
@@ -460,6 +461,7 @@ struct LayoutIcon: View {
 
 struct SettingsView: View {
     @Binding var defaultView: Int
+    @Binding var defaultLocked: Bool
     var onDismiss: () -> Void
     @AppStorage("caffeineMode") private var caffeineMode: Int = 1  // 0=off, 1=half, 2=full
     @AppStorage("tripleClickAction") private var tripleClickAction: Int = 0  // 0=grid/fullscreen, 1=lock/unlock
@@ -540,6 +542,41 @@ struct SettingsView: View {
                                     Text("unlock")
                                 }
                                 .font(.system(size: 12))
+                            }
+                        }
+                    }
+                }
+
+                Section {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Default Lock State")
+                            .font(.subheadline)
+                        HStack {
+                            ForEach(
+                                [(true, "Locked", "lock.fill"), (false, "Unlocked", "lock.open")],
+                                id: \.0
+                            ) { locked, label, icon in
+                                Button(action: { defaultLocked = locked }) {
+                                    VStack(spacing: 4) {
+                                        Image(systemName: icon)
+                                            .font(.system(size: 18))
+                                        Text(label)
+                                            .font(.caption2)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(defaultLocked == locked ? Color.blue.opacity(0.2) : Color.clear)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(defaultLocked == locked ? Color.blue : Color.gray.opacity(0.3), lineWidth: defaultLocked == locked ? 1.5 : 1)
+                                    )
+                                    .foregroundColor(defaultLocked == locked ? .blue : .gray)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("\(label), \(defaultLocked == locked ? "selected" : "not selected")")
                             }
                         }
                     }
