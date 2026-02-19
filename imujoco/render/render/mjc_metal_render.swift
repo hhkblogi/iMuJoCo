@@ -113,6 +113,8 @@ public final class MJCMetalRender {
     /// meshId → cached MTLBuffers (populated lazily on first frame with mesh data)
     private var meshCache: [Int: CachedMesh] = [:]
     private var meshCacheBuilt = false
+    /// Raw pointer of the MJMeshData used to build the cache (detect data source changes)
+    private var meshCacheSourcePtr: UnsafeRawPointer?
 
     // MARK: - Texture Cache (static textures)
 
@@ -125,6 +127,8 @@ public final class MJCMetalRender {
     /// Nearest-neighbor sampler (correct for small palette textures)
     private var samplerState: MTLSamplerState!
     private var textureCacheBuilt = false
+    /// Raw pointer of the MJTextureData used to build the cache (detect data source changes)
+    private var textureCacheSourcePtr: UnsafeRawPointer?
 
     // MARK: - Instancing Tracking (pre-allocated, zero heap alloc per frame)
 
@@ -381,6 +385,15 @@ public final class MJCMetalRender {
 
     // MARK: - Mesh Cache Builder
 
+    /// Invalidate the mesh cache (e.g., when data source changes to a different simulation).
+    private func invalidateMeshCache() {
+        meshCache.removeAll()
+        meshCacheBuilt = false
+        meshCacheSourcePtr = nil
+        cachedMeshIds.removeAll()
+        meshIdValid.removeAll()
+    }
+
     /// Build immutable Metal buffers for all meshes. Called once when meshData first becomes available.
     private func buildMeshCache(meshData: MJMeshData) {
         guard !meshCacheBuilt else { return }
@@ -446,6 +459,14 @@ public final class MJCMetalRender {
     }
 
     // MARK: - Texture Cache Builder
+
+    /// Invalidate the texture cache (e.g., when data source changes to a different simulation).
+    private func invalidateTextureCache() {
+        textureCache.removeAll()
+        matTexMap.removeAll()
+        textureCacheBuilt = false
+        textureCacheSourcePtr = nil
+    }
 
     /// Build MTLTextures for all model textures. Called once when textureData first becomes available.
     private func buildTextureCache(textureData: MJTextureData) {
@@ -517,14 +538,28 @@ public final class MJCMetalRender {
         // valid until the next getLatestFrame() call on the same thread. Do NOT store the
         // frame reference beyond this render call.
 
-        // Build mesh cache lazily on first frame with mesh data
-        if !meshCacheBuilt, let md = meshData {
-            buildMeshCache(meshData: md)
+        // Build mesh cache lazily; invalidate if data source changed (different simulation)
+        if let md = meshData {
+            let newPtr = UnsafeRawPointer(Unmanaged.passUnretained(md).toOpaque())
+            if !meshCacheBuilt || meshCacheSourcePtr != newPtr {
+                invalidateMeshCache()
+                buildMeshCache(meshData: md)
+                meshCacheSourcePtr = newPtr
+            }
+        } else if meshCacheBuilt {
+            invalidateMeshCache()
         }
 
-        // Build texture cache lazily on first frame with texture data
-        if !textureCacheBuilt, let td = textureData {
-            buildTextureCache(textureData: td)
+        // Build texture cache lazily; invalidate if data source changed
+        if let td = textureData {
+            let newPtr = UnsafeRawPointer(Unmanaged.passUnretained(td).toOpaque())
+            if !textureCacheBuilt || textureCacheSourcePtr != newPtr {
+                invalidateTextureCache()
+                buildTextureCache(textureData: td)
+                textureCacheSourcePtr = newPtr
+            }
+        } else if textureCacheBuilt {
+            invalidateTextureCache()
         }
 
         // Triple buffering: wait for a free buffer slot
