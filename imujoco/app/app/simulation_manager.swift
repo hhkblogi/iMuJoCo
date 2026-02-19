@@ -4,7 +4,6 @@
 import Foundation
 import Observation
 import os.log
-import Observation
 import core
 import render
 import MJCPhysicsRuntime
