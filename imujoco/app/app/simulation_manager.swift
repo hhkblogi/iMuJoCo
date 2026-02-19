@@ -430,6 +430,7 @@ final class SimulationGridManager: @unchecked Sendable {
     func loadModel(at index: Int, fromFile path: String) async throws {
         guard let instance = instance(at: index) else { return }
         try await instance.loadModel(fromFile: path)
+        instance.isLocked = UserDefaults.standard.object(forKey: "defaultLocked") as? Bool ?? true
         instance.start()
     }
 
@@ -483,6 +484,7 @@ final class SimulationGridManager: @unchecked Sendable {
         if let az = model.cameraAzimuth { instance.cameraAzimuth = az }
         if let dist = model.cameraDistance { instance.cameraDistance = dist }
         instance.modelName = name
+        instance.isLocked = UserDefaults.standard.object(forKey: "defaultLocked") as? Bool ?? true
         instance.start()
     }
 
