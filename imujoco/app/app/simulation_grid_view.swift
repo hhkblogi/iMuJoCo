@@ -692,7 +692,7 @@ struct AboutView: View {
     private let modelInfo: [(name: String, source: String, license: String)] = [
         ("Car, Humanoid (Supine)", "MuJoCo", "Apache 2.0"),
         ("Simple Pendulum", "iMuJoCo", "Apache 2.0"),
-        ("Agility Cassie, Unitree G1, Unitree H1", "Menagerie", "BSD-3"),
+        ("Agility Cassie, ANYmal C, Unitree G1, Unitree H1", "Menagerie", "BSD-3"),
     ]
 
     var body: some View {
