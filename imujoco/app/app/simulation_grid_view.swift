@@ -462,6 +462,7 @@ struct SettingsView: View {
     @Binding var defaultView: Int
     var onDismiss: () -> Void
     @AppStorage("caffeineMode") private var caffeineMode: Int = 1  // 0=off, 1=half, 2=full
+    @AppStorage("tripleClickAction") private var tripleClickAction: Int = 0  // 0=grid/fullscreen, 1=lock/unlock
     @State private var showCaffeineInfo = false
 
     // tag 0 = grid, 1-4 = fullscreen instance (highlightedCell 0-3)
@@ -472,6 +473,24 @@ struct SettingsView: View {
         (2, 3),
         (3, 4),
     ]
+
+    private func tripleClickOption<Content: View>(tag: Int, @ViewBuilder content: () -> Content) -> some View {
+        Button(action: { tripleClickAction = tag }) {
+            content()
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(tripleClickAction == tag ? Color.blue.opacity(0.2) : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(tripleClickAction == tag ? Color.blue : Color.gray.opacity(0.3), lineWidth: tripleClickAction == tag ? 1.5 : 1)
+                )
+                .foregroundColor(tripleClickAction == tag ? .blue : .gray)
+        }
+        .buttonStyle(.plain)
+    }
 
     var body: some View {
         NavigationStack {
@@ -490,6 +509,37 @@ struct SettingsView: View {
                                 }
                                 .buttonStyle(.plain)
                                 .frame(maxWidth: .infinity)
+                            }
+                        }
+                    }
+                }
+
+                Section {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Triple Click")
+                            .font(.subheadline)
+                        HStack(spacing: 8) {
+                            tripleClickOption(tag: 0) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                    Text("fullscreen")
+                                    Text("↔")
+                                        .foregroundColor(.secondary)
+                                    Image(systemName: "arrow.down.right.and.arrow.up.left")
+                                    Text("grid")
+                                }
+                                .font(.system(size: 12))
+                            }
+                            tripleClickOption(tag: 1) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "lock")
+                                    Text("lock")
+                                    Text("↔")
+                                        .foregroundColor(.secondary)
+                                    Image(systemName: "lock.open")
+                                    Text("unlock")
+                                }
+                                .font(.system(size: 12))
                             }
                         }
                     }

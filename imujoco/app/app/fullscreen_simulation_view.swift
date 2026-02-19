@@ -11,6 +11,7 @@ struct FullscreenSimulationView: View {
     var onSwitchInstance: (Int) -> Void  // -1 = grid, 0-3 = instance
     var onLoadModel: () -> Void
 
+    @AppStorage("tripleClickAction") private var tripleClickAction: Int = 0
     @State private var showMetrics = true
     @State private var resetProgress: CGFloat = 0
     @State private var stopProgress: CGFloat = 0
@@ -98,9 +99,13 @@ struct FullscreenSimulationView: View {
         }
         .background(Color.black)
         .contentShape(Rectangle())
-        .onTripleTap(dotColor: instance.isActive ? overlayTextColor(brightness: brightness) : .gray, targetLabel: "grid view") {
-            withAnimation(.easeInOut(duration: 0.3)) {
-                onExit()
+        .onTripleTap(dotColor: instance.isActive ? overlayTextColor(brightness: brightness) : .gray, targetLabel: tripleClickAction == 0 ? "grid view" : (instance.isActive ? "lock/unlock" : "")) {
+            if tripleClickAction == 0 {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    onExit()
+                }
+            } else if instance.isActive {
+                instance.isLocked.toggle()
             }
         }
         #if os(iOS)
