@@ -14,3 +14,16 @@ filegroup(
         allow_empty = True,  # .stl/.STL: only one case matches per platform
     ),
 )
+
+filegroup(
+    name = "unitree_h1",
+    srcs = glob(
+        [
+            "unitree_h1/**/*.xml",
+            "unitree_h1/**/*.stl",
+            "unitree_h1/**/*.STL",
+            "unitree_h1/LICENSE",
+        ],
+        allow_empty = True,
+    ),
+)
