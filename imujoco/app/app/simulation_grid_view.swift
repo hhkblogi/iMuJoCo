@@ -646,7 +646,7 @@ struct SettingsView: View {
                     NavigationLink {
                         AboutView()
                     } label: {
-                        Label("About", systemImage: "info.circle")
+                        Text("About iMuJoCo")
                     }
                     #if !os(tvOS)
                     .listRowSeparator(.visible, edges: .all)
