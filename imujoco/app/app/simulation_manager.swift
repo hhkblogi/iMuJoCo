@@ -383,6 +383,8 @@ final class SimulationGridManager: @unchecked Sendable {
 
     var bundledModels: [BundledModel] {
         [
+            BundledModel(name: "Car", source: .mujoco, resource: "car", subdirectory: "model/car",
+                         keyframe: nil, timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
             BundledModel(name: "Humanoid (Supine)", source: .mujoco, resource: "humanoid_supine", subdirectory: nil,
                          keyframe: "supine", timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
             BundledModel(name: "Simple Pendulum", source: .imujoco, resource: "simple_pendulum", subdirectory: nil,

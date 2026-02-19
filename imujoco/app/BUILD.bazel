@@ -66,6 +66,7 @@ apple_resource_group(
 apple_resource_group(
     name = "mujoco_models",
     structured_resources = [
+        "@mujoco//:car_model",
         "@mujoco//:humanoid_model",
     ],
 )

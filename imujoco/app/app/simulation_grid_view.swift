@@ -310,6 +310,7 @@ struct ModelPickerView: View {
                                     Spacer()
                                 }
                             }
+                            .listRowSeparator(.hidden)
                         }
                     }
                 } else {
@@ -685,7 +686,7 @@ struct AboutView: View {
     private let mujocoVersion = "3.4.0"
 
     private let modelInfo: [(name: String, source: String, license: String)] = [
-        ("Humanoid (Supine)", "MuJoCo", "Apache 2.0"),
+        ("Car, Humanoid (Supine)", "MuJoCo", "Apache 2.0"),
         ("Simple Pendulum", "iMuJoCo", "Apache 2.0"),
         ("Unitree G1", "Menagerie", "BSD-3"),
     ]
