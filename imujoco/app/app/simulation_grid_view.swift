@@ -263,6 +263,7 @@ private struct PressableRow<Content: View>: View {
                         isPressed = false
                     }
             )
+            .accessibilityAddTraits(.isButton)
     }
 }
 
