@@ -22,27 +22,27 @@ build --copt=-fvisibility=hidden
 
 # iOS device (arm64)
 build:ios_device --apple_platform_type=ios
-build:ios_device --ios_minimum_os_version=26.0
+build:ios_device --ios_minimum_os=26.0
 build:ios_device --cpu=ios_arm64
 
 # iOS simulator (arm64)
 build:ios_sim --apple_platform_type=ios
-build:ios_sim --ios_minimum_os_version=26.0
+build:ios_sim --ios_minimum_os=26.0
 build:ios_sim --cpu=ios_sim_arm64
 
 # macOS (arm64)
 build:macos --apple_platform_type=macos
-build:macos --macos_minimum_os_version=26.0
+build:macos --macos_minimum_os=26.0
 build:macos --cpu=darwin_arm64
 
 # tvOS device (arm64)
 build:tvos_device --apple_platform_type=tvos
-build:tvos_device --tvos_minimum_os_version=26.0
+build:tvos_device --tvos_minimum_os=26.0
 build:tvos_device --cpu=tvos_arm64
 
 # tvOS simulator (arm64)
 build:tvos_sim --apple_platform_type=tvos
-build:tvos_sim --tvos_minimum_os_version=26.0
+build:tvos_sim --tvos_minimum_os=26.0
 build:tvos_sim --cpu=tvos_sim_arm64
 
 # ============================================================================
@@ -54,3 +54,11 @@ build:release --copt=-O3 --cxxopt=-O3
 build:release --copt=-DNDEBUG --cxxopt=-DNDEBUG
 build:release --copt=-march=armv8-a
 build:release --copt=-flto=thin --linkopt=-flto=thin
+
+# ============================================================================
+# App Store submission (use: bazel build //imujoco/app:app_appstore --config=appstore)
+# ============================================================================
+
+build:appstore --config=ios_device
+build:appstore --config=release
+build:appstore --apple_generate_dsym

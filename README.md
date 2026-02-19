@@ -1,6 +1,6 @@
 # iMuJoCo
 
-Real-time MuJoCo streaming on Apple devices for your robotics continuous learning projects
+Real-time MuJoCo simulation on Apple devices for your robotics projects
 
 ## Overview
 
