@@ -838,6 +838,16 @@ private:
                     dst[p * 4 + 2] = src[p];
                     dst[p * 4 + 3] = 255;
                 }
+            } else {
+                // Unsupported channel count: fill with magenta for debugging
+                os_log_error(OS_LOG_DEFAULT,
+                             "ExtractTextureData: unsupported channel count %d for texture %d", nc, i);
+                for (int p = 0; p < numPixels; p++) {
+                    dst[p * 4 + 0] = 255;
+                    dst[p * 4 + 1] = 0;
+                    dst[p * 4 + 2] = 255;
+                    dst[p * 4 + 3] = 255;
+                }
             }
 
             dstOffset += static_cast<size_t>(numPixels) * 4;
