@@ -236,6 +236,26 @@ struct SimulationGridView: View {
 
 // MARK: - Model Picker
 
+private struct PressableRow<Content: View>: View {
+    let action: () -> Void
+    @ViewBuilder let content: () -> Content
+    @State private var isPressed = false
+
+    var body: some View {
+        content()
+            .opacity(isPressed ? 0.5 : 1.0)
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in isPressed = true }
+                    .onEnded { _ in
+                        isPressed = false
+                        action()
+                    }
+            )
+    }
+}
+
 struct ModelPickerView: View {
     let modelGroups: [(source: ModelSource, models: [BundledModel])]
     // Legacy support: flat name list (converted to ungrouped)
@@ -266,35 +286,38 @@ struct ModelPickerView: View {
             List {
                 if !modelGroups.isEmpty {
                     ForEach(modelGroups, id: \.source) { group in
-                        Section(header: Text(group.source.rawValue)) {
+                        Section {
                             ForEach(group.models, id: \.name) { model in
-                                Button(action: { onSelectModel(model.name) }) {
+                                PressableRow(action: { onSelectModel(model.name) }) {
                                     HStack {
                                         Text(model.name)
                                         Spacer()
                                     }
-                                    .contentShape(Rectangle())
                                 }
-                                .buttonStyle(.plain)
                             }
+                        } header: {
+                            Text(group.source.rawValue)
+                                .font(.subheadline)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(.secondary)
+                                .textCase(nil)
                         }
                     }
                 } else {
                     ForEach(modelNames, id: \.self) { name in
-                        Button(action: { onSelectModel(name) }) {
+                        PressableRow(action: { onSelectModel(name) }) {
                             HStack {
                                 Image(systemName: "cube.fill")
                                     .foregroundColor(.blue)
                                 Text(name)
                                 Spacer()
                             }
-                            .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }
             .navigationTitle("Select Model")
+            .listStyle(.plain)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
