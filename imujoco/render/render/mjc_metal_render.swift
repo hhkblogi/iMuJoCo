@@ -141,13 +141,13 @@ public final class MJCMetalRender {
         let meshId: Int
         let texId: Int  // -1 = no texture
     }
-    /// Per draw-group instance count this frame. Zeroed each frame.
+    /// Per draw-group instance count this frame. Cleared each frame.
     private var perGroupCount: [DrawGroupKey: Int] = [:]
     /// Per draw-group write cursor into instance buffer.
     private var perGroupWriteIdx: [DrawGroupKey: Int] = [:]
-    /// Draw groups active this frame. Pre-allocated, cleared each frame.
+    /// Draw groups active this frame. Cleared each frame.
     private var activeGroups: [DrawGroupKey] = []
-    /// Primitive draw info. Pre-allocated, cleared each frame.
+    /// Primitive draw info. Cleared each frame.
     private var primDrawList: [(instanceIndex: Int, vertexOffset: Int, indexOffset: Int, indexCount: Int)] = []
 
     // MARK: - Triple Buffering (dynamic primitive geometry)
@@ -476,7 +476,6 @@ public final class MJCMetalRender {
               let pixelPtr = MJTextureDataGetPixels(textureData) else {
             return
         }
-        textureCacheBuilt = true
 
         let texCount = Int(textureData.textureCount())
         for i in 0..<texCount {
@@ -511,6 +510,7 @@ public final class MJCMetalRender {
             }
         }
 
+        textureCacheBuilt = true
         logger.info("Built texture cache: \(self.textureCache.count) textures, \(self.matTexMap.count) material mappings")
     }
 

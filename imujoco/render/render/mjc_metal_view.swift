@@ -26,16 +26,9 @@ private let logger = Logger(subsystem: "com.mujoco.render", category: "MuJoCoMTK
 /// ## Example Implementation
 /// ```swift
 /// class MyRuntime: MJCRenderDataSource {
-///     var latestFrame: MJFrameData? {
-///         return source.latestFrame
-///     }
-///     // ... implement other requirements
-/// }
-///
-/// // Safe usage - access frame properties within a single scope:
-/// if let frame = runtime.latestFrame {
-///     let count = frame.geomCount()
-///     // Use frame data here - do not store beyond this scope
+///     var latestFrame: MJFrameData? { source.latestFrame }
+///     var meshData: MJMeshData? { source.meshData }
+///     var textureData: MJTextureData? { source.textureData }
 /// }
 /// ```
 public protocol MJCRenderDataSource: AnyObject {

@@ -853,12 +853,11 @@ private:
             dstOffset += static_cast<size_t>(numPixels) * 4;
         }
 
-        // Build material → texture ID mapping (RGB role = 1)
+        // Build material → texture ID mapping
         storage->materialCount = model_->nmat;
         storage->matTexId.resize(model_->nmat);
         for (int m = 0; m < model_->nmat; m++) {
-            // mjTEXROLE_RGB = 1 (base color / albedo)
-            storage->matTexId[m] = model_->mat_texid[m * mjNTEXROLE + 1];
+            storage->matTexId[m] = model_->mat_texid[m * mjNTEXROLE + mjTEXROLE_RGB];
         }
 
         os_log_info(OS_LOG_DEFAULT, "Extracted texture data: %d textures, %zu RGBA bytes, %d materials",
