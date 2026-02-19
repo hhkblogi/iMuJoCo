@@ -215,6 +215,7 @@ struct SimulationCellView: View {
     var onTapFullscreen: () -> Void
     var onLoadModel: () -> Void
 
+    @AppStorage("tripleClickAction") private var tripleClickAction: Int = 0
     @State private var resetProgress: CGFloat = 0
     @State private var stopProgress: CGFloat = 0
 
@@ -421,8 +422,12 @@ struct SimulationCellView: View {
             }
         }
         .contentShape(Rectangle())
-        .onTripleTap(dotColor: overlayTextColor(brightness: brightness), targetLabel: "fullscreen") {
-            onTapFullscreen()
+        .onTripleTap(dotColor: overlayTextColor(brightness: brightness), targetLabel: tripleClickAction == 0 ? "fullscreen" : "lock/unlock") {
+            if tripleClickAction == 0 {
+                onTapFullscreen()
+            } else {
+                instance.isLocked.toggle()
+            }
         }
     }
 
@@ -526,8 +531,10 @@ struct SimulationCellView: View {
             .padding(.bottom, 6)
         }
         .contentShape(Rectangle())
-        .onTripleTap(dotColor: .gray, targetLabel: "fullscreen") {
-            onTapFullscreen()
+        .onTripleTap(dotColor: .gray, targetLabel: tripleClickAction == 0 ? "fullscreen" : "") {
+            if tripleClickAction == 0 {
+                onTapFullscreen()
+            }
         }
     }
 }
