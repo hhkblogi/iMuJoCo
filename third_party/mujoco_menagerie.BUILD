@@ -3,6 +3,16 @@
 package(default_visibility = ["//visibility:public"])
 
 filegroup(
+    name = "agility_cassie",
+    srcs = glob([
+        "agility_cassie/**/*.xml",
+        "agility_cassie/**/*.obj",
+        "agility_cassie/**/*.png",
+        "agility_cassie/LICENSE",
+    ]),
+)
+
+filegroup(
     name = "unitree_g1",
     srcs = glob(
         [
