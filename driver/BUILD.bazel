@@ -85,6 +85,13 @@ py_binary(
 )
 
 py_binary(
+    name = "car_driver",
+    srcs = ["examples/car_driver.py"],
+    main = "examples/car_driver.py",
+    deps = ["//driver/imujoco_driver"],
+)
+
+py_binary(
     name = "unitree_g1_driver",
     srcs = ["examples/unitree_g1_driver.py"],
     main = "examples/unitree_g1_driver.py",

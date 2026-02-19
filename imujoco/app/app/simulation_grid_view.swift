@@ -303,14 +303,19 @@ struct ModelPickerView: View {
                             .fontWeight(.semibold)
                             .foregroundStyle(.secondary)
                             .listRowSeparator(.hidden)
-                        ForEach(group.models, id: \.name) { model in
-                            PressableRow(action: { onSelectModel(model.name) }) {
-                                HStack {
-                                    Text(model.name)
-                                    Spacer()
+                        VStack(spacing: 0) {
+                            ForEach(group.models, id: \.name) { model in
+                                PressableRow(action: { onSelectModel(model.name) }) {
+                                    HStack {
+                                        Text(model.name)
+                                        Spacer()
+                                    }
+                                    .padding(.vertical, 6)
                                 }
                             }
                         }
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
                     }
                 } else {
                     ForEach(modelNames, id: \.self) { name in
@@ -685,7 +690,7 @@ struct AboutView: View {
     private let mujocoVersion = "3.4.0"
 
     private let modelInfo: [(name: String, source: String, license: String)] = [
-        ("Humanoid (Supine)", "MuJoCo", "Apache 2.0"),
+        ("Car, Humanoid (Supine)", "MuJoCo", "Apache 2.0"),
         ("Simple Pendulum", "iMuJoCo", "Apache 2.0"),
         ("Unitree G1", "Menagerie", "BSD-3"),
     ]

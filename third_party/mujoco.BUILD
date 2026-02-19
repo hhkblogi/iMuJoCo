@@ -105,6 +105,12 @@ cc_library(
 )
 
 filegroup(
+    name = "car_model",
+    srcs = ["model/car/car.xml"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
     name = "humanoid_model",
     srcs = ["model/humanoid/humanoid.xml"],
     visibility = ["//visibility:public"],
