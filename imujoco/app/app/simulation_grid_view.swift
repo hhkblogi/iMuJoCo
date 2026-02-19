@@ -240,17 +240,27 @@ private struct PressableRow<Content: View>: View {
     let action: () -> Void
     @ViewBuilder let content: () -> Content
     @State private var isPressed = false
+    @State private var rowSize: CGSize = .zero
 
     var body: some View {
         content()
             .opacity(isPressed ? 0.5 : 1.0)
             .contentShape(Rectangle())
+            .background(GeometryReader { geo in
+                Color.clear.onAppear { rowSize = geo.size }
+            })
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { _ in isPressed = true }
+                    .onChanged { value in
+                        let inside = value.location.x >= 0
+                            && value.location.y >= 0
+                            && value.location.x <= rowSize.width
+                            && value.location.y <= rowSize.height
+                        isPressed = inside
+                    }
                     .onEnded { _ in
+                        if isPressed { action() }
                         isPressed = false
-                        action()
                     }
             )
     }
