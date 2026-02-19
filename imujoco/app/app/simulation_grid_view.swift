@@ -297,21 +297,18 @@ struct ModelPickerView: View {
             List {
                 if !modelGroups.isEmpty {
                     ForEach(modelGroups, id: \.source) { group in
-                        Section {
-                            ForEach(group.models, id: \.name) { model in
-                                PressableRow(action: { onSelectModel(model.name) }) {
-                                    HStack {
-                                        Text(model.name)
-                                        Spacer()
-                                    }
+                        Text(group.source.rawValue)
+                            .font(.subheadline)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
+                            .listRowSeparator(.hidden)
+                        ForEach(group.models, id: \.name) { model in
+                            PressableRow(action: { onSelectModel(model.name) }) {
+                                HStack {
+                                    Text(model.name)
+                                    Spacer()
                                 }
                             }
-                        } header: {
-                            Text(group.source.rawValue)
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.secondary)
-                                .textCase(nil)
                         }
                     }
                 } else {
