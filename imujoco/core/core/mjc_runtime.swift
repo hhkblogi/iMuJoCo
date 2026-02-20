@@ -267,6 +267,18 @@ public final class MJRuntime {
         set { runtime.setRealtimeFactor(newValue) }
     }
 
+    // MARK: - Camera Enumeration
+
+    /// Number of cameras defined in the model
+    public var cameraCount: Int32 {
+        runtime.getCameraCount()
+    }
+
+    /// Get the name of a camera by index
+    public func cameraName(at index: Int32) -> String {
+        String(runtime.getCameraName(index))
+    }
+
     // MARK: - Frame Access
 
     /// Get the current frame count (for tracking new frames)

@@ -656,6 +656,15 @@ public:
     const mjModel* GetModel() const { return model_; }
     const mjData* GetData() const { return data_; }
 
+    int32_t GetCameraCount() const {
+        return model_ ? model_->ncam : 0;
+    }
+
+    const char* GetCameraName(int32_t index) const {
+        if (!model_ || index < 0 || index >= model_->ncam) return "";
+        return model_->names + model_->name_camadr[index];
+    }
+
     MJMeshData* GetMeshData() {
         if (!mesh_storage_ || mesh_storage_->meshCount == 0) return nullptr;
         if (!mesh_data_) {
@@ -1329,5 +1338,7 @@ mjvCamera* MJSimulationRuntime::getCamera() { return impl_->GetCamera(); }
 mjvOption* MJSimulationRuntime::getOption() { return impl_->GetOption(); }
 const mjModel* MJSimulationRuntime::getModel() const { return impl_->GetModel(); }
 const mjData* MJSimulationRuntime::getData() const { return impl_->GetData(); }
+int32_t MJSimulationRuntime::getCameraCount() const { return impl_->GetCameraCount(); }
+std::string MJSimulationRuntime::getCameraName(int32_t index) const { return impl_->GetCameraName(index); }
 MJMeshData* MJSimulationRuntime::getMeshData() { return impl_->GetMeshData(); }
 MJTextureData* MJSimulationRuntime::getTextureData() { return impl_->GetTextureData(); }

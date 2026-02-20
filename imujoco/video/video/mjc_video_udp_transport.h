@@ -19,6 +19,13 @@
 #include <netinet/in.h>
 #include <vector>
 
+// Swift C++ interop: reference semantics for non-copyable types
+#if __has_attribute(swift_attr)
+#define MJC_VIDEO_SWIFT_IMMORTAL_REFERENCE __attribute__((swift_attr("import_reference"))) __attribute__((swift_attr("retain:immortal"))) __attribute__((swift_attr("release:immortal")))
+#else
+#define MJC_VIDEO_SWIFT_IMMORTAL_REFERENCE
+#endif
+
 // Forward declarations (avoid including mjc_fragment.h in the header)
 namespace imujoco { class FragmentedSender; }
 
@@ -32,9 +39,13 @@ namespace imujoco { class FragmentedSender; }
 ///   - Start()/Stop(): call from any thread, not concurrent with SendFrame
 ///   - SendFrame(): call from video capture thread only
 ///   - HasReceiver()/IsActive(): safe from any thread
-class MJVideoUDPTransport : public MJVideoTransport {
+class MJC_VIDEO_SWIFT_IMMORTAL_REFERENCE MJVideoUDPTransport : public MJVideoTransport {
 public:
-    MJVideoUDPTransport();
+    /// Create a new transport instance. Caller must call destroy() when done.
+    static MJVideoUDPTransport* create();
+    /// Destroy a transport instance.
+    static void destroy(MJVideoUDPTransport* transport);
+
     ~MJVideoUDPTransport() override;
 
     bool Start(uint16_t port) override;
@@ -45,6 +56,8 @@ public:
     bool IsActive() const override;
 
 private:
+    MJVideoUDPTransport();
+
     /// Poll for incoming "hello" packets to discover receiver address.
     /// Called at the start of each SendFrame to check for new/changed receiver.
     void PollForReceiver();

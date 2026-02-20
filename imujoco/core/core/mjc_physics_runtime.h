@@ -497,6 +497,15 @@ public:
     /// Get pointer to mjData (read-only)
     const mjData* getData() const;
 
+    /// Get the number of cameras defined in the model
+    /// @return Number of cameras, or 0 if no model is loaded
+    int32_t getCameraCount() const;
+
+    /// Get the name of a camera by index
+    /// @param index Camera index (0-based)
+    /// @return Camera name, or empty string if invalid
+    std::string getCameraName(int32_t index) const;
+
     /// Get pre-loaded mesh data for rendering (available after model load)
     /// @return Pointer to mesh data, or nullptr if no model is loaded or model has no meshes
     MJMeshData* getMeshData();

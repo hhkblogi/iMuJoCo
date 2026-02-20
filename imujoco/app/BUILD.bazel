@@ -32,6 +32,7 @@ swift_library(
         "//imujoco/core",
         "//imujoco/core:core_cpp",
         "//imujoco/render",
+        "//imujoco/video",
         "@mujoco//:mujoco",
     ],
 )

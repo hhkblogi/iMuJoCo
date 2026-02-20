@@ -6,6 +6,7 @@ import Observation
 import os.log
 import core
 import render
+import video
 import MJCPhysicsRuntime
 #if canImport(UIKit)
 import UIKit
@@ -103,7 +104,7 @@ enum MuJoCoError: Error, LocalizedError {
 /// is thread-safe for these operations. Observable state (displayTime, modelName) is modified
 /// via @MainActor-isolated methods to ensure thread-safe UI updates.
 @Observable
-final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Sendable {
+final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataSource, @unchecked Sendable {
     let id: Int
     let port: UInt16
 
@@ -135,6 +136,9 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     @ObservationIgnored private var _renderedFPS: Double = 0
     @ObservationIgnored private var _renderedFrameTime: Double = 0
     @ObservationIgnored private var _renderedGeomCount: Int32 = 0
+
+    // Video streaming
+    @ObservationIgnored private var videoStreamer: MJCVideoStreamer?
 
     // State polling timer
     private var stateUpdateTask: Task<Void, Never>?
@@ -181,6 +185,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     @MainActor
     func unload() {
         stop()
+        videoStreamer = nil
         runtime?.unload()
         runtime = nil
         modelName = ""
@@ -197,6 +202,14 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
         // Start physics on C++ thread
         runtime.start()
 
+        // Start video streaming (port = control_port + 100)
+        if videoStreamer == nil {
+            var config = MJCVideoStreamerConfig()
+            config.port = port + 100
+            videoStreamer = MJCVideoStreamer(config: config, dataSource: self)
+        }
+        videoStreamer?.start()
+
         // Start state polling for SwiftUI updates
         startStatePolling()
     }
@@ -204,6 +217,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     @MainActor
     func pause() {
         guard let runtime = runtime else { return }
+        videoStreamer?.stop()
         runtime.pause()
         stopStatePolling()
 
@@ -214,6 +228,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     /// Stops simulation polling and pauses runtime. Not @MainActor since it's
     /// called from deinit and async contexts. Only performs thread-safe operations.
     func stop() {
+        videoStreamer?.stop()
         stopStatePolling()
         runtime?.pause()
     }
