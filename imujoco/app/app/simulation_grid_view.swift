@@ -315,7 +315,11 @@ struct ModelPickerView: View {
                 }
             }
             .navigationTitle("Select Model")
+            #if os(iOS)
             .listStyle(.insetGrouped)
+            #elseif os(tvOS)
+            .listStyle(.grouped)
+            #endif
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
