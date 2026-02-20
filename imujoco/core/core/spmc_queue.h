@@ -1,18 +1,18 @@
-// spsc_queue.h
-// Single-Producer "Latest Value" Mutex-Free Queue
+// spmc_queue.h
+// Single-Producer Multi-Consumer "Latest Value" Mutex-Free Queue
 //
-// NAMING: The class is named SpscQueue for API compatibility with the original
-// single-consumer implementation. However, the current implementation supports
-// multiple concurrent readers (each maintaining independent last_item_count state).
-// All readers observe the same latest item - this is NOT a work-stealing queue.
-// Semantically, this is an SPMR (Single-Producer Multi-Reader) "latest value" queue.
+// This is an SPMC (Single-Producer Multi-Consumer) "latest value" queue.
+// Multiple concurrent readers are supported, each maintaining independent
+// last_item_count state. All readers observe the same latest item - this
+// is NOT a work-stealing queue.
 //
 // INTENDED USE CASE:
 //   This queue is designed for real-time scenarios where consumers want the LATEST
 //   value, not every value. Typical use cases include:
-//   - Physics simulation → Renderer (consumer wants latest frame, skipping is OK)
-//   - Sensor data → Processing (consumer wants freshest reading)
-//   - Game state → Network sync (consumer wants current state)
+//   - Physics simulation -> Renderer (consumer wants latest frame, skipping is OK)
+//   - Physics simulation -> Video capture (consumer wants latest frame at own cadence)
+//   - Sensor data -> Processing (consumer wants freshest reading)
+//   - Game state -> Network sync (consumer wants current state)
 //
 //   If you need every item delivered (no skipping), use a traditional FIFO queue.
 //
@@ -51,8 +51,8 @@
 //   lifetime management, consider a different data structure (e.g., shared_ptr
 //   per slot), but that adds overhead inappropriate for real-time use.
 
-#ifndef IMUJOCO_CORE_SPSC_QUEUE_H_
-#define IMUJOCO_CORE_SPSC_QUEUE_H_
+#ifndef IMUJOCO_CORE_SPMC_QUEUE_H_
+#define IMUJOCO_CORE_SPMC_QUEUE_H_
 
 #include <array>
 #include <atomic>
@@ -62,7 +62,7 @@
 
 namespace imujoco {
 
-/// Single-Producer "Latest Value" mutex-free queue (supports multiple readers).
+/// Single-Producer Multi-Consumer "Latest Value" mutex-free queue.
 ///
 /// @tparam T The element type stored in the queue
 /// @tparam N The capacity of the queue (number of slots)
@@ -80,7 +80,7 @@ namespace imujoco {
 ///
 /// Example usage:
 /// @code
-/// SpscQueue<FrameData, 3> queue;
+/// SpmcQueue<FrameData, 3> queue;
 ///
 /// // Producer thread
 /// auto* slot = queue.begin_write();
@@ -102,23 +102,23 @@ namespace imujoco {
 /// race with the producer, potentially skipping items. Prefer embedding a sequence
 /// number in the item itself and using that for cursor advancement.
 template <typename T, std::size_t N = 3>
-class SpscQueue {
+class SpmcQueue {
 public:
     static_assert(N >= 2, "Queue must have at least 2 slots");
     static_assert(std::is_default_constructible_v<T>,
                   "T must be default-constructible (storage uses std::array<T, N>)");
 
-    SpscQueue()
+    SpmcQueue()
         : write_index_(0),
           sequence_(0),
           item_count_(0),
           exit_signaled_(false) {}
 
     // Non-copyable, non-movable
-    SpscQueue(const SpscQueue&) = delete;
-    SpscQueue& operator=(const SpscQueue&) = delete;
-    SpscQueue(SpscQueue&&) = delete;
-    SpscQueue& operator=(SpscQueue&&) = delete;
+    SpmcQueue(const SpmcQueue&) = delete;
+    SpmcQueue& operator=(const SpmcQueue&) = delete;
+    SpmcQueue(SpmcQueue&&) = delete;
+    SpmcQueue& operator=(SpmcQueue&&) = delete;
 
     // =========================================================================
     // Producer Interface (single thread only)
@@ -337,4 +337,4 @@ private:
 
 }  // namespace imujoco
 
-#endif  // IMUJOCO_CORE_SPSC_QUEUE_H_
+#endif  // IMUJOCO_CORE_SPMC_QUEUE_H_

@@ -1,5 +1,5 @@
 load("@build_bazel_rules_swift//swift:swift.bzl", "swift_interop_hint", "swift_library")
-load("@rules_cc//cc:defs.bzl", "objc_library")
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test", "objc_library")
 
 # ============================================================================
 # Swift interop hint for exposing ObjC++ headers to Swift
@@ -24,7 +24,7 @@ objc_library(
     hdrs = [
         "core/mjc_fragment.h",
         "core/mjc_physics_runtime.h",
-        "core/spsc_queue.h",
+        "core/spmc_queue.h",
     ],
     aspect_hints = [":core_cpp_swift_hint"],
     copts = [
@@ -39,6 +39,32 @@ objc_library(
         "//schema:core_schemas",
         "@flatbuffers//:runtime_cc",
         "@mujoco//:mujoco",
+    ],
+)
+
+# ============================================================================
+# SpmcQueue header-only library (for tests — avoids depending on full core_cpp)
+# ============================================================================
+
+cc_library(
+    name = "spmc_queue",
+    hdrs = ["core/spmc_queue.h"],
+    includes = ["core"],
+    visibility = ["//visibility:public"],
+)
+
+# ============================================================================
+# Tests
+# ============================================================================
+
+cc_test(
+    name = "spmc_queue_test",
+    srcs = ["core_tests/spmc_queue_tests.cc"],
+    copts = ["-std=c++20"],
+    includes = ["core"],
+    deps = [
+        ":spmc_queue",
+        "@googletest//:gtest_main",
     ],
 )
 
