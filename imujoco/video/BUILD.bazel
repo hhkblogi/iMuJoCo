@@ -1,0 +1,40 @@
+load("@build_bazel_rules_swift//swift:swift.bzl", "swift_interop_hint")
+load("@rules_cc//cc:defs.bzl", "objc_library")
+
+# ============================================================================
+# Swift interop hint for exposing video C++ headers to Swift
+# ============================================================================
+
+swift_interop_hint(
+    name = "video_cpp_swift_hint",
+    module_map = "video/module.modulemap",
+    module_name = "MJCVideoRuntime",
+)
+
+# ============================================================================
+# Video C++ runtime (transport protocol + UDP transport)
+# ============================================================================
+
+objc_library(
+    name = "video_cpp",
+    srcs = [
+        "video/mjc_video_udp_transport.mm",
+    ],
+    hdrs = [
+        "video/mjc_video_transport.h",
+        "video/mjc_video_types.h",
+        "video/mjc_video_udp_transport.h",
+    ],
+    aspect_hints = [":video_cpp_swift_hint"],
+    copts = [
+        "-std=c++20",
+        "-fvisibility=hidden",
+    ],
+    sdk_frameworks = [
+        "Foundation",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//imujoco/core:core_cpp",
+    ],
+)

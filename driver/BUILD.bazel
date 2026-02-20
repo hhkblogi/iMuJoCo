@@ -29,6 +29,27 @@ cc_library(
 )
 
 # ============================================================================
+# Video receiver library
+# ============================================================================
+
+cc_library(
+    name = "video_receiver",
+    srcs = [
+        "cc/src/fragment.cc",
+        "cc/src/fragment.h",
+        "cc/src/video_receiver.cc",
+    ],
+    hdrs = [
+        "cc/include/imujoco/driver/video_receiver.h",
+    ],
+    includes = [
+        "cc/include",
+        "cc/src",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# ============================================================================
 # Tests
 # ============================================================================
 
@@ -46,6 +67,19 @@ cc_test(
         ":mujoco_driver",
         "//schema:driver_schemas",
         "@flatbuffers//:runtime_cc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "video_receiver_test",
+    srcs = ["cc/tests/video_receiver_test.cc"],
+    includes = [
+        "cc/include",
+        "cc/src",
+    ],
+    deps = [
+        ":video_receiver",
         "@googletest//:gtest_main",
     ],
 )
