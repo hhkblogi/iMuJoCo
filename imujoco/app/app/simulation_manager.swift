@@ -137,8 +137,9 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     @ObservationIgnored private var _renderedFrameTime: Double = 0
     @ObservationIgnored private var _renderedGeomCount: Int32 = 0
 
-    // Video streaming
+    // Video streaming (raw UDP for Python driver + RTP/RTSP for VLC)
     @ObservationIgnored private var videoStreamer: MJCVideoStreamer?
+    @ObservationIgnored private var rtspStreamer: MJCVideoStreamer?
 
     // State polling timer
     private var stateUpdateTask: Task<Void, Never>?
@@ -185,6 +186,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     @MainActor
     func unload() {
         stop()
+        rtspStreamer = nil
         videoStreamer = nil
         runtime?.unload()
         runtime = nil
@@ -202,13 +204,25 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         // Start physics on C++ thread
         runtime.start()
 
-        // Start video streaming (port = control_port + 100)
+        // Start video streaming
+        // Raw UDP streamer (port = control_port + 100) for Python driver
         if videoStreamer == nil {
             var config = MJCVideoStreamerConfig()
             config.port = port + 100
+            config.transportMode = .rawUDP
             videoStreamer = MJCVideoStreamer(config: config, dataSource: self)
         }
         videoStreamer?.start()
+
+        // RTP/RTSP streamer for VLC (RTSP on 8554 + instance_id, RTP auto-assigned)
+        if rtspStreamer == nil {
+            var config = MJCVideoStreamerConfig()
+            config.port = port + 100
+            config.transportMode = .rtpRTSP
+            config.rtspPort = 8554 + UInt16(id)
+            rtspStreamer = MJCVideoStreamer(config: config, dataSource: self)
+        }
+        rtspStreamer?.start()
 
         // Start state polling for SwiftUI updates
         startStatePolling()
@@ -217,6 +231,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     @MainActor
     func pause() {
         guard let runtime = runtime else { return }
+        rtspStreamer?.stop()
         videoStreamer?.stop()
         runtime.pause()
         stopStatePolling()
@@ -228,6 +243,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     /// Stops simulation polling and pauses runtime. Not @MainActor since it's
     /// called from deinit and async contexts. Only performs thread-safe operations.
     func stop() {
+        rtspStreamer?.stop()
         videoStreamer?.stop()
         stopStatePolling()
         runtime?.pause()
