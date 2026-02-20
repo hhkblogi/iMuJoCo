@@ -1,0 +1,7 @@
+module MJCVideoRuntime {
+    header "mjc_video_types.h"
+    header "mjc_video_transport.h"
+    header "mjc_video_udp_transport.h"
+    requires cplusplus
+    export *
+}
