@@ -164,9 +164,13 @@ bool MJVideoRTPTransport::SendFrame(const MJVideoFrameDesc& desc,
     // RTP timestamp: 90kHz clock from simulation time
     uint32_t rtp_timestamp = static_cast<uint32_t>(desc.simulation_time * 90000.0);
 
-    // RFC 2435 type: 1 = standard JPEG (4:2:2 or 4:2:0 with standard tables)
-    // We use type 65 (dynamic quantization tables) since CGImage may use non-standard tables
-    uint8_t jpeg_type = 65;
+    // RFC 2435 type field determines chroma subsampling and restart markers:
+    //   Type 0: YCbCr 4:2:0 baseline (matches CoreGraphics JPEG output)
+    //   Type 1: YCbCr 4:2:2 baseline
+    //   +64: restart marker header present
+    // CGImageDestination outputs 4:2:0 by default, no restart markers → type 0
+    // Q >= 128 means quantization table header is present (independent of type)
+    uint8_t jpeg_type = 0;
     uint8_t jpeg_q = 255;  // Q=255 means quantization tables are present in first packet
 
     // Width/height in 8-pixel blocks (RFC 2435 §3.1.4-5)

@@ -239,7 +239,12 @@ public final class MJCVideoStreamer {
             guard shouldRun else { break }
 
             let frameStart = CACurrentMediaTime()
-            captureFrame()
+            // Wrap in autoreleasepool — CGImage/CGDataProvider/NSMutableData
+            // from the JPEG encoder create autoreleased objects that won't be
+            // drained automatically on this background thread.
+            autoreleasepool {
+                captureFrame()
+            }
             let elapsed = CACurrentMediaTime() - frameStart
 
             // Sleep for remaining frame time
