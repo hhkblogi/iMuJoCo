@@ -572,8 +572,10 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
 
             // Pass GPU-computed brightness back to data source for UI overlay adaptation
             dataSource.renderedSceneBrightness = render.renderedBrightness
-            dataSource.renderedGeomCount = Int32(geomCount)
         }
+
+        // Always update geom count (even when zero, to avoid showing stale values)
+        dataSource.renderedGeomCount = Int32(geomCount)
 
         // Update performance metrics
         let frameEnd = CACurrentMediaTime()

@@ -10,6 +10,8 @@ struct PerformanceStatsBar: View {
     @State private var cpuUsage: Double = 0
     @State private var gpuMemoryMB: Double = 0
 
+    private static let metalDevice = MTLCreateSystemDefaultDevice()
+
     private var activeInstances: [SimulationInstance] {
         instances.filter { $0.state == .running }
     }
@@ -42,11 +44,10 @@ struct PerformanceStatsBar: View {
         .padding(.vertical, 2)
         .background(Color.black.opacity(0.6))
         .task {
-            let device = MTLCreateSystemDefaultDevice()
             while !Task.isCancelled {
                 let mem = processMemoryMB()
                 let cpu = processCPUUsage()
-                let gpuMem = Double(device?.currentAllocatedSize ?? 0) / (1024 * 1024)
+                let gpuMem = Double(Self.metalDevice?.currentAllocatedSize ?? 0) / (1024 * 1024)
                 await MainActor.run {
                     memoryMB = mem
                     cpuUsage = cpu
