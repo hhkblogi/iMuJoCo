@@ -1,4 +1,4 @@
-load("@build_bazel_rules_swift//swift:swift.bzl", "swift_interop_hint")
+load("@build_bazel_rules_swift//swift:swift.bzl", "swift_interop_hint", "swift_library")
 load("@rules_cc//cc:defs.bzl", "objc_library")
 
 # ============================================================================
@@ -36,5 +36,28 @@ objc_library(
     visibility = ["//visibility:public"],
     deps = [
         "//imujoco/core:core_cpp",
+    ],
+)
+
+# ============================================================================
+# Video Swift library (offscreen capture + encoder + streamer)
+# ============================================================================
+
+swift_library(
+    name = "video",
+    srcs = [
+        "video/mjc_offscreen_render.swift",
+        "video/mjc_video_encoder.swift",
+        "video/mjc_video_streamer.swift",
+    ],
+    copts = ["-cxx-interoperability-mode=default"],
+    data = ["//imujoco/render:mujoco_metallib"],
+    module_name = "video",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":video_cpp",
+        "//imujoco/core",
+        "//imujoco/core:core_cpp",
+        "@mujoco//:mujoco",
     ],
 )

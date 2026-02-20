@@ -18,6 +18,16 @@
 // Apple unified logging
 #include <os/log.h>
 
+// MARK: - Factory Methods
+
+MJVideoUDPTransport* MJVideoUDPTransport::create() {
+    return new MJVideoUDPTransport();
+}
+
+void MJVideoUDPTransport::destroy(MJVideoUDPTransport* transport) {
+    delete transport;
+}
+
 // MARK: - Construction / Destruction
 
 MJVideoUDPTransport::MJVideoUDPTransport()
