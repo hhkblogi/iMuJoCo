@@ -18,9 +18,13 @@ swift_interop_hint(
 objc_library(
     name = "video_cpp",
     srcs = [
+        "video/mjc_video_rtp_transport.mm",
+        "video/mjc_video_rtsp_server.mm",
         "video/mjc_video_udp_transport.mm",
     ],
     hdrs = [
+        "video/mjc_video_rtp_transport.h",
+        "video/mjc_video_rtsp_server.h",
         "video/mjc_video_transport.h",
         "video/mjc_video_types.h",
         "video/mjc_video_udp_transport.h",
@@ -46,6 +50,7 @@ objc_library(
 swift_library(
     name = "video",
     srcs = [
+        "video/mjc_jpeg_encoder.swift",
         "video/mjc_offscreen_render.swift",
         "video/mjc_video_encoder.swift",
         "video/mjc_video_streamer.swift",
