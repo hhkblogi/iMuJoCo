@@ -70,6 +70,15 @@ public protocol MJCRenderDataSource: AnyObject {
     /// Written by the render thread after each frame via GPU pixel readback.
     var renderedSceneBrightness: Float { get set }
 
+    /// Render FPS (frames per second), written by the render thread.
+    var renderedFPS: Double { get set }
+
+    /// Last frame render time in milliseconds, written by the render thread.
+    var renderedFrameTime: Double { get set }
+
+    /// Number of geoms in the last rendered frame, written by the render thread.
+    var renderedGeomCount: Int32 { get set }
+
     /// Reset camera to default position.
     func resetCamera()
 }
@@ -563,6 +572,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
 
             // Pass GPU-computed brightness back to data source for UI overlay adaptation
             dataSource.renderedSceneBrightness = render.renderedBrightness
+            dataSource.renderedGeomCount = Int32(geomCount)
         }
 
         // Update performance metrics
@@ -576,5 +586,9 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
             frame_count = 0
             last_fps_update = frameEnd
         }
+
+        // Pass render performance metrics back to data source
+        dataSource.renderedFPS = renderFPS
+        dataSource.renderedFrameTime = lastFrameTime
     }
 }

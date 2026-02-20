@@ -17,6 +17,7 @@ swift_library(
         "app/app.swift",
         "app/content_view.swift",
         "app/fullscreen_simulation_view.swift",
+        "app/performance_stats_bar.swift",
         "app/simulation_cell_view.swift",
         "app/simulation_grid_view.swift",
         "app/simulation_manager.swift",

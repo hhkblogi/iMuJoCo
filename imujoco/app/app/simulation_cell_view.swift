@@ -415,6 +415,11 @@ struct SimulationCellView: View {
                         Text(verbatim: "Port :\(instance.port)")
                             .font(.system(size: 9, weight: .medium))
                             .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
+                        if instance.geomCount > 0 {
+                            Text(verbatim: "Geom :\(instance.geomCount)")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
+                        }
                         HStack(spacing: 4) {
                             Circle()
                                 .fill(instance.state == .running ? Color.green : Color.yellow)
