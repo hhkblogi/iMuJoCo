@@ -66,7 +66,7 @@ struct SimulationGridView: View {
     @AppStorage("defaultView") private var defaultView: Int = 0
     @AppStorage("caffeineMode") private var caffeineMode: Int = 1
     @AppStorage("defaultLocked") private var defaultLocked: Bool = true
-    @AppStorage("showStatsBar") private var showStatsBar: Bool = false
+    @AppStorage("showStatsBar") private var showStatsBar: Bool = true
 
     let columns = [
         GridItem(.flexible(), spacing: 8),
@@ -225,7 +225,8 @@ struct SimulationGridView: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.top, 10)
+        .padding(.bottom, 4)
         .background(Color.black.opacity(0.8))
     }
 
@@ -463,7 +464,7 @@ struct SettingsView: View {
     var onDismiss: () -> Void
     @AppStorage("caffeineMode") private var caffeineMode: Int = 1  // 0=off, 1=half, 2=full
     @AppStorage("tripleClickAction") private var tripleClickAction: Int = 0  // 0=grid/fullscreen, 1=lock/unlock
-    @AppStorage("showStatsBar") private var showStatsBar: Bool = false
+    @AppStorage("showStatsBar") private var showStatsBar: Bool = true
     @State private var showCaffeineInfo = false
 
     // tag 0 = grid, 1-4 = fullscreen instance (highlightedCell 0-3)
@@ -644,11 +645,6 @@ struct SettingsView: View {
                 Section {
                     Toggle("Performance Stats Bar", isOn: $showStatsBar)
                         .font(.subheadline)
-                } header: {
-                    Text("Developer")
-                }
-
-                Section {
                     NavigationLink {
                         AboutView()
                     } label: {

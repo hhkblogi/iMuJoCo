@@ -39,7 +39,7 @@ struct PerformanceStatsBar: View {
             memCapsule
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 6)
+        .padding(.vertical, 2)
         .background(Color.black.opacity(0.6))
         .task {
             let device = MTLCreateSystemDefaultDevice()
