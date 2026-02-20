@@ -16,6 +16,54 @@ import AVFoundation
 
 private let logger = Logger(subsystem: "com.mujoco.app", category: "SimulationManager")
 
+/// Returns the current process resident memory in megabytes.
+func processMemoryMB() -> Double {
+    var info = mach_task_basic_info()
+    var count = mach_msg_type_number_t(
+        MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size
+    )
+    let result = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+            task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+        }
+    }
+    return result == KERN_SUCCESS ? Double(info.resident_size) / (1024 * 1024) : 0
+}
+
+/// Returns the current process CPU usage as a percentage.
+/// Can exceed 100% on multi-core (each core contributes up to 100%).
+func processCPUUsage() -> Double {
+    var threadsList: thread_act_array_t?
+    var threadCount = mach_msg_type_number_t(0)
+
+    let result = task_threads(mach_task_self_, &threadsList, &threadCount)
+    guard result == KERN_SUCCESS, let threads = threadsList else { return 0 }
+    defer {
+        vm_deallocate(
+            mach_task_self_,
+            vm_address_t(bitPattern: threads),
+            vm_size_t(Int(threadCount) * MemoryLayout<thread_act_t>.size)
+        )
+    }
+
+    var totalUsage: Double = 0
+    for i in 0..<Int(threadCount) {
+        var info = thread_basic_info()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<thread_basic_info_data_t>.size / MemoryLayout<natural_t>.size
+        )
+        let kr = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                thread_info(threads[i], thread_flavor_t(THREAD_BASIC_INFO), $0, &count)
+            }
+        }
+        if kr == KERN_SUCCESS && (info.flags & TH_FLAGS_IDLE) == 0 {
+            totalUsage += Double(info.cpu_usage) / Double(TH_USAGE_SCALE) * 100
+        }
+    }
+    return totalUsage
+}
+
 // MARK: - Simulation State
 
 enum SimulationState: Equatable {
@@ -77,10 +125,16 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     private(set) var displayTXRate: Float = 0.0
     private(set) var displayRXRate: Float = 0.0
     private(set) var displaySceneBrightness: Float = 0.0
+    private(set) var displayRenderFPS: Double = 0
+    private(set) var displayFrameTime: Double = 0
+    private(set) var displayGeomCount: Int32 = 0
 
     // Written by the render thread at ~60fps; not observation-tracked to avoid
     // triggering SwiftUI updates from the render thread.
     @ObservationIgnored private var _renderedBrightness: Float = 0.0
+    @ObservationIgnored private var _renderedFPS: Double = 0
+    @ObservationIgnored private var _renderedFrameTime: Double = 0
+    @ObservationIgnored private var _renderedGeomCount: Int32 = 0
 
     // State polling timer
     private var stateUpdateTask: Task<Void, Never>?
@@ -185,6 +239,9 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
         displayTXRate = 0.0
         displayRXRate = 0.0
         displaySceneBrightness = 0.0
+        displayRenderFPS = 0
+        displayFrameTime = 0
+        displayGeomCount = 0
         if wasRunning {
             start()
         }
@@ -215,8 +272,11 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
                 let currentSPSF = stats.stepsPerSecondF
                 let currentTXRate = stats.txRate
                 let currentRXRate = stats.rxRate
-                // Read GPU-computed brightness (written by render thread, non-observed)
+                // Read GPU-computed values (written by render thread, non-observed)
                 let currentBrightness = self._renderedBrightness
+                let currentRenderFPS = self._renderedFPS
+                let currentFrameTime = self._renderedFrameTime
+                let currentGeomCount = self._renderedGeomCount
                 await MainActor.run {
                     self.displayTime = currentTime
                     self.displaySPS = currentSPS
@@ -224,6 +284,9 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
                     self.displayTXRate = currentTXRate
                     self.displayRXRate = currentRXRate
                     self.displaySceneBrightness = currentBrightness
+                    self.displayRenderFPS = currentRenderFPS
+                    self.displayFrameTime = currentFrameTime
+                    self.displayGeomCount = currentGeomCount
                 }
 
                 try? await Task.sleep(nanoseconds: 100_000_000)  // 100ms
@@ -283,6 +346,10 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     var sceneBrightness: Float {
         displaySceneBrightness
     }
+
+    var renderFPS: Double { displayRenderFPS }
+    var frameTime: Double { displayFrameTime }
+    var geomCount: Int32 { displayGeomCount }
 
     // MARK: - Network Status
 
@@ -345,6 +412,21 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     public var renderedSceneBrightness: Float {
         get { _renderedBrightness }
         set { _renderedBrightness = newValue }
+    }
+
+    public var renderedFPS: Double {
+        get { _renderedFPS }
+        set { _renderedFPS = newValue }
+    }
+
+    public var renderedFrameTime: Double {
+        get { _renderedFrameTime }
+        set { _renderedFrameTime = newValue }
+    }
+
+    public var renderedGeomCount: Int32 {
+        get { _renderedGeomCount }
+        set { _renderedGeomCount = newValue }
     }
 
     public func resetCamera() {
