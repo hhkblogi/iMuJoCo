@@ -21,7 +21,10 @@ struct FullscreenSimulationView: View {
 
     var body: some View {
         ZStack {
-            if instance.isActive {
+            if instance.isLoading {
+                // Loading indicator while model is being loaded
+                fullscreenLoadingView
+            } else if instance.isActive {
                 // Metal rendering view — hidden when blinded to save GPU
                 if instance.isBlinded {
                     Color.black.ignoresSafeArea()
@@ -383,6 +386,25 @@ struct FullscreenSimulationView: View {
         let col = relX < centerX ? 0 : 1
         let row = relY < centerY ? 0 : 1
         return row * 2 + col
+    }
+
+    // MARK: - Loading View
+
+    private var fullscreenLoadingView: some View {
+        VStack(spacing: 20) {
+            ProgressView()
+                .controlSize(.large)
+                .tint(.white)
+            Text(instance.loadingModelName)
+                .font(.title3)
+                .fontWeight(.semibold)
+                .foregroundColor(.white)
+                .lineLimit(1)
+            Text("Loading...")
+                .font(.subheadline)
+                .foregroundColor(.gray)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Empty View (no model loaded)

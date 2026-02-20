@@ -245,7 +245,10 @@ struct SimulationCellView: View {
 
     private var cellContent: some View {
         ZStack {
-            if instance.isActive {
+            if instance.isLoading {
+                // Loading indicator while model is being loaded
+                loadingView
+            } else if instance.isActive {
                 // Active simulation view
                 activeView
             } else {
@@ -258,6 +261,25 @@ struct SimulationCellView: View {
             RoundedRectangle(cornerRadius: 12)
                 .stroke(Color.gray.opacity(0.3), lineWidth: 1)
         )
+    }
+
+    // MARK: - Loading View
+
+    private var loadingView: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+                .tint(.white)
+            Text(instance.loadingModelName)
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(.white)
+                .lineLimit(1)
+            Text("Loading...")
+                .font(.caption2)
+                .foregroundColor(.gray)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black.opacity(0.9))
     }
 
     // MARK: - Active View

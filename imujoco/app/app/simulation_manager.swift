@@ -66,6 +66,8 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, @unchecked Se
     // UI state (persists across grid/fullscreen switches)
     var isLocked: Bool = true
     var isBlinded: Bool = false
+    fileprivate(set) var isLoading: Bool = false
+    fileprivate(set) var loadingModelName: String = ""
 
     // Stored properties for SwiftUI observation
     // Updated periodically from runtime stats (~10Hz polling)
@@ -440,9 +442,17 @@ final class SimulationGridManager: @unchecked Sendable {
     @MainActor
     func loadModel(at index: Int, fromFile path: String) async throws {
         guard let instance = instance(at: index) else { return }
-        try await instance.loadModel(fromFile: path)
-        instance.isLocked = UserDefaults.standard.object(forKey: "defaultLocked") as? Bool ?? true
-        instance.start()
+        instance.loadingModelName = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        instance.isLoading = true
+        do {
+            try await instance.loadModel(fromFile: path)
+            instance.isLocked = UserDefaults.standard.object(forKey: "defaultLocked") as? Bool ?? true
+            instance.start()
+            instance.isLoading = false
+        } catch {
+            instance.isLoading = false
+            throw error
+        }
     }
 
     @MainActor
@@ -452,51 +462,60 @@ final class SimulationGridManager: @unchecked Sendable {
             throw MuJoCoError.loadFailed("Unknown model '\(name)'")
         }
 
-        // Try multiple search paths for the model file.
-        // Rationale: Bundle resource locations can vary between Xcode configurations
-        // (Debug/Release), build systems, and test environments. This multi-path
-        // approach ensures robustness during development.
-        let searchPaths: [(String?, String)] = [
-            (model.subdirectory, "model subdirectory"),
-            (nil, "Bundle root"),
-            ("Resources/Models", "Resources/Models subdirectory"),
-            ("Models", "Models subdirectory"),
-        ]
+        instance.loadingModelName = name
+        instance.isLoading = true
 
-        var path: String?
-        for (subdirectory, description) in searchPaths {
-            if let foundPath = Bundle.main.path(forResource: model.resource, ofType: "xml", inDirectory: subdirectory) {
-                path = foundPath
-                logger.debug("Found model '\(name)' in \(description): \(foundPath)")
-                break
-            }
-        }
+        do {
+            // Try multiple search paths for the model file.
+            // Rationale: Bundle resource locations can vary between Xcode configurations
+            // (Debug/Release), build systems, and test environments. This multi-path
+            // approach ensures robustness during development.
+            let searchPaths: [(String?, String)] = [
+                (model.subdirectory, "model subdirectory"),
+                (nil, "Bundle root"),
+                ("Resources/Models", "Resources/Models subdirectory"),
+                ("Models", "Models subdirectory"),
+            ]
 
-        guard let modelPath = path else {
-            let triedPaths = searchPaths.map { $0.1 }.joined(separator: ", ")
-            logger.error("Model '\(name)' not found. Tried: \(triedPaths)")
-            if let bundlePath = Bundle.main.resourcePath {
-                logger.debug("Bundle resource path: \(bundlePath)")
-                if let contents = try? FileManager.default.contentsOfDirectory(atPath: bundlePath) {
-                    logger.debug("Bundle contents: \(contents.prefix(20))")
+            var path: String?
+            for (subdirectory, description) in searchPaths {
+                if let foundPath = Bundle.main.path(forResource: model.resource, ofType: "xml", inDirectory: subdirectory) {
+                    path = foundPath
+                    logger.debug("Found model '\(name)' in \(description): \(foundPath)")
+                    break
                 }
             }
-            throw MuJoCoError.loadFailed("Model '\(name)' not found in bundle")
-        }
 
-        try await instance.loadModel(fromFile: modelPath)
-        if let keyframe = model.keyframe {
-            instance.runtime?.resetToKeyframe(keyframe)
+            guard let modelPath = path else {
+                let triedPaths = searchPaths.map { $0.1 }.joined(separator: ", ")
+                logger.error("Model '\(name)' not found. Tried: \(triedPaths)")
+                if let bundlePath = Bundle.main.resourcePath {
+                    logger.debug("Bundle resource path: \(bundlePath)")
+                    if let contents = try? FileManager.default.contentsOfDirectory(atPath: bundlePath) {
+                        logger.debug("Bundle contents: \(contents.prefix(20))")
+                    }
+                }
+                throw MuJoCoError.loadFailed("Model '\(name)' not found in bundle")
+            }
+
+            try await instance.loadModel(fromFile: modelPath)
+            if let keyframe = model.keyframe {
+                instance.runtime?.resetToKeyframe(keyframe)
+            }
+            if let ts = model.timestep {
+                instance.runtime?.setTimestep(ts)
+            }
+            if let el = model.cameraElevation { instance.cameraElevation = el }
+            if let az = model.cameraAzimuth { instance.cameraAzimuth = az }
+            if let dist = model.cameraDistance { instance.cameraDistance = dist }
+            instance.modelName = name
+            instance.isLocked = UserDefaults.standard.object(forKey: "defaultLocked") as? Bool ?? true
+            instance.start()
+            instance.isLoading = false
+        } catch {
+            instance.isLoading = false
+            throw error
         }
-        if let ts = model.timestep {
-            instance.runtime?.setTimestep(ts)
-        }
-        if let el = model.cameraElevation { instance.cameraElevation = el }
-        if let az = model.cameraAzimuth { instance.cameraAzimuth = az }
-        if let dist = model.cameraDistance { instance.cameraDistance = dist }
-        instance.modelName = name
-        instance.isLocked = UserDefaults.standard.object(forKey: "defaultLocked") as? Bool ?? true
-        instance.start()
     }
 
     @MainActor
