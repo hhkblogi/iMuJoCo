@@ -5,7 +5,7 @@ load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_apple//apple:resources.bzl", "apple_resource_group")
 load("@rules_apple//apple:tvos.bzl", "tvos_application")
 load("@rules_xcodeproj//xcodeproj:xcode_provisioning_profile.bzl", "xcode_provisioning_profile")
-load(":team_config.bzl", "APPSTORE_PROFILE_NAME", "TEAM_ID")
+load(":team_config.bzl", "APPSTORE_PROFILE_NAME", "DEV_PROFILE_NAME", "TEAM_ID")
 
 # ============================================================================
 # App Swift library
@@ -41,7 +41,7 @@ swift_library(
 
 local_provisioning_profile(
     name = "local_profile",
-    profile_name = "iOS Team Provisioning Profile: *",
+    profile_name = DEV_PROFILE_NAME,
     team_id = TEAM_ID,
 )
 
