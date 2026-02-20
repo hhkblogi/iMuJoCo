@@ -100,6 +100,7 @@ iMuJoCo/
 ```bash
 git clone https://github.com/hhkblogi/iMuJoCo.git
 cd iMuJoCo
+git config core.hooksPath .githooks
 ```
 
 ### Build
