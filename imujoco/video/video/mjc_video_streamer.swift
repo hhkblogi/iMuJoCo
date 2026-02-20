@@ -25,16 +25,20 @@ public protocol MJCVideoDataSource: AnyObject {
 
 /// Configuration for the video streamer.
 public struct MJCVideoStreamerConfig {
-    /// Capture width in pixels (default: 256)
-    public var width: Int = 256
-    /// Capture height in pixels (default: 256)
-    public var height: Int = 256
+    /// Capture width in pixels (default: 256, clamped to 1...4096)
+    public var width: Int = 256 {
+        didSet { width = max(1, min(4096, width)) }
+    }
+    /// Capture height in pixels (default: 256, clamped to 1...4096)
+    public var height: Int = 256 {
+        didSet { height = max(1, min(4096, height)) }
+    }
     /// Target capture FPS (default: 10)
     public var targetFPS: Double = 10.0
     /// Video transport port (0 = auto from instance index)
     public var port: UInt16 = 9100
-    /// Whether streaming is enabled (default: true)
-    public var enabled: Bool = true
+    /// Camera index to stream (default: 0 = free camera)
+    public var cameraIndex: UInt8 = 0
 
     public init() {}
 }
@@ -64,7 +68,7 @@ public final class MJCVideoStreamer {
     private var running = false
     private let lock = NSLock()
 
-    // Statistics
+    // Statistics (capture-thread-only, no synchronization needed)
     private var frameNumber: UInt64 = 0
 
     // MARK: - Init
@@ -114,14 +118,22 @@ public final class MJCVideoStreamer {
     /// Stop video streaming.
     public func stop() {
         lock.lock()
+        let thread = captureThread
         running = false
         lock.unlock()
 
-        // Wait for capture thread to finish
-        // Thread doesn't have a join(), but it'll exit its loop when running becomes false
+        // Wait for capture thread to exit its loop
+        if let thread = thread {
+            while !thread.isFinished {
+                Thread.sleep(forTimeInterval: 0.001)
+            }
+        }
+
+        lock.lock()
         captureThread = nil
+        lock.unlock()
+
         transport.Stop()
-        offscreenRender = nil
         logger.info("Video streamer stopped")
     }
 
@@ -208,7 +220,7 @@ public final class MJCVideoStreamer {
         desc.height = UInt32(config.height)
         desc.stride = UInt32(config.width * 4)
         desc.format = encoder.format
-        desc.camera_index = 0
+        desc.camera_index = config.cameraIndex
         desc.reserved = (0, 0)
         desc.simulation_time = frame.simulationTime()
         desc.frame_number = frameNumber
