@@ -24,7 +24,7 @@ objc_library(
     hdrs = [
         "core/mjc_fragment.h",
         "core/mjc_physics_runtime.h",
-        "core/spsc_queue.h",
+        "core/spmc_queue.h",
     ],
     aspect_hints = [":core_cpp_swift_hint"],
     copts = [

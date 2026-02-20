@@ -1,9 +1,9 @@
-// spsc_queue_tests.mm
-// Tests for SpscQueue (Single-Producer Multi-Reader "latest value" queue)
+// spmc_queue_tests.mm
+// Tests for SpmcQueue (Single-Producer Multi-Consumer "latest value" queue)
 
 #import <XCTest/XCTest.h>
 
-#include "spsc_queue.h"
+#include "spmc_queue.h"
 
 #include <array>
 #include <atomic>
@@ -13,7 +13,7 @@
 #include <vector>
 
 // Import only the specific type needed (avoids broad `using namespace`)
-using imujoco::SpscQueue;
+using imujoco::SpmcQueue;
 
 // Simple test struct
 struct TestData {
@@ -22,15 +22,15 @@ struct TestData {
     char padding[64] = {};  // Make it non-trivial size
 };
 
-@interface SpscQueueTests : XCTestCase
+@interface SpmcQueueTests : XCTestCase
 @end
 
-@implementation SpscQueueTests
+@implementation SpmcQueueTests
 
 #pragma mark - Basic Tests
 
 - (void)test_initial_state {
-    SpscQueue<TestData, 3> queue;
+    SpmcQueue<TestData, 3> queue;
 
     XCTAssertEqual(queue.get_sequence(), 0ULL, @"Initial sequence should be 0");
     XCTAssertTrue(queue.get_latest() == nullptr, @"get_latest should return nullptr when empty");
@@ -38,7 +38,7 @@ struct TestData {
 }
 
 - (void)test_single_write_read {
-    SpscQueue<TestData, 3> queue;
+    SpmcQueue<TestData, 3> queue;
 
     // Write one item
     auto* slot = queue.begin_write();
@@ -56,7 +56,7 @@ struct TestData {
 }
 
 - (void)test_multiple_writes {
-    SpscQueue<TestData, 3> queue;
+    SpmcQueue<TestData, 3> queue;
 
     // Write multiple items
     for (int i = 1; i <= 10; i++) {
@@ -76,7 +76,7 @@ struct TestData {
 }
 
 - (void)test_ring_buffer_wrap_around {
-    SpscQueue<TestData, 3> queue;  // 3-slot buffer
+    SpmcQueue<TestData, 3> queue;  // 3-slot buffer
 
     // Write more items than slots to test wrap-around
     for (int i = 1; i <= 100; i++) {
@@ -96,7 +96,7 @@ struct TestData {
 #pragma mark - Exit Signal Tests
 
 - (void)test_exit_signal {
-    SpscQueue<TestData, 3> queue;
+    SpmcQueue<TestData, 3> queue;
 
     XCTAssertFalse(queue.is_exit_signaled());
 
@@ -108,7 +108,7 @@ struct TestData {
 - (void)test_get_latest_nullptr_after_exit_on_empty_queue {
     // Regression test: get_latest() must return nullptr on an empty queue
     // even after signal_exit() increments the sequence counter.
-    SpscQueue<TestData, 3> queue;
+    SpmcQueue<TestData, 3> queue;
 
     // Verify empty state before exit
     XCTAssertTrue(queue.get_latest() == nullptr,
@@ -130,7 +130,7 @@ struct TestData {
 }
 
 - (void)test_exit_signal_reset {
-    SpscQueue<TestData, 3> queue;
+    SpmcQueue<TestData, 3> queue;
 
     queue.signal_exit();
     XCTAssertTrue(queue.is_exit_signaled());
@@ -144,7 +144,7 @@ struct TestData {
     // data when signal_exit() followed by reset_exit_signal() is called on an
     // empty queue. The sequence_ is incremented by signal_exit(), so after reset
     // the `current > last_sequence` check could pass without any items written.
-    SpscQueue<TestData, 3> queue;
+    SpmcQueue<TestData, 3> queue;
 
     // Signal exit on empty queue (increments sequence_ to 1)
     queue.signal_exit();
@@ -192,7 +192,7 @@ struct TestData {
 }
 
 - (void)test_exit_signal_idempotent {
-    SpscQueue<TestData, 3> queue;
+    SpmcQueue<TestData, 3> queue;
 
     uint64_t seq_before = queue.get_sequence();
 
@@ -210,7 +210,7 @@ struct TestData {
     // Regression test: wait_for_item() must not return an already-consumed item
     // after signal_exit()/reset_exit_signal() on a non-empty queue.
     // This tests that we compare against item_count_, not sequence_.
-    SpscQueue<TestData, 3> queue;
+    SpmcQueue<TestData, 3> queue;
 
     // Write some items
     for (int i = 1; i <= 3; i++) {
@@ -273,7 +273,7 @@ struct TestData {
 #pragma mark - Threading Tests
 
 - (void)test_producer_consumer_basic {
-    SpscQueue<TestData, 3> queue;
+    SpmcQueue<TestData, 3> queue;
 
     constexpr int kNumItems = 1000;
     std::atomic<bool> consumer_ready{false};
@@ -366,7 +366,7 @@ struct TestData {
 }
 
 - (void)test_wait_for_item_with_exit {
-    SpscQueue<TestData, 3> queue;
+    SpmcQueue<TestData, 3> queue;
 
     std::atomic<bool> consumer_started{false};
     std::atomic<bool> consumer_exited{false};
@@ -398,7 +398,7 @@ struct TestData {
 
 - (void)test_high_frequency_producer {
     // Use a larger buffer to reduce wrap-around during stress test
-    SpscQueue<TestData, 16> queue;
+    SpmcQueue<TestData, 16> queue;
 
     constexpr int kNumItems = 10000;
     std::atomic<int> max_received{0};
@@ -460,7 +460,7 @@ struct TestData {
 #pragma mark - Edge Cases
 
 - (void)test_get_latest_returns_same_until_new_write {
-    SpscQueue<TestData, 3> queue;
+    SpmcQueue<TestData, 3> queue;
 
     auto* slot = queue.begin_write();
     slot->value = 42;
@@ -480,7 +480,7 @@ struct TestData {
         int id;
     };
 
-    SpscQueue<LargeData, 3> queue;
+    SpmcQueue<LargeData, 3> queue;
 
     auto* slot = queue.begin_write();
     slot->id = 123;
@@ -496,11 +496,11 @@ struct TestData {
 }
 
 - (void)test_multiple_concurrent_readers {
-    // Test SPMR (Single-Producer Multi-Reader) behavior:
+    // Test SPMC (Single-Producer Multi-Consumer) behavior:
     // Multiple consumer threads calling wait_for_item() concurrently.
     // All readers should receive the same latest item, and notify_all()
     // should wake all waiters.
-    SpscQueue<TestData, 8> queue;
+    SpmcQueue<TestData, 8> queue;
 
     constexpr int kNumReaders = 4;
     constexpr int kNumItems = 100;
@@ -585,7 +585,7 @@ struct TestData {
     // nullptr via the predicate path, not the exit_signaled_ path.
     // We wake the waiter with reset_exit_signal() which bumps sequence_ and
     // notifies but leaves exit_signaled_ false, isolating the predicate.
-    SpscQueue<TestData, 3> queue;
+    SpmcQueue<TestData, 3> queue;
 
     std::atomic<bool> consumer_started{false};
     std::atomic<bool> consumer_returned{false};
@@ -628,10 +628,10 @@ struct TestData {
 
 - (void)test_exit_reset_does_not_strand_waiters {
     // Reproduce the race: a thread blocks in wait_for_item, then
-    // signal_exit() → reset_exit_signal() runs. Without the cancellation
+    // signal_exit() -> reset_exit_signal() runs. Without the cancellation
     // predicate, the thread would re-block because exit_signaled_ is false
     // again. With the predicate, it detects the epoch change and returns.
-    SpscQueue<TestData, 3> queue;
+    SpmcQueue<TestData, 3> queue;
     std::atomic<uint64_t> epoch{0};
 
     std::atomic<bool> consumer_started{false};

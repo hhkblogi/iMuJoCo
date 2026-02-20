@@ -1,6 +1,6 @@
 // mjc_physics_runtime.mm
 // C++ implementation of MuJoCo physics simulation runtime
-// Uses SpscQueue (single-producer multi-reader "latest value" queue) with C++20 atomic
+// Uses SpmcQueue (single-producer multi-consumer "latest value" queue) with C++20 atomic
 // wait/notify for lowest latency. Multiple threads may call WaitForFrame() concurrently.
 
 #include "mjc_physics_runtime.h"
@@ -35,8 +35,8 @@
 // Fragment support
 #include "mjc_fragment.h"
 
-// SPSC queue for mutex-free frame passing (producer is wait-free; consumers may block)
-#include "spsc_queue.h"
+// SPMC queue for mutex-free frame passing (producer is wait-free; consumers may block)
+#include "spmc_queue.h"
 
 // MARK: - Constants
 
@@ -270,7 +270,7 @@ public:
         , exit_requested_(false)
         , speed_changed_(false) {
 
-        os_log_info(OS_LOG_DEFAULT, "Creating instance %d (SPSC queue, UDP port %u)",
+        os_log_info(OS_LOG_DEFAULT, "Creating instance %d (SPMC queue, UDP port %u)",
                     config.instanceIndex, udp_port_);
 
         mjv_defaultCamera(&camera_);
@@ -1180,7 +1180,7 @@ private:
     mjvCamera camera_;
     mjvOption option_;
 
-    imujoco::SpscQueue<MJFrameDataStorage, kFrameQueueCapacity> ring_buffer_;
+    imujoco::SpmcQueue<MJFrameDataStorage, kFrameQueueCapacity> ring_buffer_;
     UDPServer udp_server_;
 
     std::thread physics_thread_;
