@@ -104,8 +104,6 @@ private:
     MJVideoRTPTransport* rtp_transport_;  // Not owned
     int listen_fd_;
     uint16_t port_;
-    uint16_t stream_width_;
-    uint16_t stream_height_;
     std::atomic<bool> active_;
     std::thread accept_thread_;
 

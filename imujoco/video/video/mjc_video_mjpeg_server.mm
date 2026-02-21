@@ -128,8 +128,10 @@ void MJVideoMJPEGServer::AcceptLoop() {
       break;
     }
 
+    char addr_str[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &client_addr.sin_addr, addr_str, sizeof(addr_str));
     os_log_info(OS_LOG_DEFAULT, "MJPEG: Client connected from %s:%u",
-                inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+                addr_str, ntohs(client_addr.sin_port));
 
     // Suppress SIGPIPE on this socket (Apple platforms)
     int nosigpipe = 1;
@@ -139,6 +141,12 @@ void MJVideoMJPEGServer::AcceptLoop() {
     // TCP_NODELAY for lower latency
     int nodelay = 1;
     setsockopt(client_fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+
+    // Send timeout: prevent slow clients from blocking the capture thread
+    struct timeval snd_tv;
+    snd_tv.tv_sec = 0;
+    snd_tv.tv_usec = 100000;  // 100ms
+    setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &snd_tv, sizeof(snd_tv));
 
     // Read the HTTP request (consume it, we don't need the content)
     char buf[4096];

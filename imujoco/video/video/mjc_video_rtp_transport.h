@@ -67,11 +67,6 @@ public:
 private:
     MJVideoRTPTransport();
 
-    /// Send a single RTP packet.
-    void SendRTPPacket(const uint8_t* payload, size_t payload_size,
-                       uint32_t timestamp, bool marker,
-                       const struct sockaddr_in& dest);
-
     /// Extract JPEG quantization tables from JFIF data.
     /// Returns offset to start of scan data (after SOS marker).
     static size_t FindJPEGScanData(const uint8_t* data, size_t size,

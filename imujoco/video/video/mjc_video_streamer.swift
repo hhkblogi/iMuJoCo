@@ -84,6 +84,7 @@ public final class MJCVideoStreamer {
     // Capture thread
     private var captureThread: Thread?
     private var running = false
+    private var suspended = false  // GPU capture paused (app backgrounded)
     private let lock = NSLock()
 
     // Statistics (capture-thread-only, no synchronization needed)
@@ -220,6 +221,24 @@ public final class MJCVideoStreamer {
         return running
     }
 
+    /// Suspend GPU capture (call when app enters background).
+    /// The capture thread stays alive but skips Metal rendering.
+    /// Network transports remain active so clients stay connected.
+    public func suspend() {
+        lock.lock()
+        suspended = true
+        lock.unlock()
+        logger.info("Video streamer suspended (app backgrounded)")
+    }
+
+    /// Resume GPU capture (call when app returns to foreground).
+    public func resume() {
+        lock.lock()
+        suspended = false
+        lock.unlock()
+        logger.info("Video streamer resumed (app foregrounded)")
+    }
+
     /// Whether a receiver is connected.
     public var hasReceiver: Bool {
         switch config.transportMode {
@@ -260,8 +279,16 @@ public final class MJCVideoStreamer {
         while true {
             lock.lock()
             let shouldRun = running
+            let isSuspended = suspended
             lock.unlock()
             guard shouldRun else { break }
+
+            if isSuspended {
+                // App is in background — skip GPU work to avoid
+                // kIOGPUCommandBufferCallbackErrorBackgroundExecutionNotPermitted
+                Thread.sleep(forTimeInterval: 0.5)
+                continue
+            }
 
             let frameStart = CACurrentMediaTime()
             // Wrap in autoreleasepool — CGImage/CGDataProvider/NSMutableData

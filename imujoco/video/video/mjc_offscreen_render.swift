@@ -111,6 +111,10 @@ public final class MJCOffscreenRender {
     private var dynamicIndexBuffer: MTLBuffer!
     private var instanceBuffer: MTLBuffer!
 
+    // Pre-allocated pixel readback buffer (avoids per-frame Data allocation)
+    private var readbackBuffer: UnsafeMutableRawPointer!
+    private var readbackBufferSize: Int = 0
+
     private let maxVertices = 32 * 1024
     private let maxIndices = 192 * 1024
     private let maxInstances = 4096
@@ -251,6 +255,20 @@ public final class MJCOffscreenRender {
             throw MJCOffscreenRenderError.initFailed("Depth texture creation failed")
         }
         self.depthTexture = depth
+
+        // Pre-allocate pixel readback buffer
+        let newSize = width * height * 4
+        if newSize != readbackBufferSize {
+            if let old = readbackBuffer { old.deallocate() }
+            readbackBuffer = UnsafeMutableRawPointer.allocate(byteCount: newSize, alignment: 16)
+            readbackBufferSize = newSize
+        }
+    }
+
+    deinit {
+        if let buf = readbackBuffer {
+            buf.deallocate()
+        }
     }
 
     /// Update the render resolution.
@@ -644,15 +662,15 @@ public final class MJCOffscreenRender {
     // MARK: - CPU Readback
 
     private func readbackPixels() -> Data? {
+        guard let buf = readbackBuffer else { return nil }
         let bytesPerRow = width * 4
-        let totalBytes = bytesPerRow * height
-        var data = Data(count: totalBytes)
-        data.withUnsafeMutableBytes { ptr in
-            colorTexture.getBytes(
-                ptr.baseAddress!, bytesPerRow: bytesPerRow,
-                from: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0)
-        }
-        return data
+        colorTexture.getBytes(
+            buf, bytesPerRow: bytesPerRow,
+            from: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0)
+        // Wrap pre-allocated buffer as Data without copying (deallocator: .none
+        // means Data does not own the memory — safe because readbackBuffer
+        // outlives each frame's use of this Data).
+        return Data(bytesNoCopy: buf, count: readbackBufferSize, deallocator: .none)
     }
 
     // MARK: - Matrix Helpers

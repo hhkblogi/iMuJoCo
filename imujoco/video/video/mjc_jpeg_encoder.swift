@@ -21,8 +21,17 @@ public final class MJCJPEGEncoder: MJCVideoEncoder {
     /// Reusable color space
     private let colorSpace = CGColorSpaceCreateDeviceRGB()
 
+    /// Pre-allocated JPEG output buffer (reused across frames)
+    private let jpegBuffer = NSMutableData(capacity: 128 * 1024) ?? NSMutableData()
+
+    /// Cached compression options dictionary
+    private let compressionOptions: CFDictionary
+
     public init(quality: CGFloat = 0.8) {
         self.quality = max(0.0, min(1.0, quality))
+        self.compressionOptions = [
+            kCGImageDestinationLossyCompressionQuality: self.quality
+        ] as CFDictionary
     }
 
     public func encode(data: Data, width: Int, height: Int) -> Data? {
@@ -46,21 +55,19 @@ public final class MJCJPEGEncoder: MJCVideoEncoder {
             intent: .defaultIntent
         ) else { return nil }
 
-        // Encode to JPEG
-        let jpegData = NSMutableData()
+        // Encode to JPEG using pre-allocated buffer
+        jpegBuffer.length = 0
         guard let destination = CGImageDestinationCreateWithData(
-            jpegData as CFMutableData,
+            jpegBuffer as CFMutableData,
             UTType.jpeg.identifier as CFString,
             1,
             nil
         ) else { return nil }
 
-        let options: [CFString: Any] = [
-            kCGImageDestinationLossyCompressionQuality: quality
-        ]
-        CGImageDestinationAddImage(destination, image, options as CFDictionary)
+        CGImageDestinationAddImage(destination, image, compressionOptions)
 
         guard CGImageDestinationFinalize(destination) else { return nil }
-        return jpegData as Data
+        // Return a copy — jpegBuffer is reused next frame
+        return Data(jpegBuffer)
     }
 }

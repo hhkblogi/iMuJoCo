@@ -33,8 +33,6 @@ MJVideoRTSPServer::MJVideoRTSPServer(MJVideoRTPTransport* rtpTransport)
     : rtp_transport_(rtpTransport),
       listen_fd_(-1),
       port_(0),
-      stream_width_(256),
-      stream_height_(256),
       active_(false) {}
 
 MJVideoRTSPServer::~MJVideoRTSPServer() {
@@ -46,8 +44,8 @@ MJVideoRTSPServer::~MJVideoRTSPServer() {
 bool MJVideoRTSPServer::Start(uint16_t port, uint16_t width, uint16_t height) {
     if (active_.load(std::memory_order_acquire)) return true;
 
-    stream_width_ = width;
-    stream_height_ = height;
+    (void)width;   // Reserved for future SDP use
+    (void)height;
 
     listen_fd_ = socket(AF_INET, SOCK_STREAM, 0);
     if (listen_fd_ < 0) {
@@ -136,8 +134,10 @@ void MJVideoRTSPServer::AcceptLoop() {
             break;
         }
 
+        char addr_str[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &client_addr.sin_addr, addr_str, sizeof(addr_str));
         os_log_info(OS_LOG_DEFAULT, "RTSP: Client connected from %s:%u",
-                    inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+                    addr_str, ntohs(client_addr.sin_port));
 
         // Handle client in-line (simple sequential handling)
         // For multiple VLC clients, they each get their own TCP connection
@@ -151,7 +151,7 @@ void MJVideoRTSPServer::AcceptLoop() {
 void MJVideoRTSPServer::HandleClient(int client_fd, struct sockaddr_in client_addr) {
     // Set receive timeout so we don't block forever
     struct timeval tv;
-    tv.tv_sec = 60;
+    tv.tv_sec = 5;
     tv.tv_usec = 0;
     setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
@@ -165,6 +165,12 @@ void MJVideoRTSPServer::HandleClient(int client_fd, struct sockaddr_in client_ad
 
         recv_buf[n] = '\0';
         buffer.append(recv_buf, static_cast<size_t>(n));
+
+        // Cap buffer to prevent unbounded growth from misbehaving clients
+        if (buffer.size() > 16384) {
+            os_log_error(OS_LOG_DEFAULT, "RTSP: Client buffer exceeded 16KB, disconnecting");
+            break;
+        }
 
         // Process complete requests (delimited by \r\n\r\n)
         size_t end_pos;
@@ -255,6 +261,7 @@ void MJVideoRTSPServer::HandleClient(int client_fd, struct sockaddr_in client_ad
                 }
                 response = BuildResponse(req.cseq, 200, "OK");
                 send(client_fd, response.c_str(), response.size(), 0);
+                shutdown(client_fd, SHUT_WR);  // Flush response before close
                 close(client_fd);
                 return;
 
@@ -308,7 +315,7 @@ MJVideoRTSPServer::RTSPRequest MJVideoRTSPServer::ParseRequest(const std::string
         if (vstart != std::string::npos) value = value.substr(vstart);
 
         if (key == "CSeq") {
-            req.cseq = std::stoi(value);
+            try { req.cseq = std::stoi(value); } catch (...) { req.cseq = 0; }
         } else if (key == "Session") {
             // Session may have ";timeout=60" suffix
             auto semi = value.find(';');

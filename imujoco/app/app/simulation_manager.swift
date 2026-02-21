@@ -397,6 +397,19 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         videoStreamer?.isRunning == true || mjpegStreamer?.isRunning == true
     }
 
+    /// Suspend GPU-based video capture (app entering background).
+    /// Transports stay alive so clients remain connected.
+    func suspendVideoCapture() {
+        videoStreamer?.suspend()
+        mjpegStreamer?.suspend()
+    }
+
+    /// Resume GPU-based video capture (app returning to foreground).
+    func resumeVideoCapture() {
+        videoStreamer?.resume()
+        mjpegStreamer?.resume()
+    }
+
     // MARK: - Network Status
 
     var hasClient: Bool {
@@ -698,6 +711,24 @@ final class SimulationGridManager: @unchecked Sendable {
             instances[i].start()
         }
         pausedIndices = []
+    }
+
+    // MARK: - Video Capture Suspend / Resume
+
+    /// Suspend GPU-based video capture on all instances (app backgrounded).
+    /// Call this even in caffeine mode — physics can run without GPU, but
+    /// Metal command buffers are rejected from background.
+    func suspendVideoCapture() {
+        for instance in instances {
+            instance.suspendVideoCapture()
+        }
+    }
+
+    /// Resume GPU-based video capture on all instances (app foregrounded).
+    func resumeVideoCapture() {
+        for instance in instances {
+            instance.resumeVideoCapture()
+        }
     }
 
     // MARK: - Background Execution

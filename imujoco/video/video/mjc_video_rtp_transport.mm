@@ -20,7 +20,7 @@
 static constexpr size_t kRTPHeaderSize = 12;
 static constexpr size_t kJPEGHeaderSize = 8;
 static constexpr size_t kQuantHeaderSize = 4;  // MBZ + MBZ + Length(16)
-static constexpr size_t kMaxRTPPayload = 1400; // Safe UDP payload (below typical 1500 MTU)
+static constexpr size_t kMaxRTPPayloadSize = 1400; // Max RTP payload bytes (below typical 1500 MTU)
 static constexpr uint8_t kRTPVersion = 2;
 static constexpr uint8_t kJPEGPayloadType = 26;
 
@@ -76,7 +76,7 @@ bool MJVideoRTPTransport::Start(uint16_t port) {
 
     port_ = port;
     active_.store(true, std::memory_order_release);
-    packet_buffer_.reserve(kRTPHeaderSize + kJPEGHeaderSize + 128 + kMaxRTPPayload);
+    packet_buffer_.reserve(kRTPHeaderSize + kJPEGHeaderSize + 128 + kMaxRTPPayloadSize);
 
     os_log_info(OS_LOG_DEFAULT, "RTP: Transport started on port %u", port);
     return true;
@@ -109,8 +109,10 @@ void MJVideoRTPTransport::AddClient(const struct sockaddr_in& addr) {
         }
     }
     clients_.push_back(addr);
+    char addr_str[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &addr.sin_addr, addr_str, sizeof(addr_str));
     os_log_info(OS_LOG_DEFAULT, "RTP: Client added (%s:%u)",
-                inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
+                addr_str, ntohs(addr.sin_port));
 }
 
 void MJVideoRTPTransport::RemoveClient(const struct sockaddr_in& addr) {
@@ -193,7 +195,7 @@ bool MJVideoRTPTransport::SendFrame(const MJVideoFrameDesc& desc,
             header_overhead += kQuantHeaderSize + luma_qt.size() + chroma_qt.size();
         }
 
-        size_t max_jpeg_data = kMaxRTPPayload - (header_overhead - kRTPHeaderSize);
+        size_t max_jpeg_data = kMaxRTPPayloadSize - (header_overhead - kRTPHeaderSize);
         size_t chunk_size = std::min(max_jpeg_data, scan_size - offset);
         bool last_packet = (offset + chunk_size >= scan_size);
 
@@ -262,10 +264,14 @@ bool MJVideoRTPTransport::SendFrame(const MJVideoFrameDesc& desc,
 
         // Send to all clients
         for (const auto& client : clients) {
-            sendto(socket_fd_, packet_buffer_.data(), packet_buffer_.size(), 0,
+            ssize_t sent = sendto(socket_fd_, packet_buffer_.data(), packet_buffer_.size(), 0,
                    reinterpret_cast<const struct sockaddr*>(&client), sizeof(client));
+            if (sent < 0) {
+                os_log_error(OS_LOG_DEFAULT, "RTP: sendto() failed: %{errno}d", errno);
+            }
         }
 
+        // uint16_t wraps 65535→0 naturally, which is correct per RFC 3550 §5.1
         sequence_number_++;
         offset += chunk_size;
     }
@@ -311,9 +317,10 @@ size_t MJVideoRTPTransport::FindJPEGScanData(const uint8_t* data, size_t size,
             if (pos + 3 >= size) break;
             uint16_t seg_len = (static_cast<uint16_t>(data[pos + 2]) << 8) | data[pos + 3];
             size_t seg_end = pos + 2 + seg_len;
+            if (seg_end > size) break;  // Bounds check: segment must fit in buffer
             size_t tpos = pos + 4;  // Skip marker + length
 
-            while (tpos < seg_end && tpos < size) {
+            while (tpos < seg_end) {
                 uint8_t pq_tq = data[tpos];  // precision(4) | table_id(4)
                 uint8_t precision = (pq_tq >> 4) & 0x0F;
                 size_t table_size = (precision == 0) ? 64 : 128;
@@ -338,6 +345,7 @@ size_t MJVideoRTPTransport::FindJPEGScanData(const uint8_t* data, size_t size,
         if (marker >= 0xC0 && marker != 0xFF) {
             if (pos + 3 >= size) break;
             uint16_t seg_len = (static_cast<uint16_t>(data[pos + 2]) << 8) | data[pos + 3];
+            if (pos + 2 + seg_len > size) break;  // Bounds check
             pos = pos + 2 + seg_len;
         } else {
             pos += 2;
@@ -347,12 +355,3 @@ size_t MJVideoRTPTransport::FindJPEGScanData(const uint8_t* data, size_t size,
     return 0;
 }
 
-// MARK: - SendRTPPacket (unused, packetization is inline in SendFrame)
-
-void MJVideoRTPTransport::SendRTPPacket(const uint8_t* payload, size_t payload_size,
-                                         uint32_t timestamp, bool marker,
-                                         const struct sockaddr_in& dest) {
-    // Not used — RTP packets are assembled inline in SendFrame for efficiency.
-    // Kept for potential future use with non-JPEG payloads.
-    (void)payload; (void)payload_size; (void)timestamp; (void)marker; (void)dest;
-}
