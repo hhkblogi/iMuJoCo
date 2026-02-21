@@ -18,11 +18,13 @@ swift_interop_hint(
 objc_library(
     name = "video_cpp",
     srcs = [
+        "video/mjc_video_mjpeg_server.mm",
         "video/mjc_video_rtp_transport.mm",
         "video/mjc_video_rtsp_server.mm",
         "video/mjc_video_udp_transport.mm",
     ],
     hdrs = [
+        "video/mjc_video_mjpeg_server.h",
         "video/mjc_video_rtp_transport.h",
         "video/mjc_video_rtsp_server.h",
         "video/mjc_video_transport.h",

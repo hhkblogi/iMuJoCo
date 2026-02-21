@@ -29,6 +29,8 @@ public enum MJCVideoTransportMode {
     case rawUDP
     /// RTP/RTSP with JPEG encoding (for VLC/ffplay)
     case rtpRTSP
+    /// MJPEG over HTTP (for VLC/browsers, simpler and more reliable than RTP)
+    case mjpegHTTP
 }
 
 /// Configuration for the video streamer.
@@ -49,10 +51,12 @@ public struct MJCVideoStreamerConfig {
     public var cameraIndex: UInt8 = 0
     /// Transport mode
     public var transportMode: MJCVideoTransportMode = .rawUDP
-    /// JPEG quality for RTP mode (0.0-1.0, default 0.8)
+    /// JPEG quality for JPEG-based modes (0.0-1.0, default 0.8)
     public var jpegQuality: CGFloat = 0.8
-    /// RTSP server port (default: 8554)
+    /// RTSP server port for rtpRTSP mode (default: 8554)
     public var rtspPort: UInt16 = 8554
+    /// HTTP port for mjpegHTTP mode (default: 8080)
+    public var httpPort: UInt16 = 8080
 
     public init() {}
 }
@@ -78,6 +82,7 @@ public final class MJCVideoStreamer {
     private let udpTransport: MJVideoUDPTransport?
     private let rtpTransport: MJVideoRTPTransport?
     private let rtspServer: MJVideoRTSPServer?
+    private let mjpegServer: MJVideoMJPEGServer?
 
     // Capture thread
     private var captureThread: Thread?
@@ -100,6 +105,7 @@ public final class MJCVideoStreamer {
             self.udpTransport = MJVideoUDPTransport.create()
             self.rtpTransport = nil
             self.rtspServer = nil
+            self.mjpegServer = nil
 
         case .rtpRTSP:
             self.encoder = MJCJPEGEncoder(quality: config.jpegQuality)
@@ -107,6 +113,14 @@ public final class MJCVideoStreamer {
             let rtp = MJVideoRTPTransport.create()
             self.rtpTransport = rtp
             self.rtspServer = MJVideoRTSPServer.create(rtp)
+            self.mjpegServer = nil
+
+        case .mjpegHTTP:
+            self.encoder = MJCJPEGEncoder(quality: config.jpegQuality)
+            self.udpTransport = nil
+            self.rtpTransport = nil
+            self.rtspServer = nil
+            self.mjpegServer = MJVideoMJPEGServer.create()
         }
     }
 
@@ -115,6 +129,7 @@ public final class MJCVideoStreamer {
         if let udp = udpTransport { MJVideoUDPTransport.destroy(udp) }
         if let rtsp = rtspServer { MJVideoRTSPServer.destroy(rtsp) }
         if let rtp = rtpTransport { MJVideoRTPTransport.destroy(rtp) }
+        if let mjpeg = mjpegServer { MJVideoMJPEGServer.destroy(mjpeg) }
     }
 
     // MARK: - Start / Stop
@@ -147,9 +162,14 @@ public final class MJCVideoStreamer {
                                UInt16(config.width),
                                UInt16(config.height)) {
                     logger.error("Failed to start RTSP server on port \(self.config.rtspPort)")
-                    // RTP started but RTSP failed — still allow running
-                    // (clients can connect directly to RTP if they know the port)
                 }
+            }
+
+        case .mjpegHTTP:
+            guard let mjpeg = mjpegServer, mjpeg.Start(config.httpPort) else {
+                logger.error("Failed to start MJPEG server on port \(self.config.httpPort)")
+                running = false
+                return
             }
         }
 
@@ -162,7 +182,12 @@ public final class MJCVideoStreamer {
         captureThread = thread
         thread.start()
 
-        let modeStr = config.transportMode == .rawUDP ? "raw UDP" : "RTP/RTSP"
+        let modeStr: String
+        switch config.transportMode {
+        case .rawUDP: modeStr = "raw UDP"
+        case .rtpRTSP: modeStr = "RTP/RTSP"
+        case .mjpegHTTP: modeStr = "MJPEG/HTTP"
+        }
         logger.info("Video streamer started: \(self.config.width)x\(self.config.height) @ \(self.config.targetFPS)fps [\(modeStr)] on port \(self.config.port)")
     }
 
@@ -184,6 +209,7 @@ public final class MJCVideoStreamer {
         captureThread = nil
         lock.unlock()
 
+        mjpegServer?.Stop()
         rtspServer?.Stop()
         rtpTransport?.Stop()
         udpTransport?.Stop()
@@ -204,6 +230,8 @@ public final class MJCVideoStreamer {
             return udpTransport?.HasReceiver() ?? false
         case .rtpRTSP:
             return rtpTransport?.HasReceiver() ?? false
+        case .mjpegHTTP:
+            return mjpegServer?.HasReceiver() ?? false
         }
     }
 
@@ -301,7 +329,10 @@ public final class MJCVideoStreamer {
                 _ = udpTransport?.SendFrame(desc, dataPtr, count)
             case .rtpRTSP:
                 _ = rtpTransport?.SendFrame(desc, dataPtr, count)
+            case .mjpegHTTP:
+                _ = mjpegServer?.SendJPEG(dataPtr, count)
             }
         }
     }
+
 }

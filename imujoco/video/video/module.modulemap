@@ -4,6 +4,7 @@ module MJCVideoRuntime {
     header "mjc_video_udp_transport.h"
     header "mjc_video_rtp_transport.h"
     header "mjc_video_rtsp_server.h"
+    header "mjc_video_mjpeg_server.h"
     requires cplusplus
     export *
 }
