@@ -66,3 +66,21 @@ cc_binary(
         "@google_benchmark//:benchmark_main",
     ],
 )
+
+objc_library(
+    name = "validate_pipeline_lib",
+    srcs = ["validate_pipeline.mm"],
+    copts = ["-std=c++20"],
+    sdk_frameworks = [
+        "CoreGraphics",
+        "ImageIO",
+        "Metal",
+    ],
+)
+
+cc_binary(
+    name = "validate_pipeline",
+    deps = [
+        ":validate_pipeline_lib",
+    ],
+)
