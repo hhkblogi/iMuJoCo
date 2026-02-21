@@ -19,7 +19,7 @@ from imujoco_driver import Driver, DriverConfig
 def main():
     parser = argparse.ArgumentParser(description="iMuJoCo simple control example")
     parser.add_argument("--host", default="127.0.0.1", help="iMuJoCo host")
-    parser.add_argument("--port", type=int, default=9000, help="iMuJoCo port")
+    parser.add_argument("--port", type=int, default=9001, help="iMuJoCo port")
     parser.add_argument("--duration", type=float, default=5.0, help="Run duration in seconds")
     parser.add_argument("--rate", type=float, default=50.0, help="Control rate in Hz")
     args = parser.parse_args()

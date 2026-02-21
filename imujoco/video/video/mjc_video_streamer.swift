@@ -45,7 +45,7 @@ public struct MJCVideoStreamerConfig {
     }
     /// Target capture FPS (default: 10)
     public var targetFPS: Double = 10.0
-    /// Video transport port (raw UDP port; RTP port = this + 2, RTSP port = 8554)
+    /// Video transport port (camera port scheme: 9000 + instance * 100 + camera)
     public var port: UInt16 = 9100
     /// Camera index to stream (default: 0 = free camera)
     public var cameraIndex: UInt8 = 0
@@ -55,9 +55,6 @@ public struct MJCVideoStreamerConfig {
     public var jpegQuality: CGFloat = 0.8
     /// RTSP server port for rtpRTSP mode (default: 8554)
     public var rtspPort: UInt16 = 8554
-    /// HTTP port for mjpegHTTP mode (default: 8080)
-    public var httpPort: UInt16 = 8080
-
     public init() {}
 }
 
@@ -166,8 +163,8 @@ public final class MJCVideoStreamer {
             }
 
         case .mjpegHTTP:
-            guard let mjpeg = mjpegServer, mjpeg.Start(config.httpPort) else {
-                logger.error("Failed to start MJPEG server on port \(self.config.httpPort)")
+            guard let mjpeg = mjpegServer, mjpeg.Start(config.port) else {
+                logger.error("Failed to start MJPEG server on port \(self.config.port)")
                 running = false
                 return
             }

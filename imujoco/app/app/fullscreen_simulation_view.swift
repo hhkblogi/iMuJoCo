@@ -16,6 +16,8 @@ struct FullscreenSimulationView: View {
     @State private var resetProgress: CGFloat = 0
     @State private var stopProgress: CGFloat = 0
     @State private var isNavigating = false
+    @State private var showPortInfo = false
+    @State private var showCamInfo = false
     @State private var hoveredCell: Int? = nil
     @State private var navGridFrame: CGRect = .zero
 
@@ -221,9 +223,57 @@ struct FullscreenSimulationView: View {
                 HStack {
                     Spacer()
                     VStack(alignment: .trailing, spacing: 3) {
-                        Text(verbatim: "Port :\(instance.port)")
-                            .font(.system(size: 11, weight: .medium))
+                        HStack(spacing: 3) {
+                            Text(verbatim: "C/S")
+                                .font(.system(size: 11, weight: .medium))
+                            #if !os(tvOS)
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 9))
+                                .onTapGesture { showPortInfo = true }
+                                .popover(isPresented: $showPortInfo) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("C/S = Control / State")
+                                            .font(.system(size: 13, weight: .semibold))
+                                        Text("Bidirectional UDP port for\ncontrol input and state output")
+                                            .font(.system(size: 12))
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .padding(10)
+                                }
+                            #endif
+                            Text(verbatim: ":\(instance.port)")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
+                        if instance.isStreaming {
+                            HStack(spacing: 3) {
+                                Text(verbatim: "Cam0")
+                                    .font(.system(size: 11, weight: .medium))
+                                #if !os(tvOS)
+                                Image(systemName: "info.circle")
+                                    .font(.system(size: 9))
+                                    .onTapGesture { showCamInfo = true }
+                                    .popover(isPresented: $showCamInfo) {
+                                        let ip = getDeviceIPAddress() ?? "<ip>"
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text("Cam0 = Default Free Camera")
+                                                .font(.system(size: 13, weight: .semibold))
+                                            Text("Video stream port (UDP + HTTP)\nfor offscreen camera capture")
+                                                .font(.system(size: 12))
+                                                .foregroundColor(.secondary)
+                                            Text(verbatim: "http://\(ip):\(instance.cameraPort)")
+                                                .font(.system(size: 12, design: .monospaced))
+                                                .foregroundColor(.accentColor)
+                                                .textSelection(.enabled)
+                                        }
+                                        .padding(10)
+                                    }
+                                #endif
+                                Text(verbatim: ":\(instance.cameraPort)")
+                                    .font(.system(size: 11, weight: .medium))
+                            }
                             .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
+                        }
                         HStack(spacing: 4) {
                             Circle()
                                 .fill(instance.state == .running ? Color.green : Color.yellow)

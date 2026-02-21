@@ -132,7 +132,7 @@ def format_state(state):
 def main():
     parser = argparse.ArgumentParser(description="iMuJoCo Unitree G1 robot driver")
     parser.add_argument("--host", default="127.0.0.1", help="iMuJoCo host")
-    parser.add_argument("--port", type=int, default=9000, help="iMuJoCo port")
+    parser.add_argument("--port", type=int, default=9001, help="iMuJoCo port")
     parser.add_argument("--mode", default="stand", choices=["stand", "zero", "free"],
                         help="Control mode: stand (hold pose), zero (all joints to 0), free (no ctrl)")
     parser.add_argument("--duration", type=float, default=10.0, help="Run duration in seconds")

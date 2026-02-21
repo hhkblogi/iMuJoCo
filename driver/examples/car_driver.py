@@ -80,7 +80,7 @@ MODES = {
 def main():
     parser = argparse.ArgumentParser(description="iMuJoCo car driver")
     parser.add_argument("--host", default="127.0.0.1", help="iMuJoCo host")
-    parser.add_argument("--port", type=int, default=9000, help="iMuJoCo port")
+    parser.add_argument("--port", type=int, default=9001, help="iMuJoCo port")
     parser.add_argument("--mode", default="circle", choices=list(MODES.keys()),
                         help="Driving mode")
     parser.add_argument("--duration", type=float, default=10.0, help="Run duration (seconds)")

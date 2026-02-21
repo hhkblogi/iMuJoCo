@@ -205,21 +205,25 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         runtime.start()
 
         // Start video streaming
-        // Raw UDP streamer (port = control_port + 100) for Python driver
+        // Camera port scheme: 9000 + instance_id * 100 + camera_id
+        // Cam0 = default free camera
+        let cameraPort = UInt16(9000 + id * 100 + 0)
+
+        // Raw UDP streamer for Python driver
         if videoStreamer == nil {
             var config = MJCVideoStreamerConfig()
-            config.port = port + 100
+            config.port = cameraPort
             config.transportMode = .rawUDP
             videoStreamer = MJCVideoStreamer(config: config, dataSource: self)
         }
         videoStreamer?.start()
 
-        // MJPEG/HTTP streamer for VLC (http://<device-ip>:<port>/)
+        // MJPEG/HTTP streamer for VLC (http://<device-ip>:<cameraPort>/)
+        // Uses same camera port (TCP vs UDP — no conflict)
         if mjpegStreamer == nil {
             var config = MJCVideoStreamerConfig()
-            config.port = port + 100
+            config.port = cameraPort
             config.transportMode = .mjpegHTTP
-            config.httpPort = 8080 + UInt16(id)
             mjpegStreamer = MJCVideoStreamer(config: config, dataSource: self)
         }
         mjpegStreamer?.start()
@@ -382,6 +386,17 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     var frameTime: Double { displayFrameTime }
     var geomCount: Int32 { displayGeomCount }
 
+    /// Camera port for this instance (9000 + id * 100 + camera_id).
+    /// Cam0 = default free camera.
+    var cameraPort: UInt16 {
+        UInt16(9000 + id * 100 + 0)
+    }
+
+    /// Whether video streaming is active (streamers are running).
+    var isStreaming: Bool {
+        videoStreamer?.isRunning == true || mjpegStreamer?.isRunning == true
+    }
+
     // MARK: - Network Status
 
     var hasClient: Bool {
@@ -530,7 +545,7 @@ final class SimulationGridManager: @unchecked Sendable {
     }
 
     init() {
-        instances = (0..<Self.gridSize).map { index in
+        instances = (1...Self.gridSize).map { index in
             SimulationInstance(id: index, basePort: Self.basePort)
         }
     }
