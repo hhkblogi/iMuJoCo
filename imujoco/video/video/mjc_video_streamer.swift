@@ -6,6 +6,7 @@ import CoreGraphics
 import Foundation
 import Metal
 import QuartzCore
+import Synchronization
 import os.log
 import MJCPhysicsRuntime
 import MJCVideoRuntime
@@ -84,16 +85,16 @@ public final class MJCVideoStreamer {
 
     // Capture thread
     private var captureThread: Thread?
-    private var running = false
-    private var suspended = false  // GPU capture paused (app backgrounded)
-    private let lock = NSLock()
+    private let threadLock = NSLock()              // protects captureThread only (start/stop)
+    private let _running = Atomic<Bool>(false)     // lock-free: read 30x/sec in hot loop
+    private let _suspended = Atomic<Bool>(false)   // lock-free: toggled on app lifecycle
 
     // Statistics
     private var frameNumber: UInt64 = 0           // capture-thread-only
     private var fpsFrameCount: UInt64 = 0          // capture-thread-only
     private var fpsLastUpdate: Double = 0          // capture-thread-only
     private var _measuredFPS: Double = 0           // written by capture thread, read by main
-    private let fpsLock = NSLock()
+    private let fpsLock = NSLock()                 // only for _measuredFPS (1x/sec write)
 
     // MARK: - Init
 
@@ -141,17 +142,15 @@ public final class MJCVideoStreamer {
 
     /// Start video streaming.
     public func start() {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !running else { return }
-        running = true
+        threadLock.lock()
+        defer { threadLock.unlock() }
+        guard !_running.load(ordering: .acquiring) else { return }
 
         // Start transport(s)
         switch config.transportMode {
         case .rawUDP:
             guard let udp = udpTransport, udp.Start(config.port) else {
                 logger.error("Failed to start UDP transport on port \(self.config.port)")
-                running = false
                 return
             }
 
@@ -159,7 +158,6 @@ public final class MJCVideoStreamer {
             let rtpPort = config.port + 2
             guard let rtp = rtpTransport, rtp.Start(rtpPort) else {
                 logger.error("Failed to start RTP transport on port \(self.config.port + 2)")
-                running = false
                 return
             }
             if let rtsp = rtspServer {
@@ -173,10 +171,11 @@ public final class MJCVideoStreamer {
         case .mjpegHTTP:
             guard let mjpeg = mjpegServer, mjpeg.Start(config.port) else {
                 logger.error("Failed to start MJPEG server on port \(self.config.port)")
-                running = false
                 return
             }
         }
+
+        _running.store(true, ordering: .releasing)
 
         // Start capture thread
         let thread = Thread { [weak self] in
@@ -198,10 +197,10 @@ public final class MJCVideoStreamer {
 
     /// Stop video streaming.
     public func stop() {
-        lock.lock()
+        threadLock.lock()
         let thread = captureThread
-        running = false
-        lock.unlock()
+        _running.store(false, ordering: .releasing)
+        threadLock.unlock()
 
         // Wait for capture thread to exit its loop
         if let thread = thread {
@@ -210,9 +209,9 @@ public final class MJCVideoStreamer {
             }
         }
 
-        lock.lock()
+        threadLock.lock()
         captureThread = nil
-        lock.unlock()
+        threadLock.unlock()
 
         mjpegServer?.Stop()
         rtspServer?.Stop()
@@ -223,26 +222,20 @@ public final class MJCVideoStreamer {
 
     /// Whether the streamer is currently running.
     public var isRunning: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return running
+        _running.load(ordering: .acquiring)
     }
 
     /// Suspend GPU capture (call when app enters background).
     /// The capture thread stays alive but skips Metal rendering.
     /// Network transports remain active so clients stay connected.
     public func suspend() {
-        lock.lock()
-        suspended = true
-        lock.unlock()
+        _suspended.store(true, ordering: .releasing)
         logger.info("Video streamer suspended (app backgrounded)")
     }
 
     /// Resume GPU capture (call when app returns to foreground).
     public func resume() {
-        lock.lock()
-        suspended = false
-        lock.unlock()
+        _suspended.store(false, ordering: .releasing)
         logger.info("Video streamer resumed (app foregrounded)")
     }
 
@@ -271,9 +264,7 @@ public final class MJCVideoStreamer {
         // Create Metal resources on the capture thread
         guard let device = MTLCreateSystemDefaultDevice() else {
             logger.error("No Metal device available for offscreen rendering")
-            lock.lock()
-            running = false
-            lock.unlock()
+            _running.store(false, ordering: .releasing)
             return
         }
 
@@ -282,41 +273,49 @@ public final class MJCVideoStreamer {
                 device: device, width: config.width, height: config.height)
         } catch {
             logger.error("Failed to create offscreen renderer: \(error.localizedDescription)")
-            lock.lock()
-            running = false
-            lock.unlock()
+            _running.store(false, ordering: .releasing)
             return
         }
 
-        let frameInterval = 1.0 / config.targetFPS
+        // Compute frame interval in Mach absolute time units.
+        // mach_wait_until() is a kernel-level precise sleep (~50μs precision)
+        // vs Thread.sleep/nanosleep (~2ms overshoot). Combined with absolute
+        // deadlines, this gives rock-solid frame timing.
+        var timebaseInfo = mach_timebase_info_data_t()
+        mach_timebase_info(&timebaseInfo)
+        let frameIntervalNanos = UInt64(1_000_000_000.0 / config.targetFPS)
+        let frameIntervalMach = frameIntervalNanos
+            * UInt64(timebaseInfo.denom) / UInt64(timebaseInfo.numer)
+        var nextDeadline = mach_absolute_time()
 
-        while true {
-            lock.lock()
-            let shouldRun = running
-            let isSuspended = suspended
-            lock.unlock()
-            guard shouldRun else { break }
-
-            if isSuspended {
+        while _running.load(ordering: .acquiring) {
+            if _suspended.load(ordering: .acquiring) {
                 // App is in background — skip GPU work to avoid
                 // kIOGPUCommandBufferCallbackErrorBackgroundExecutionNotPermitted
                 Thread.sleep(forTimeInterval: 0.5)
+                nextDeadline = mach_absolute_time()
                 continue
             }
 
-            let frameStart = CACurrentMediaTime()
+            nextDeadline += frameIntervalMach
+
             // Wrap in autoreleasepool — CGImage/CGDataProvider/NSMutableData
             // from the JPEG encoder create autoreleased objects that won't be
             // drained automatically on this background thread.
             autoreleasepool {
                 captureFrame()
             }
-            let elapsed = CACurrentMediaTime() - frameStart
 
-            // Sleep for remaining frame time
-            let sleepTime = frameInterval - elapsed
-            if sleepTime > 0.001 {
-                Thread.sleep(forTimeInterval: sleepTime)
+            // mach_wait_until: kernel-level sleep to absolute Mach timestamp.
+            // Unlike Thread.sleep (nanosleep) which overshoots by 1-3ms,
+            // this wakes within ~50μs of the target.
+            let now = mach_absolute_time()
+            if nextDeadline > now {
+                mach_wait_until(nextDeadline)
+            } else if now - nextDeadline > frameIntervalMach {
+                // More than one full frame behind — reset deadline to avoid
+                // burst of catch-up frames (e.g. after a GC pause or stall).
+                nextDeadline = now
             }
         }
 
