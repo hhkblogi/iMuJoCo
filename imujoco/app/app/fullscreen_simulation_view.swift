@@ -355,6 +355,19 @@ struct FullscreenSimulationView: View {
                                     .foregroundColor(metricLabelColor)
                             }
                         }
+                        if instance.isStreaming {
+                            GridRow {
+                                Text(String(format: "%7.1f", instance.videoFPS))
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundColor(rateColor(Float(instance.videoFPS)))
+                                Text("fps")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(metricLabelColor)
+                                Text("Cam0")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundColor(metricLabelColor)
+                            }
+                        }
                     }
                     .fixedSize()
                 }

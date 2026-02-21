@@ -398,6 +398,11 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         videoStreamer?.isRunning == true || mjpegStreamer?.isRunning == true
     }
 
+    /// Measured output FPS of the active video streamer (updated once per second).
+    var videoFPS: Double {
+        videoStreamer?.measuredFPS ?? mjpegStreamer?.measuredFPS ?? 0
+    }
+
     /// Suspend GPU-based video capture (app entering background).
     /// Transports stay alive so clients remain connected.
     func suspendVideoCapture() {

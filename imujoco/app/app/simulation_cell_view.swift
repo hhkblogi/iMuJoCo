@@ -559,6 +559,19 @@ struct SimulationCellView: View {
                         .foregroundColor(metricLabelColor)
                 }
             }
+            if instance.isStreaming {
+                GridRow {
+                    Text(String(format: "%7.1f", instance.videoFPS))
+                        .font(Self.metricValueFont)
+                        .foregroundColor(rateColor(Float(instance.videoFPS)))
+                    Text("fps")
+                        .font(Self.metricLabelFont)
+                        .foregroundColor(metricLabelColor)
+                    Text("Cam0")
+                        .font(Self.metricLabelFont)
+                        .foregroundColor(metricLabelColor)
+                }
+            }
         }
         .fixedSize()
     }

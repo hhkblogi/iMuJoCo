@@ -357,7 +357,7 @@ std::string MJVideoRTSPServer::GenerateSDP(const std::string& uri) const {
     sdp << "t=0 0\r\n";
     sdp << "m=video " << rtp_port << " RTP/AVP " << static_cast<int>(kJPEGPayloadType) << "\r\n";
     sdp << "a=rtpmap:" << static_cast<int>(kJPEGPayloadType) << " JPEG/90000\r\n";
-    sdp << "a=framerate:10\r\n";
+    sdp << "a=framerate:30\r\n";
     sdp << "a=control:" << uri << "\r\n";
     return sdp.str();
 }

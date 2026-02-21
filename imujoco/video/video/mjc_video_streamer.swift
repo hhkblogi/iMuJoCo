@@ -45,7 +45,7 @@ public struct MJCVideoStreamerConfig {
         didSet { height = max(1, min(4096, height)) }
     }
     /// Target capture FPS (default: 10)
-    public var targetFPS: Double = 10.0
+    public var targetFPS: Double = 30.0
     /// Video transport port (camera port scheme: 9000 + instance * 100 + camera)
     public var port: UInt16 = 9100
     /// Camera index to stream (default: 0 = free camera)
@@ -88,8 +88,12 @@ public final class MJCVideoStreamer {
     private var suspended = false  // GPU capture paused (app backgrounded)
     private let lock = NSLock()
 
-    // Statistics (capture-thread-only, no synchronization needed)
-    private var frameNumber: UInt64 = 0
+    // Statistics
+    private var frameNumber: UInt64 = 0           // capture-thread-only
+    private var fpsFrameCount: UInt64 = 0          // capture-thread-only
+    private var fpsLastUpdate: Double = 0          // capture-thread-only
+    private var _measuredFPS: Double = 0           // written by capture thread, read by main
+    private let fpsLock = NSLock()
 
     // MARK: - Init
 
@@ -242,6 +246,13 @@ public final class MJCVideoStreamer {
         logger.info("Video streamer resumed (app foregrounded)")
     }
 
+    /// Measured output FPS (updated once per second on capture thread).
+    public var measuredFPS: Double {
+        fpsLock.lock()
+        defer { fpsLock.unlock() }
+        return _measuredFPS
+    }
+
     /// Whether a receiver is connected.
     public var hasReceiver: Bool {
         switch config.transportMode {
@@ -359,6 +370,19 @@ public final class MJCVideoStreamer {
             case .mjpegHTTP:
                 _ = mjpegServer?.SendJPEG(dataPtr, count)
             }
+        }
+
+        // Update FPS measurement (once per second)
+        fpsFrameCount += 1
+        let now = CACurrentMediaTime()
+        let elapsed = now - fpsLastUpdate
+        if elapsed >= 1.0 {
+            let fps = Double(fpsFrameCount) / elapsed
+            fpsLock.lock()
+            _measuredFPS = fps
+            fpsLock.unlock()
+            fpsFrameCount = 0
+            fpsLastUpdate = now
         }
     }
 
