@@ -28,3 +28,17 @@ Future improvements:
   durations, drift between `steady_clock` instances could cause the replay
   cadence to gradually shift. A periodic re-anchoring or drift estimation
   algorithm could mitigate this.
+
+## WebRTC Transport (Future Work)
+
+MJPEG-over-HTTP has 1-3s perceived latency due to client-side buffering in
+VLC/ffplay. The sender pipeline is ~1.2ms; the bottleneck is entirely on
+the receiver side.
+
+- **WebRTC** would give ~50-150ms end-to-end latency with built-in jitter
+  buffer tuning, NAT traversal, and adaptive bitrate
+- Could use Apple's VideoToolbox for hardware H.264/HEVC encode (vs
+  CoreGraphics JPEG) for better compression and lower CPU usage
+- Signaling via a lightweight WebSocket server on the device
+- Browser-native playback — no VLC/ffplay needed
+- Libraries to evaluate: libwebrtc (Google), or libdatachannel (lighter)
