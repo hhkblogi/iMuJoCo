@@ -1,4 +1,4 @@
-load("@rules_cc//cc:defs.bzl", "cc_binary")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "objc_library")
 
 # ============================================================================
 # Benchmarks (run with: bazel run //benchmarks:<target> --config=release)
@@ -21,5 +21,66 @@ cc_binary(
         "//schema:driver_schemas",
         "@flatbuffers//:runtime_cc",
         "@google_benchmark//:benchmark_main",
+    ],
+)
+
+objc_library(
+    name = "bm_video_pipeline_lib",
+    srcs = ["bm_video_pipeline.mm"],
+    copts = ["-std=c++20"],
+    includes = ["../imujoco/video/video"],
+    sdk_frameworks = [
+        "CoreGraphics",
+        "ImageIO",
+    ],
+    deps = [
+        "//imujoco/video:video_cpp",
+        "@google_benchmark//:benchmark",
+    ],
+)
+
+cc_binary(
+    name = "bm_video_pipeline",
+    deps = [
+        ":bm_video_pipeline_lib",
+        "@google_benchmark//:benchmark_main",
+    ],
+)
+
+objc_library(
+    name = "bm_metal_render_lib",
+    srcs = ["bm_metal_render.mm"],
+    copts = ["-std=c++20"],
+    sdk_frameworks = [
+        "Metal",
+    ],
+    deps = [
+        "@google_benchmark//:benchmark",
+    ],
+)
+
+cc_binary(
+    name = "bm_metal_render",
+    deps = [
+        ":bm_metal_render_lib",
+        "@google_benchmark//:benchmark_main",
+    ],
+)
+
+objc_library(
+    name = "validate_pipeline_lib",
+    srcs = ["validate_pipeline.mm"],
+    copts = ["-std=c++20"],
+    sdk_frameworks = [
+        "CoreGraphics",
+        "ImageIO",
+        "Metal",
+    ],
+)
+
+cc_binary(
+    name = "validate_pipeline",
+    deps = [
+        ":validate_pipeline_lib",
     ],
 )

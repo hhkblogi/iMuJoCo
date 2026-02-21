@@ -1,6 +1,8 @@
 // mjc_offscreen_render.swift
 // Simplified Metal renderer for offscreen video capture.
-// Renders MuJoCo scenes to a shared-memory MTLTexture for zero-copy CPU readback.
+// Renders MuJoCo scenes to a buffer-backed MTLTexture for zero-copy CPU readback.
+// On Apple Silicon UMA, the GPU writes directly into linear MTLBuffer memory that
+// CoreGraphics reads without any copy (analogous to NvBufSurface on NVIDIA Jetson).
 // Designed to run on a dedicated capture thread, separate from the display renderer.
 
 import Metal
@@ -84,6 +86,11 @@ public final class MJCOffscreenRender {
     public private(set) var width: Int
     public private(set) var height: Int
 
+    // Buffer-backed color texture: Metal renders directly into the MTLBuffer's
+    // linear memory, eliminating the getBytes() un-tiling copy.  On Apple Silicon
+    // UMA, the GPU and CPU share the same physical pages — truly zero-copy from
+    // render output to JPEG encoder input (analogous to NvBufSurface on Jetson).
+    private var colorBuffer: MTLBuffer!
     private var colorTexture: MTLTexture!
     private var depthTexture: MTLTexture!
 
@@ -234,11 +241,23 @@ public final class MJCOffscreenRender {
     // MARK: - Texture Management
 
     private func createTextures() throws {
+        let bytesPerRow = width * 4
+        let bufferSize = bytesPerRow * height
+
+        // Allocate a shared MTLBuffer for the color attachment.
+        // Metal renders directly into this linear buffer — no un-tiling copy needed.
+        guard let buffer = device.makeBuffer(length: bufferSize, options: .storageModeShared) else {
+            throw MJCOffscreenRenderError.initFailed("Color buffer creation failed")
+        }
+        self.colorBuffer = buffer
+
+        // Create a 2D texture view over the buffer's linear memory.
         let colorDesc = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .rgba8Unorm, width: width, height: height, mipmapped: false)
         colorDesc.usage = [.renderTarget, .shaderRead]
         colorDesc.storageMode = .shared
-        guard let color = device.makeTexture(descriptor: colorDesc) else {
+        guard let color = buffer.makeTexture(
+            descriptor: colorDesc, offset: 0, bytesPerRow: bytesPerRow) else {
             throw MJCOffscreenRenderError.initFailed("Color texture creation failed")
         }
         self.colorTexture = color
@@ -641,18 +660,14 @@ public final class MJCOffscreenRender {
         return readbackPixels()
     }
 
-    // MARK: - CPU Readback
+    // MARK: - CPU Readback (zero-copy)
 
     private func readbackPixels() -> Data? {
-        let bytesPerRow = width * 4
-        let totalBytes = bytesPerRow * height
-        var data = Data(count: totalBytes)
-        data.withUnsafeMutableBytes { ptr in
-            colorTexture.getBytes(
-                ptr.baseAddress!, bytesPerRow: bytesPerRow,
-                from: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0)
-        }
-        return data
+        guard let buffer = colorBuffer else { return nil }
+        // The GPU rendered directly into colorBuffer's linear memory.
+        // On Apple Silicon UMA, buffer.contents() points to the same physical
+        // pages the GPU wrote to — no copy, no un-tiling, no DMA.
+        return Data(bytesNoCopy: buffer.contents(), count: buffer.length, deallocator: .none)
     }
 
     // MARK: - Matrix Helpers
