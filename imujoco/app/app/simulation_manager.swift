@@ -206,6 +206,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
 
         // Start video streaming
         // Camera port scheme: 9000 + instance_id * 100 + camera_id
+        // Instance IDs are 1-indexed, so ports start at 9100 (instance 1, camera 0)
         // Cam0 = default free camera
         let cameraPort = UInt16(9000 + id * 100 + 0)
 

@@ -5,11 +5,13 @@
 // VLC plays it via: http://<device-ip>:<port>/
 // Much simpler and more reliable than RTP/RTSP for JPEG streaming.
 
-#pragma once
+#ifndef IMUJOCO_VIDEO_MJPEG_SERVER_H_
+#define IMUJOCO_VIDEO_MJPEG_SERVER_H_
 
 #include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -67,3 +69,5 @@ private:
 
   static constexpr const char *kBoundary = "mjpeg_frame_boundary";
 };
+
+#endif  // IMUJOCO_VIDEO_MJPEG_SERVER_H_

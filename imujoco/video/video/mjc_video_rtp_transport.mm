@@ -176,6 +176,11 @@ bool MJVideoRTPTransport::SendFrame(const MJVideoFrameDesc& desc,
     uint8_t jpeg_q = 255;  // Q=255 means quantization tables are present in first packet
 
     // Width/height in 8-pixel blocks (RFC 2435 §3.1.4-5)
+    // RFC 2435 uses uint8_t, limiting to 2040×2040 pixels (255 * 8).
+    // Dimensions must be multiples of 8; non-multiples are rounded down.
+    if (desc.width > 2040 || desc.height > 2040 || desc.width == 0 || desc.height == 0) {
+        return false;
+    }
     uint8_t width_blocks = static_cast<uint8_t>(desc.width / 8);
     uint8_t height_blocks = static_cast<uint8_t>(desc.height / 8);
 

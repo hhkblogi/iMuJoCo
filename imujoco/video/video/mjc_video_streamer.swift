@@ -2,6 +2,7 @@
 // Video streaming orchestrator: capture → encode → transport.
 // Runs on a dedicated background thread at configurable FPS.
 
+import CoreGraphics
 import Foundation
 import Metal
 import QuartzCore
@@ -125,6 +126,8 @@ public final class MJCVideoStreamer {
     deinit {
         stop()
         if let udp = udpTransport { MJVideoUDPTransport.destroy(udp) }
+        // Destroy RTSP server before RTP transport (reverse creation order).
+        // MJVideoRTSPServer holds a raw pointer to MJVideoRTPTransport.
         if let rtsp = rtspServer { MJVideoRTSPServer.destroy(rtsp) }
         if let rtp = rtpTransport { MJVideoRTPTransport.destroy(rtp) }
         if let mjpeg = mjpegServer { MJVideoMJPEGServer.destroy(mjpeg) }
