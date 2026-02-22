@@ -549,6 +549,7 @@ enum ModelSource: String, CaseIterable {
     case imujoco = "iMuJoCo"
     case mujoco = "MuJoCo"
     case menagerie = "Menagerie"
+    case unitreeRLGym = "Unitree RL Gym"
 }
 
 struct BundledModel {
@@ -591,6 +592,8 @@ final class SimulationGridManager: @unchecked Sendable {
                          keyframe: nil, timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
             BundledModel(name: "Unitree G1", source: .menagerie, resource: "scene", subdirectory: "unitree_g1",
                          keyframe: nil, timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
+            BundledModel(name: "Unitree G1 (RL)", source: .unitreeRLGym, resource: "scene", subdirectory: "unitree_g1_rl",
+                         keyframe: "rl_stand", timestep: 0.002, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
             BundledModel(name: "Unitree H1", source: .menagerie, resource: "scene", subdirectory: "unitree_h1",
                          keyframe: nil, timestep: nil, cameraElevation: nil, cameraAzimuth: nil, cameraDistance: nil),
         ]

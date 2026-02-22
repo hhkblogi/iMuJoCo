@@ -73,6 +73,7 @@ use_repo(
     "flatbuffers",
     "mujoco",
     "mujoco_menagerie",
+    "unitree_rl_gym",
     "lodepng",
     "tinyxml2",
     "tinyobjloader",

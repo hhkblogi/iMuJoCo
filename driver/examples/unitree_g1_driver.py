@@ -3,12 +3,17 @@
 unitree_g1_driver.py - Unitree G1 robot driver example
 
 Control modes:
-  stand  - Hold standing pose (keyframe ctrl values)
-  zero   - Drive all joints to 0 rad
-  free   - Send zero ctrl (identical to zero; true actuator-free requires app support)
+  stand  - Hold standing pose (29dof only; not supported for torque actuators)
+  zero   - Send zero ctrl (zero angles for 29dof, zero torques for 12dof)
+  free   - Same as zero
+
+Model variants:
+  29dof  - Menagerie G1 (29 position actuators: legs + waist + arms)
+  12dof  - Unitree RL Gym G1 (12 torque actuators: legs only)
 
 Usage:
   bazel run //driver:unitree_g1_driver -- --host <device_ip> --mode stand
+  bazel run //driver:unitree_g1_driver -- --host <device_ip> --model 12dof --mode zero
 """
 
 import argparse
@@ -22,12 +27,14 @@ from imujoco_driver import Driver, DriverConfig
 # Unitree G1 model constants
 # =============================================================================
 
-NUM_CTRL = 29
 QPOS_BASE = 7  # freejoint: 3 pos + 4 quat
 QVEL_BASE = 6  # freejoint: 3 vel + 3 angvel
 
-# Standing keyframe ctrl (from Unitree G1 MJCF)
-STAND_CTRL = [
+# --- 29-DOF (Menagerie) configuration ---
+
+NUM_CTRL_29DOF = 29
+
+STAND_CTRL_29DOF = [
     # Left leg (0-5): hip_pitch, hip_roll, hip_yaw, knee, ankle_pitch, ankle_roll
     0, 0, 0, 0, 0, 0,
     # Right leg (6-11)
@@ -40,8 +47,7 @@ STAND_CTRL = [
     0.2, -0.2, 0, 1.28, 0, 0, 0,
 ]
 
-# Joint names by group (matches ctrl index order)
-JOINT_GROUPS = [
+JOINT_GROUPS_29DOF = [
     ("Left leg", [
         "hip_pitch", "hip_roll", "hip_yaw", "knee", "ankle_pitch", "ankle_roll",
     ]),
@@ -58,6 +64,48 @@ JOINT_GROUPS = [
         "elbow", "wrist_roll", "wrist_pitch", "wrist_yaw",
     ]),
 ]
+
+# --- 12-DOF (RL Gym) configuration ---
+# Torque actuators — ctrl values are raw torques (Nm), not joint angles.
+# Standing requires a closed-loop PD controller (the RL policy's job).
+# This driver just sends zero torques for connectivity verification.
+
+NUM_CTRL_12DOF = 12
+
+# Reference: default leg angles and PD gains from RL Gym deploy config.
+# Used by downstream RL policy drivers, not by this example.
+RL_DEFAULT_ANGLES = [
+    # Left leg: hip_pitch, hip_roll, hip_yaw, knee, ankle_pitch, ankle_roll
+    -0.1, 0, 0, 0.3, -0.2, 0,
+    # Right leg
+    -0.1, 0, 0, 0.3, -0.2, 0,
+]
+RL_KP = [100, 100, 100, 150, 40, 40, 100, 100, 100, 150, 40, 40]
+RL_KD = [2, 2, 2, 4, 2, 2, 2, 2, 2, 4, 2, 2]
+
+JOINT_GROUPS_12DOF = [
+    ("Left leg", [
+        "hip_pitch", "hip_roll", "hip_yaw", "knee", "ankle_pitch", "ankle_roll",
+    ]),
+    ("Right leg", [
+        "hip_pitch", "hip_roll", "hip_yaw", "knee", "ankle_pitch", "ankle_roll",
+    ]),
+]
+
+# --- Model config lookup ---
+
+MODEL_CONFIGS = {
+    "29dof": {
+        "num_ctrl": NUM_CTRL_29DOF,
+        "stand_ctrl": STAND_CTRL_29DOF,
+        "joint_groups": JOINT_GROUPS_29DOF,
+    },
+    "12dof": {
+        "num_ctrl": NUM_CTRL_12DOF,
+        "stand_ctrl": None,  # no static stand for torque actuators
+        "joint_groups": JOINT_GROUPS_12DOF,
+    },
+}
 
 # Sensor layout: 2 gyros (3 each) + 2 accelerometers (3 each) = 12 values
 SENSORS = [
@@ -88,7 +136,7 @@ def quat_to_euler(w, x, y, z):
     return math.degrees(roll), math.degrees(pitch), math.degrees(yaw)
 
 
-def format_state(state):
+def format_state(state, joint_groups):
     """Format simulation state as human-readable string."""
     lines = []
     qpos = state.qpos
@@ -110,7 +158,7 @@ def format_state(state):
     # Joint angles by group
     joint_qpos = qpos[QPOS_BASE:]  # skip freejoint
     idx = 0
-    for group_name, joint_names in JOINT_GROUPS:
+    for group_name, joint_names in joint_groups:
         n = len(joint_names)
         if idx + n > len(joint_qpos):
             break
@@ -133,6 +181,8 @@ def main():
     parser = argparse.ArgumentParser(description="iMuJoCo Unitree G1 robot driver")
     parser.add_argument("--host", default="127.0.0.1", help="iMuJoCo host")
     parser.add_argument("--port", type=int, default=9001, help="iMuJoCo port")
+    parser.add_argument("--model", default="29dof", choices=["29dof", "12dof"],
+                        help="Model variant: 29dof (Menagerie, position), 12dof (RL Gym, torque)")
     parser.add_argument("--mode", default="stand", choices=["stand", "zero", "free"],
                         help="Control mode: stand (hold pose), zero (all joints to 0), free (no ctrl)")
     parser.add_argument("--duration", type=float, default=10.0, help="Run duration in seconds")
@@ -143,17 +193,26 @@ def main():
         print("Error: --rate must be positive")
         return 1
 
+    cfg = MODEL_CONFIGS[args.model]
+    num_ctrl = cfg["num_ctrl"]
+    joint_groups = cfg["joint_groups"]
+
+    if args.mode == "stand" and cfg["stand_ctrl"] is None:
+        print(f"Error: --mode stand is not supported for {args.model} (torque actuators).\n"
+              "  Use --mode zero to verify connectivity, or run an RL policy driver for standing.")
+        return 1
+
     # Build ctrl for the selected mode
     # Note: the app ignores empty ctrl arrays (keeps last values), so all modes
-    # must send NUM_CTRL values. True actuator-free simulation would require
+    # must send num_ctrl values. True actuator-free simulation would require
     # app-side support to zero out actuator gains.
     if args.mode == "stand":
-        ctrl = list(STAND_CTRL)
-    else:  # zero or free — both send zeros (drives joints to 0 rad)
-        ctrl = [0.0] * NUM_CTRL
+        ctrl = list(cfg["stand_ctrl"])
+    else:  # zero or free — both send zeros
+        ctrl = [0.0] * num_ctrl
 
-    print(f"Unitree G1 Driver  mode={args.mode}  ctrl_len={len(ctrl)}  "
-          f"duration={args.duration}s  rate={args.rate}Hz")
+    print(f"Unitree G1 Driver  model={args.model}  mode={args.mode}  "
+          f"ctrl_len={len(ctrl)}  duration={args.duration}s  rate={args.rate}Hz")
 
     # Configure and connect
     config = DriverConfig()
@@ -175,7 +234,7 @@ def main():
             latest_state = state
             state_count += 1
             if state_count % print_interval == 0:
-                print(format_state(state))
+                print(format_state(state, joint_groups))
 
     def on_error(code, message):
         print(f"  [ERROR] code={code} msg={message}")
