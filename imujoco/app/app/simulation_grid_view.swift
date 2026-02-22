@@ -67,6 +67,7 @@ struct SimulationGridView: View {
     @AppStorage("caffeineMode") private var caffeineMode: Int = 1
     @AppStorage("defaultLocked") private var defaultLocked: Bool = true
     @AppStorage("showStatsBar") private var showStatsBar: Bool = true
+    @AppStorage("videoTransport") private var videoTransport: Int = 0
 
     let columns = [
         GridItem(.flexible(), spacing: 8),
@@ -108,6 +109,9 @@ struct SimulationGridView: View {
         .background(Color.black)
         .onAppear {
             updateDeviceIP()
+        }
+        .onChange(of: videoTransport) { _, newValue in
+            gridManager.restartVLCStreamers(videoTransport: newValue)
         }
         #if os(iOS)
         .sheet(isPresented: $showingModelPicker) {
@@ -465,7 +469,9 @@ struct SettingsView: View {
     @AppStorage("caffeineMode") private var caffeineMode: Int = 1  // 0=off, 1=half, 2=full
     @AppStorage("tripleClickAction") private var tripleClickAction: Int = 0  // 0=grid/fullscreen, 1=lock/unlock
     @AppStorage("showStatsBar") private var showStatsBar: Bool = true
+    @AppStorage("videoTransport") private var videoTransport: Int = 0  // 0=MJPEG/HTTP, 1=RTP/RTSP
     @State private var showCaffeineInfo = false
+    @State private var showVideoTransportInfo = false
 
     // tag 0 = grid, 1-4 = fullscreen instance (highlightedCell 0-3)
     private let viewOptions: [(highlightedCell: Int?, tag: Int)] = [
@@ -641,6 +647,66 @@ struct SettingsView: View {
                     }
                 }
                 #endif
+
+                Section {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("Video Transport")
+                                .font(.subheadline)
+                            #if !os(tvOS)
+                            Button {
+                                showVideoTransportInfo.toggle()
+                            } label: {
+                                Image(systemName: "info.circle")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("About Video Transport")
+                            .popover(isPresented: $showVideoTransportInfo) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("**MJPEG/HTTP** — Works with VLC, ffplay, browsers. Simpler, more reliable.")
+                                    Text("**HEVC/RTSP** — Works with VLC, ffplay. Hardware-encoded H.265, very low bandwidth.")
+                                }
+                                .fixedSize(horizontal: false, vertical: true)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 260)
+                                .padding()
+                                .presentationCompactAdaptation(.popover)
+                            }
+                            #endif
+                        }
+                        HStack {
+                            ForEach(
+                                [(0, "MJPEG/HTTP", "photo.on.rectangle"), (1, "HEVC/RTSP", "antenna.radiowaves.left.and.right")],
+                                id: \.0
+                            ) { tag, label, icon in
+                                Button(action: { videoTransport = tag }) {
+                                    VStack(spacing: 4) {
+                                        Image(systemName: icon)
+                                            .font(.system(size: 18))
+                                        Text(label)
+                                            .font(.caption2)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(videoTransport == tag ? Color.blue.opacity(0.2) : Color.clear)
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .stroke(videoTransport == tag ? Color.blue : Color.gray.opacity(0.3), lineWidth: videoTransport == tag ? 1.5 : 1)
+                                    )
+                                    .foregroundColor(videoTransport == tag ? .blue : .gray)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("\(label), \(videoTransport == tag ? "selected" : "not selected")")
+                            }
+                        }
+                    }
+                }
 
                 Section {
                     Toggle("Performance Stats Bar", isOn: $showStatsBar)

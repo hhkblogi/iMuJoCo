@@ -76,12 +76,15 @@ struct MJCOffscreenLightBuffer {
 ///
 /// Creates its own command queue, pipeline state, and mesh/texture caches so it can
 /// run independently on a capture thread without interfering with the display renderer.
-/// Renders to `.rgba8Unorm` texture with `.storageModeShared` for zero-copy CPU readback.
+/// Renders to `.storageModeShared` texture for zero-copy CPU readback.
+/// Pixel format is configurable: `.rgba8Unorm` (default) for JPEG/raw paths,
+/// `.bgra8Unorm` for HEVC (eliminates RGBA→BGRA swizzle copy).
 public final class MJCOffscreenRender {
     private let device: MTLDevice
     private let commandQueue: MTLCommandQueue
     private let pipelineState: MTLRenderPipelineState
     private let depthState: MTLDepthStencilState
+    private let pixelFormat: MTLPixelFormat
 
     public private(set) var width: Int
     public private(set) var height: Int
@@ -138,10 +141,12 @@ public final class MJCOffscreenRender {
 
     // MARK: - Initialization
 
-    public init(device: MTLDevice, width: Int, height: Int) throws {
+    public init(device: MTLDevice, width: Int, height: Int,
+                pixelFormat: MTLPixelFormat = .rgba8Unorm) throws {
         self.device = device
         self.width = width
         self.height = height
+        self.pixelFormat = pixelFormat
 
         guard let queue = device.makeCommandQueue() else {
             throw MJCOffscreenRenderError.initFailed("Command queue creation failed")
@@ -174,12 +179,12 @@ public final class MJCOffscreenRender {
         vertexDescriptor.layouts[0].stride = MemoryLayout<MJCOffscreenVertex>.stride
         vertexDescriptor.layouts[0].stepFunction = .perVertex
 
-        // Pipeline — use .rgba8Unorm for direct RGBA output (no B↔R swizzle needed)
+        // Pipeline — pixel format is configurable (.rgba8Unorm or .bgra8Unorm)
         let pipelineDesc = MTLRenderPipelineDescriptor()
         pipelineDesc.vertexFunction = vertexFunc
         pipelineDesc.fragmentFunction = fragmentFunc
         pipelineDesc.vertexDescriptor = vertexDescriptor
-        pipelineDesc.colorAttachments[0].pixelFormat = .rgba8Unorm
+        pipelineDesc.colorAttachments[0].pixelFormat = pixelFormat
         pipelineDesc.depthAttachmentPixelFormat = .depth32Float
         pipelineDesc.colorAttachments[0].isBlendingEnabled = true
         pipelineDesc.colorAttachments[0].sourceRGBBlendFactor = .sourceAlpha
@@ -198,9 +203,9 @@ public final class MJCOffscreenRender {
         }
         self.depthState = ds
 
-        // Placeholder texture (1x1 white RGBA)
+        // Placeholder texture (1x1 white — identical bytes in RGBA and BGRA)
         let placeholderDesc = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .rgba8Unorm, width: 1, height: 1, mipmapped: false)
+            pixelFormat: pixelFormat, width: 1, height: 1, mipmapped: false)
         placeholderDesc.usage = .shaderRead
         guard let placeholder = device.makeTexture(descriptor: placeholderDesc) else {
             throw MJCOffscreenRenderError.initFailed("Placeholder texture failed")
@@ -253,7 +258,7 @@ public final class MJCOffscreenRender {
 
         // Create a 2D texture view over the buffer's linear memory.
         let colorDesc = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .rgba8Unorm, width: width, height: height, mipmapped: false)
+            pixelFormat: pixelFormat, width: width, height: height, mipmapped: false)
         colorDesc.usage = [.renderTarget, .shaderRead]
         colorDesc.storageMode = .shared
         guard let color = buffer.makeTexture(

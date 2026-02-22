@@ -52,6 +52,7 @@ objc_library(
 swift_library(
     name = "video",
     srcs = [
+        "video/mjc_hevc_encoder.swift",
         "video/mjc_jpeg_encoder.swift",
         "video/mjc_offscreen_render.swift",
         "video/mjc_video_encoder.swift",

@@ -1,8 +1,9 @@
 // mjc_video_rtp_transport.h
-// RTP video transport (RFC 3550) with JPEG payload (RFC 2435)
+// RTP video transport (RFC 3550) with HEVC payload (RFC 7798)
 //
-// Sends JPEG-encoded frames as RTP packets with proper sequencing,
-// timestamping (90kHz clock), and RFC 2435 JPEG payload format.
+// Accepts H.265/HEVC in HVCC format (4-byte length-prefixed NAL units)
+// and sends as RTP packets with proper sequencing, timestamping (90kHz clock),
+// and RFC 7798 HEVC payload format.
 // Compatible with VLC media player and other standard RTP receivers.
 //
 // Used in conjunction with the RTSP server for session negotiation.
@@ -26,11 +27,12 @@
 #define MJC_VIDEO_SWIFT_IMMORTAL_REFERENCE
 #endif
 
-/// RTP video transport with JPEG payload (RFC 2435).
+/// RTP video transport with HEVC payload (RFC 7798).
 ///
-/// Sends JPEG frames over RTP/UDP. Each JPEG frame is split into
-/// RTP packets with proper JPEG payload headers. The 90kHz RTP
-/// timestamp clock is derived from simulation time.
+/// Accepts HVCC format (4-byte length-prefixed NAL units) and sends over
+/// RTP/UDP. NAL units are sent as single NAL unit packets or fragmented
+/// using FU (Fragmentation Units).
+/// The 90kHz RTP timestamp clock is derived from simulation time.
 ///
 /// Thread safety:
 ///   - Start()/Stop(): call from any thread, not concurrent with SendFrame
@@ -67,11 +69,9 @@ public:
 private:
     MJVideoRTPTransport();
 
-    /// Extract JPEG quantization tables from JFIF data.
-    /// Returns offset to start of scan data (after SOS marker).
-    static size_t FindJPEGScanData(const uint8_t* data, size_t size,
-                                    std::vector<uint8_t>& luma_qt,
-                                    std::vector<uint8_t>& chroma_qt);
+    /// Send a single RTP packet to all clients.
+    void SendPacket(const uint8_t* data, size_t size,
+                    const std::vector<struct sockaddr_in>& clients);
 
     int socket_fd_;
     uint16_t port_;

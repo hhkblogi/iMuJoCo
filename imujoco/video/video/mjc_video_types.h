@@ -19,6 +19,7 @@ enum class MJVideoFormat : uint8_t {
     RGB8     = 1,  ///< 3 bytes/pixel, uncompressed
     DEPTH32F = 2,  ///< 4 bytes/pixel, 32-bit float depth
     JPEG     = 3,  ///< Variable length, JPEG-compressed
+    HEVC     = 4,  ///< Variable length, H.265/HEVC Annex B
 };
 
 // MARK: - Video Frame Descriptor (40 bytes, packed)

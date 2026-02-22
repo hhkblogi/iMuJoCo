@@ -15,7 +15,7 @@
 
 #include <os/log.h>
 
-static constexpr uint8_t kJPEGPayloadType = 26;
+static constexpr uint8_t kHEVCPayloadType = 96;
 
 // MARK: - Factory Methods
 
@@ -355,8 +355,8 @@ std::string MJVideoRTSPServer::GenerateSDP(const std::string& uri) const {
     sdp << "s=iMuJoCo Simulation\r\n";
     sdp << "c=IN IP4 0.0.0.0\r\n";
     sdp << "t=0 0\r\n";
-    sdp << "m=video " << rtp_port << " RTP/AVP " << static_cast<int>(kJPEGPayloadType) << "\r\n";
-    sdp << "a=rtpmap:" << static_cast<int>(kJPEGPayloadType) << " JPEG/90000\r\n";
+    sdp << "m=video " << rtp_port << " RTP/AVP " << static_cast<int>(kHEVCPayloadType) << "\r\n";
+    sdp << "a=rtpmap:" << static_cast<int>(kHEVCPayloadType) << " H265/90000\r\n";
     sdp << "a=framerate:30\r\n";
     sdp << "a=control:" << uri << "\r\n";
     return sdp.str();

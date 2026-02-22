@@ -112,7 +112,7 @@ public final class MJCVideoStreamer {
             self.mjpegServer = nil
 
         case .rtpRTSP:
-            self.encoder = MJCJPEGEncoder(quality: config.jpegQuality)
+            self.encoder = MJCHEVCEncoder(width: config.width, height: config.height)
             self.udpTransport = nil
             let rtp = MJVideoRTPTransport.create()
             self.rtpTransport = rtp
@@ -269,8 +269,13 @@ public final class MJCVideoStreamer {
         }
 
         do {
+            // HEVC path uses BGRA to eliminate the RGBA→BGRA swizzle copy;
+            // JPEG/raw paths use RGBA (default).
+            let pixelFormat: MTLPixelFormat = (config.transportMode == .rtpRTSP)
+                ? .bgra8Unorm : .rgba8Unorm
             offscreenRender = try MJCOffscreenRender(
-                device: device, width: config.width, height: config.height)
+                device: device, width: config.width, height: config.height,
+                pixelFormat: pixelFormat)
         } catch {
             logger.error("Failed to create offscreen renderer: \(error.localizedDescription)")
             _running.store(false, ordering: .releasing)

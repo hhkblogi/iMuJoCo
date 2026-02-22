@@ -1,11 +1,14 @@
 // mjc_video_rtp_transport.mm
-// RTP transport implementation with RFC 2435 JPEG payload
+// RTP transport implementation with RFC 7798 HEVC payload
+//
+// Input: HVCC format (4-byte big-endian length prefix + NAL unit data)
 //
 // RTP packet format (RFC 3550):
 //   [12-byte RTP header][payload]
 //
-// JPEG payload format (RFC 2435):
-//   [8-byte JPEG header][optional restart marker header][optional quantization header][JPEG data]
+// HEVC payload format (RFC 7798):
+//   Single NAL Unit Packet: [RTP header][NAL unit]
+//   Fragmentation Unit (FU): [RTP header][PayloadHdr(2)][FU header(1)][FU payload]
 
 #include "mjc_video_rtp_transport.h"
 
@@ -18,11 +21,12 @@
 #include <os/log.h>
 
 static constexpr size_t kRTPHeaderSize = 12;
-static constexpr size_t kJPEGHeaderSize = 8;
-static constexpr size_t kQuantHeaderSize = 4;  // MBZ + MBZ + Length(16)
 static constexpr size_t kMaxRTPPayloadSize = 1400; // Max RTP payload bytes (below typical 1500 MTU)
 static constexpr uint8_t kRTPVersion = 2;
-static constexpr uint8_t kJPEGPayloadType = 26;
+static constexpr uint8_t kHEVCPayloadType = 96;  // Dynamic payload type for H.265
+static constexpr uint8_t kHEVCFUType = 49;        // NAL unit type for Fragmentation Unit
+
+// Input format: HVCC (4-byte big-endian length prefix + NAL unit data)
 
 // MARK: - Factory Methods
 
@@ -76,9 +80,9 @@ bool MJVideoRTPTransport::Start(uint16_t port) {
 
     port_ = port;
     active_.store(true, std::memory_order_release);
-    packet_buffer_.reserve(kRTPHeaderSize + kJPEGHeaderSize + 128 + kMaxRTPPayloadSize);
+    packet_buffer_.reserve(kRTPHeaderSize + kMaxRTPPayloadSize);
 
-    os_log_info(OS_LOG_DEFAULT, "RTP: Transport started on port %u", port);
+    os_log_info(OS_LOG_DEFAULT, "RTP: HEVC transport started on port %u", port);
     return true;
 }
 
@@ -136,7 +140,20 @@ bool MJVideoRTPTransport::IsActive() const {
     return active_.load(std::memory_order_acquire);
 }
 
-// MARK: - SendFrame (RFC 2435 JPEG Payload)
+// MARK: - SendPacket Helper
+
+void MJVideoRTPTransport::SendPacket(const uint8_t* data, size_t size,
+                                      const std::vector<struct sockaddr_in>& clients) {
+    for (const auto& client : clients) {
+        ssize_t sent = sendto(socket_fd_, data, size, 0,
+               reinterpret_cast<const struct sockaddr*>(&client), sizeof(client));
+        if (sent < 0) {
+            os_log_error(OS_LOG_DEFAULT, "RTP: sendto() failed: %{errno}d", errno);
+        }
+    }
+}
+
+// MARK: - SendFrame (RFC 7798 HEVC Payload)
 
 bool MJVideoRTPTransport::SendFrame(const MJVideoFrameDesc& desc,
                                      const uint8_t* data, size_t size) {
@@ -150,213 +167,155 @@ bool MJVideoRTPTransport::SendFrame(const MJVideoFrameDesc& desc,
         clients = clients_;
     }
 
-    // RFC 2435 requires JPEG data. If format is not JPEG, skip.
-    if (desc.format != static_cast<uint8_t>(MJVideoFormat::JPEG)) {
+    // Expect HEVC HVCC data (4-byte length-prefixed NAL units)
+    if (desc.format != static_cast<uint8_t>(MJVideoFormat::HEVC)) {
         return false;
-    }
-
-    // Extract quantization tables and find scan data offset
-    std::vector<uint8_t> luma_qt, chroma_qt;
-    size_t scan_offset = FindJPEGScanData(data, size, luma_qt, chroma_qt);
-    if (scan_offset == 0 || scan_offset >= size) {
-        // Couldn't parse JPEG — send raw scan data without quant tables
-        scan_offset = 0;
     }
 
     // RTP timestamp: 90kHz clock from simulation time
     uint32_t rtp_timestamp = static_cast<uint32_t>(desc.simulation_time * 90000.0);
 
-    // RFC 2435 type field determines chroma subsampling and restart markers:
-    //   Type 0: YCbCr 4:2:0 baseline (matches CoreGraphics JPEG output)
-    //   Type 1: YCbCr 4:2:2 baseline
-    //   +64: restart marker header present
-    // CGImageDestination outputs 4:2:0 by default, no restart markers → type 0
-    // Q >= 128 means quantization table header is present (independent of type)
-    uint8_t jpeg_type = 0;
-    uint8_t jpeg_q = 255;  // Q=255 means quantization tables are present in first packet
-
-    // Width/height in 8-pixel blocks (RFC 2435 §3.1.4-5)
-    // RFC 2435 uses uint8_t, limiting to 2040×2040 pixels (255 * 8).
-    // Dimensions must be multiples of 8; non-multiples are rounded down.
-    if (desc.width > 2040 || desc.height > 2040 || desc.width == 0 || desc.height == 0) {
-        return false;
+    // Count NAL units for marker bit (O(k) where k = NAL count, not O(n))
+    size_t nal_count = 0;
+    {
+        size_t o = 0;
+        while (o + 4 <= size) {
+            uint32_t l;
+            std::memcpy(&l, data + o, 4);
+            l = ntohl(l);
+            if (o + 4 + l > size) break;
+            o += 4 + l;
+            nal_count++;
+        }
     }
-    uint8_t width_blocks = static_cast<uint8_t>(desc.width / 8);
-    uint8_t height_blocks = static_cast<uint8_t>(desc.height / 8);
 
-    // Scan data to packetize (skip JFIF headers, send entropy-coded data)
-    const uint8_t* scan_data = data + scan_offset;
-    size_t scan_size = size - scan_offset;
+    if (nal_count == 0) return false;
 
-    // Packetize into RTP packets
+    // One-time diagnostic log
+    static bool logged_first_frame = false;
+    if (!logged_first_frame) {
+        logged_first_frame = true;
+        os_log_info(OS_LOG_DEFAULT,
+            "RTP: First HEVC frame (HVCC): total_size=%zu nal_units=%zu",
+            size, nal_count);
+    }
+
+    // Parse and send each NAL unit inline (no vector allocation)
     size_t offset = 0;
-    bool first_packet = true;
+    size_t nal_index = 0;
+    while (offset + 4 <= size) {
+        // Read 4-byte big-endian NAL length
+        uint32_t nal_length;
+        std::memcpy(&nal_length, data + offset, 4);
+        nal_length = ntohl(nal_length);
+        offset += 4;
+        if (offset + nal_length > size) break;
 
-    while (offset < scan_size) {
-        // Calculate how much JPEG data fits in this packet
-        size_t header_overhead = kRTPHeaderSize + kJPEGHeaderSize;
-        if (first_packet && jpeg_q >= 128) {
-            // First packet includes quantization table header
-            header_overhead += kQuantHeaderSize + luma_qt.size() + chroma_qt.size();
-        }
+        const uint8_t* nal_data = data + offset;
+        size_t nal_size = nal_length;
+        offset += nal_length;
+        nal_index++;
+        bool is_last_nal = (nal_index == nal_count);
 
-        size_t max_jpeg_data = kMaxRTPPayloadSize - (header_overhead - kRTPHeaderSize);
-        size_t chunk_size = std::min(max_jpeg_data, scan_size - offset);
-        bool last_packet = (offset + chunk_size >= scan_size);
+        if (nal_size < 2) continue;  // HEVC NAL header is 2 bytes minimum
 
-        // Build packet
-        packet_buffer_.clear();
-        packet_buffer_.resize(header_overhead + chunk_size);
-        uint8_t* pkt = packet_buffer_.data();
+        // Read HEVC NAL unit header (2 bytes)
+        // Byte 0: forbidden(1) | type(6) | layerID_hi(1)
+        // Byte 1: layerID_lo(5) | tid(3)
+        uint8_t nal_byte0 = nal_data[0];
+        uint8_t nal_byte1 = nal_data[1];
 
-        // RTP header (12 bytes)
-        pkt[0] = (kRTPVersion << 6);  // V=2, P=0, X=0, CC=0
-        pkt[1] = kJPEGPayloadType | (last_packet ? 0x80 : 0);  // M bit on last packet
-        pkt[2] = static_cast<uint8_t>(sequence_number_ >> 8);
-        pkt[3] = static_cast<uint8_t>(sequence_number_ & 0xFF);
-        // Timestamp (big-endian)
-        pkt[4] = static_cast<uint8_t>(rtp_timestamp >> 24);
-        pkt[5] = static_cast<uint8_t>(rtp_timestamp >> 16);
-        pkt[6] = static_cast<uint8_t>(rtp_timestamp >> 8);
-        pkt[7] = static_cast<uint8_t>(rtp_timestamp);
-        // SSRC (big-endian)
-        pkt[8]  = static_cast<uint8_t>(ssrc_ >> 24);
-        pkt[9]  = static_cast<uint8_t>(ssrc_ >> 16);
-        pkt[10] = static_cast<uint8_t>(ssrc_ >> 8);
-        pkt[11] = static_cast<uint8_t>(ssrc_);
+        if (nal_size <= kMaxRTPPayloadSize) {
+            // Single NAL Unit Packet: fits in one RTP packet
+            packet_buffer_.resize(kRTPHeaderSize + nal_size);
+            uint8_t* pkt = packet_buffer_.data();
 
-        // JPEG header (8 bytes, RFC 2435 §3.1)
-        size_t hdr_off = kRTPHeaderSize;
-        // Type-specific: 0
-        pkt[hdr_off + 0] = 0;
-        // Fragment offset (24-bit big-endian)
-        pkt[hdr_off + 1] = static_cast<uint8_t>((offset >> 16) & 0xFF);
-        pkt[hdr_off + 2] = static_cast<uint8_t>((offset >> 8) & 0xFF);
-        pkt[hdr_off + 3] = static_cast<uint8_t>(offset & 0xFF);
-        // Type
-        pkt[hdr_off + 4] = jpeg_type;
-        // Q
-        pkt[hdr_off + 5] = jpeg_q;
-        // Width (in 8-pixel blocks)
-        pkt[hdr_off + 6] = width_blocks;
-        // Height (in 8-pixel blocks)
-        pkt[hdr_off + 7] = height_blocks;
-        hdr_off += kJPEGHeaderSize;
+            // RTP header (12 bytes)
+            pkt[0] = (kRTPVersion << 6);  // V=2, P=0, X=0, CC=0
+            pkt[1] = kHEVCPayloadType | (is_last_nal ? 0x80 : 0);  // M bit on last NAL of frame
+            pkt[2] = static_cast<uint8_t>(sequence_number_ >> 8);
+            pkt[3] = static_cast<uint8_t>(sequence_number_ & 0xFF);
+            pkt[4] = static_cast<uint8_t>(rtp_timestamp >> 24);
+            pkt[5] = static_cast<uint8_t>(rtp_timestamp >> 16);
+            pkt[6] = static_cast<uint8_t>(rtp_timestamp >> 8);
+            pkt[7] = static_cast<uint8_t>(rtp_timestamp);
+            pkt[8]  = static_cast<uint8_t>(ssrc_ >> 24);
+            pkt[9]  = static_cast<uint8_t>(ssrc_ >> 16);
+            pkt[10] = static_cast<uint8_t>(ssrc_ >> 8);
+            pkt[11] = static_cast<uint8_t>(ssrc_);
 
-        // Quantization table header (first packet only, Q >= 128)
-        if (first_packet && jpeg_q >= 128) {
-            uint16_t qt_len = static_cast<uint16_t>(luma_qt.size() + chroma_qt.size());
-            pkt[hdr_off + 0] = 0;  // MBZ
-            pkt[hdr_off + 1] = 0;  // Precision (0 = 8-bit)
-            pkt[hdr_off + 2] = static_cast<uint8_t>(qt_len >> 8);
-            pkt[hdr_off + 3] = static_cast<uint8_t>(qt_len & 0xFF);
-            hdr_off += kQuantHeaderSize;
+            // Payload: raw NAL unit (including its 2-byte header)
+            std::memcpy(pkt + kRTPHeaderSize, nal_data, nal_size);
 
-            // Copy quantization tables
-            if (!luma_qt.empty()) {
-                std::memcpy(pkt + hdr_off, luma_qt.data(), luma_qt.size());
-                hdr_off += luma_qt.size();
+            SendPacket(packet_buffer_.data(), packet_buffer_.size(), clients);
+            sequence_number_++;
+
+        } else {
+            // Fragmentation Unit (FU): NAL too large for single packet
+            // RFC 7798 §4.4.3
+            //
+            // PayloadHdr (2 bytes): same as NAL header but Type=49 (FU)
+            //   Byte 0: forbidden(1) | Type=49(6) | layerID_hi(1)
+            //   Byte 1: layerID_lo(5) | tid(3)
+            // FU header (1 byte): S(1) | E(1) | FuType(6)
+
+            uint8_t nal_type = (nal_byte0 >> 1) & 0x3F;
+
+            // Build PayloadHdr: copy original layerID and TID, set type to FU (49)
+            uint8_t fu_indicator0 = (nal_byte0 & 0x81) | (kHEVCFUType << 1);  // keep F and layerID_hi, set type=49
+            uint8_t fu_indicator1 = nal_byte1;  // keep layerID_lo and TID
+
+            // Fragment the NAL unit body (skip 2-byte NAL header)
+            const uint8_t* frag_data = nal_data + 2;
+            size_t frag_remaining = nal_size - 2;
+
+            // Each FU packet has: RTP(12) + PayloadHdr(2) + FU_header(1) + payload
+            size_t max_frag_payload = kMaxRTPPayloadSize - 3;  // minus PayloadHdr + FU header
+            bool first_fragment = true;
+
+            while (frag_remaining > 0) {
+                size_t chunk = std::min(max_frag_payload, frag_remaining);
+                bool last_fragment = (chunk >= frag_remaining);
+
+                packet_buffer_.resize(kRTPHeaderSize + 3 + chunk);
+                uint8_t* pkt = packet_buffer_.data();
+
+                // RTP header
+                pkt[0] = (kRTPVersion << 6);
+                pkt[1] = kHEVCPayloadType | ((is_last_nal && last_fragment) ? 0x80 : 0);
+                pkt[2] = static_cast<uint8_t>(sequence_number_ >> 8);
+                pkt[3] = static_cast<uint8_t>(sequence_number_ & 0xFF);
+                pkt[4] = static_cast<uint8_t>(rtp_timestamp >> 24);
+                pkt[5] = static_cast<uint8_t>(rtp_timestamp >> 16);
+                pkt[6] = static_cast<uint8_t>(rtp_timestamp >> 8);
+                pkt[7] = static_cast<uint8_t>(rtp_timestamp);
+                pkt[8]  = static_cast<uint8_t>(ssrc_ >> 24);
+                pkt[9]  = static_cast<uint8_t>(ssrc_ >> 16);
+                pkt[10] = static_cast<uint8_t>(ssrc_ >> 8);
+                pkt[11] = static_cast<uint8_t>(ssrc_);
+
+                // PayloadHdr (2 bytes)
+                pkt[kRTPHeaderSize]     = fu_indicator0;
+                pkt[kRTPHeaderSize + 1] = fu_indicator1;
+
+                // FU header (1 byte): S | E | FuType
+                uint8_t fu_header = nal_type;  // lower 6 bits = original NAL type
+                if (first_fragment) fu_header |= 0x80;  // S bit
+                if (last_fragment)  fu_header |= 0x40;  // E bit
+                pkt[kRTPHeaderSize + 2] = fu_header;
+
+                // FU payload
+                std::memcpy(pkt + kRTPHeaderSize + 3, frag_data, chunk);
+
+                SendPacket(packet_buffer_.data(), packet_buffer_.size(), clients);
+                sequence_number_++;
+
+                frag_data += chunk;
+                frag_remaining -= chunk;
+                first_fragment = false;
             }
-            if (!chroma_qt.empty()) {
-                std::memcpy(pkt + hdr_off, chroma_qt.data(), chroma_qt.size());
-                hdr_off += chroma_qt.size();
-            }
-            first_packet = false;
         }
-
-        // Copy JPEG scan data
-        std::memcpy(pkt + hdr_off, scan_data + offset, chunk_size);
-
-        // Send to all clients
-        for (const auto& client : clients) {
-            ssize_t sent = sendto(socket_fd_, packet_buffer_.data(), packet_buffer_.size(), 0,
-                   reinterpret_cast<const struct sockaddr*>(&client), sizeof(client));
-            if (sent < 0) {
-                os_log_error(OS_LOG_DEFAULT, "RTP: sendto() failed: %{errno}d", errno);
-            }
-        }
-
-        // uint16_t wraps 65535→0 naturally, which is correct per RFC 3550 §5.1
-        sequence_number_++;
-        offset += chunk_size;
     }
 
     return true;
 }
-
-// MARK: - JPEG Parsing
-
-size_t MJVideoRTPTransport::FindJPEGScanData(const uint8_t* data, size_t size,
-                                               std::vector<uint8_t>& luma_qt,
-                                               std::vector<uint8_t>& chroma_qt) {
-    // Parse JFIF markers to extract quantization tables and find SOS marker
-    luma_qt.clear();
-    chroma_qt.clear();
-
-    if (size < 2 || data[0] != 0xFF || data[1] != 0xD8) {
-        return 0;  // Not a valid JPEG
-    }
-
-    size_t pos = 2;
-    int qt_count = 0;
-
-    while (pos + 1 < size) {
-        if (data[pos] != 0xFF) {
-            pos++;
-            continue;
-        }
-
-        uint8_t marker = data[pos + 1];
-
-        // SOS (Start of Scan) — data follows after marker + length + header
-        if (marker == 0xDA) {
-            if (pos + 3 < size) {
-                uint16_t sos_len = (static_cast<uint16_t>(data[pos + 2]) << 8) | data[pos + 3];
-                return pos + 2 + sos_len;  // Offset to start of entropy-coded data
-            }
-            return 0;
-        }
-
-        // DQT (Define Quantization Table)
-        if (marker == 0xDB) {
-            if (pos + 3 >= size) break;
-            uint16_t seg_len = (static_cast<uint16_t>(data[pos + 2]) << 8) | data[pos + 3];
-            size_t seg_end = pos + 2 + seg_len;
-            if (seg_end > size) break;  // Bounds check: segment must fit in buffer
-            size_t tpos = pos + 4;  // Skip marker + length
-
-            while (tpos < seg_end) {
-                uint8_t pq_tq = data[tpos];  // precision(4) | table_id(4)
-                uint8_t precision = (pq_tq >> 4) & 0x0F;
-                size_t table_size = (precision == 0) ? 64 : 128;
-                tpos++;
-
-                if (tpos + table_size > size) break;
-
-                if (qt_count == 0) {
-                    luma_qt.assign(data + tpos, data + tpos + table_size);
-                } else {
-                    chroma_qt.assign(data + tpos, data + tpos + table_size);
-                }
-                qt_count++;
-                tpos += table_size;
-            }
-
-            pos = seg_end;
-            continue;
-        }
-
-        // Skip other markers with length
-        if (marker >= 0xC0 && marker != 0xFF) {
-            if (pos + 3 >= size) break;
-            uint16_t seg_len = (static_cast<uint16_t>(data[pos + 2]) << 8) | data[pos + 3];
-            if (pos + 2 + seg_len > size) break;  // Bounds check
-            pos = pos + 2 + seg_len;
-        } else {
-            pos += 2;
-        }
-    }
-
-    return 0;
-}
-
