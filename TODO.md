@@ -42,6 +42,21 @@ RFC 7798 RTP payload format. Zero-copy pipeline from GPU render to encoder input
 
 Play with: `ffplay -fflags nobuffer rtsp://<device-ip>:8554/camera0`
 
+## QUIC Transport — Transmission Latency Measurement (Future Work)
+
+The QUIC receiver currently tracks decode latency but not network transmission
+latency. `QUICFrameHeader.simulationTime` is MuJoCo model time, not wall-clock.
+
+Options:
+
+- **Wall-clock timestamp in frame header** — server writes
+  `ProcessInfo.processInfo.systemUptime` (or `mach_absolute_time`); receiver
+  computes `receiveTime - serverTimestamp`. Requires NTP-level clock sync
+  (works well on same machine or LAN with NTP).
+- **Round-trip ping** — client embeds a timestamp in a lightweight ping message,
+  server echoes it back, client computes RTT/2. No clock sync needed but only
+  measures round-trip, not one-way.
+
 ## WebRTC Transport (Future Work)
 
 MJPEG-over-HTTP has 1-3s perceived latency due to client-side buffering in

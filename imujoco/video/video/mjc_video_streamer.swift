@@ -33,6 +33,8 @@ public enum MJCVideoTransportMode {
     case rtpRTSP
     /// MJPEG over HTTP (for VLC/browsers, simpler and more reliable than RTP)
     case mjpegHTTP
+    /// HEVC over QUIC (Network.framework, for custom macOS receiver, sub-0.5s latency)
+    case hevcQUIC
 }
 
 /// Configuration for the video streamer.
@@ -82,6 +84,7 @@ public final class MJCVideoStreamer {
     private let rtpTransport: MJVideoRTPTransport?
     private let rtspServer: MJVideoRTSPServer?
     private let mjpegServer: MJVideoMJPEGServer?
+    private let quicTransport: MJVideoQUICTransport?
 
     // Capture thread
     private var captureThread: Thread?
@@ -110,6 +113,7 @@ public final class MJCVideoStreamer {
             self.rtpTransport = nil
             self.rtspServer = nil
             self.mjpegServer = nil
+            self.quicTransport = nil
 
         case .rtpRTSP:
             self.encoder = MJCHEVCEncoder(width: config.width, height: config.height)
@@ -118,6 +122,7 @@ public final class MJCVideoStreamer {
             self.rtpTransport = rtp
             self.rtspServer = MJVideoRTSPServer.create(rtp)
             self.mjpegServer = nil
+            self.quicTransport = nil
 
         case .mjpegHTTP:
             self.encoder = MJCJPEGEncoder(quality: config.jpegQuality)
@@ -125,6 +130,15 @@ public final class MJCVideoStreamer {
             self.rtpTransport = nil
             self.rtspServer = nil
             self.mjpegServer = MJVideoMJPEGServer.create()
+            self.quicTransport = nil
+
+        case .hevcQUIC:
+            self.encoder = MJCHEVCEncoder(width: config.width, height: config.height)
+            self.udpTransport = nil
+            self.rtpTransport = nil
+            self.rtspServer = nil
+            self.mjpegServer = nil
+            self.quicTransport = MJVideoQUICTransport()
         }
     }
 
@@ -136,6 +150,7 @@ public final class MJCVideoStreamer {
         if let rtsp = rtspServer { MJVideoRTSPServer.destroy(rtsp) }
         if let rtp = rtpTransport { MJVideoRTPTransport.destroy(rtp) }
         if let mjpeg = mjpegServer { MJVideoMJPEGServer.destroy(mjpeg) }
+        // QUIC transport is a Swift class — ARC handles cleanup after stop()
     }
 
     // MARK: - Start / Stop
@@ -171,6 +186,13 @@ public final class MJCVideoStreamer {
                 logger.error("Failed to start MJPEG server on port \(self.config.port)")
                 return
             }
+
+        case .hevcQUIC:
+            guard let quic = quicTransport,
+                  quic.start(port: config.port, width: config.width, height: config.height) else {
+                logger.error("Failed to start QUIC transport on port \(self.config.port)")
+                return
+            }
         }
 
         _running.store(true, ordering: .releasing)
@@ -189,6 +211,7 @@ public final class MJCVideoStreamer {
         case .rawUDP: modeStr = "raw UDP"
         case .rtpRTSP: modeStr = "RTP/RTSP"
         case .mjpegHTTP: modeStr = "MJPEG/HTTP"
+        case .hevcQUIC: modeStr = "HEVC/QUIC"
         }
         logger.info("Video streamer started: \(self.config.width)x\(self.config.height) @ \(self.config.targetFPS)fps [\(modeStr)] on port \(self.config.port)")
     }
@@ -215,6 +238,7 @@ public final class MJCVideoStreamer {
         rtspServer?.Stop()
         rtpTransport?.Stop()
         udpTransport?.Stop()
+        quicTransport?.stop()
         logger.info("Video streamer stopped")
     }
 
@@ -253,6 +277,8 @@ public final class MJCVideoStreamer {
             return rtpTransport?.HasReceiver() ?? false
         case .mjpegHTTP:
             return mjpegServer?.HasReceiver() ?? false
+        case .hevcQUIC:
+            return quicTransport?.hasReceiver ?? false
         }
     }
 
@@ -267,9 +293,10 @@ public final class MJCVideoStreamer {
         }
 
         do {
-            // HEVC path uses BGRA to eliminate the RGBA→BGRA swizzle copy;
+            // HEVC paths use BGRA to eliminate the RGBA→BGRA swizzle copy;
             // JPEG/raw paths use RGBA (default).
-            let pixelFormat: MTLPixelFormat = (config.transportMode == .rtpRTSP)
+            let pixelFormat: MTLPixelFormat =
+                (config.transportMode == .rtpRTSP || config.transportMode == .hevcQUIC)
                 ? .bgra8Unorm : .rgba8Unorm
             offscreenRender = try MJCOffscreenRender(
                 device: device, width: config.width, height: config.height,
@@ -361,17 +388,24 @@ public final class MJCVideoStreamer {
         }
 
         // Send via active transport
-        encodedData.withUnsafeBytes { ptr in
-            let dataPtr = ptr.baseAddress!.assumingMemoryBound(to: UInt8.self)
-            let count = encodedData.count
-            switch config.transportMode {
-            case .rawUDP:
-                _ = udpTransport?.SendFrame(desc, dataPtr, count)
-            case .rtpRTSP:
-                _ = rtpTransport?.SendFrame(desc, dataPtr, count)
-            case .mjpegHTTP:
-                _ = mjpegServer?.SendJPEG(dataPtr, count)
+        switch config.transportMode {
+        case .rawUDP:
+            encodedData.withUnsafeBytes { ptr in
+                _ = udpTransport?.SendFrame(desc, ptr.baseAddress!.assumingMemoryBound(to: UInt8.self), encodedData.count)
             }
+        case .rtpRTSP:
+            encodedData.withUnsafeBytes { ptr in
+                _ = rtpTransport?.SendFrame(desc, ptr.baseAddress!.assumingMemoryBound(to: UInt8.self), encodedData.count)
+            }
+        case .mjpegHTTP:
+            encodedData.withUnsafeBytes { ptr in
+                _ = mjpegServer?.SendJPEG(ptr.baseAddress!.assumingMemoryBound(to: UInt8.self), encodedData.count)
+            }
+        case .hevcQUIC:
+            quicTransport?.sendFrame(
+                frameNumber: frameNumber,
+                simulationTime: desc.simulation_time,
+                hevcData: encodedData)
         }
 
         // Update FPS measurement (once per second)

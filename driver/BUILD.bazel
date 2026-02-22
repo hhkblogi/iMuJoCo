@@ -1,5 +1,7 @@
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 load("@rules_python//python:defs.bzl", "py_binary")
+load("@build_bazel_rules_swift//swift:swift.bzl", "swift_library")
+load("@rules_apple//apple:macos.bzl", "macos_application")
 
 # ============================================================================
 # Core driver library
@@ -130,4 +132,22 @@ py_binary(
     srcs = ["examples/unitree_g1_driver.py"],
     main = "examples/unitree_g1_driver.py",
     deps = ["//driver/imujoco_driver"],
+)
+
+# ============================================================================
+# QUIC Video Receiver (macOS SwiftUI app)
+# ============================================================================
+
+swift_library(
+    name = "quic_receiver_lib",
+    srcs = glob(["swift/*.swift"]),
+    module_name = "QuicReceiver",
+)
+
+macos_application(
+    name = "quic_receiver",
+    bundle_id = "com.imujoco.quic-receiver",
+    infoplists = ["swift/Info.plist"],
+    minimum_os_version = "26.0",
+    deps = [":quic_receiver_lib"],
 )

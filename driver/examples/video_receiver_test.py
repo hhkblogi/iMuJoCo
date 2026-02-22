@@ -99,7 +99,7 @@ class ReassemblySlot:
 def main():
     parser = argparse.ArgumentParser(description="iMuJoCo video frame receiver")
     parser.add_argument("--host", default="127.0.0.1", help="Simulation host")
-    parser.add_argument("--port", type=int, default=9100, help="Video port")
+    parser.add_argument("--port", type=int, default=9101, help="Video port (rawUDP = cameraPort+1)")
     parser.add_argument("--save-first", action="store_true", help="Save first frame as raw file")
     args = parser.parse_args()
 

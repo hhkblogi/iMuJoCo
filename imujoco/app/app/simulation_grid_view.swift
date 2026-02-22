@@ -469,7 +469,7 @@ struct SettingsView: View {
     @AppStorage("caffeineMode") private var caffeineMode: Int = 1  // 0=off, 1=half, 2=full
     @AppStorage("tripleClickAction") private var tripleClickAction: Int = 0  // 0=grid/fullscreen, 1=lock/unlock
     @AppStorage("showStatsBar") private var showStatsBar: Bool = true
-    @AppStorage("videoTransport") private var videoTransport: Int = 0  // 0=MJPEG/HTTP, 1=RTP/RTSP
+    @AppStorage("videoTransport") private var videoTransport: Int = 0  // 0=MJPEG/HTTP, 1=RTP/RTSP, 2=HEVC/QUIC
     @State private var showCaffeineInfo = false
     @State private var showVideoTransportInfo = false
 
@@ -667,11 +667,12 @@ struct SettingsView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("**MJPEG/HTTP** — Works with VLC, ffplay, browsers. Simpler, more reliable.")
                                     Text("**HEVC/RTSP** — Works with VLC, ffplay. Hardware-encoded H.265, very low bandwidth.")
+                                    Text("**HEVC/QUIC** — Custom receiver app. Sub-0.5s latency, zero client-side buffering.")
                                 }
                                 .fixedSize(horizontal: false, vertical: true)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                                .frame(width: 260)
+                                .frame(width: 280)
                                 .padding()
                                 .presentationCompactAdaptation(.popover)
                             }
@@ -679,7 +680,7 @@ struct SettingsView: View {
                         }
                         HStack {
                             ForEach(
-                                [(0, "MJPEG/HTTP", "photo.on.rectangle"), (1, "HEVC/RTSP", "video.fill")],
+                                [(0, "MJPEG/HTTP", "photo.on.rectangle"), (1, "HEVC/RTSP", "video.fill"), (2, "HEVC/QUIC", "bolt.fill")],
                                 id: \.0
                             ) { tag, label, icon in
                                 Button(action: { videoTransport = tag }) {
