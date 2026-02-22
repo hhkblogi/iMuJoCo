@@ -2,12 +2,21 @@ import SwiftUI
 #if canImport(UIKit)
 import UIKit
 #endif
+#if canImport(BackgroundTasks)
+import BackgroundTasks
+#endif
 
 @main
 struct MuJoCoApp: App {
     @State private var gridManager = SimulationGridManager()
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("caffeineMode") private var caffeineMode: Int = 1  // 0=off, 1=half, 2=full
+
+    init() {
+        #if os(iOS)
+        SimulationGridManager.registerBackgroundTask()
+        #endif
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -41,6 +50,11 @@ struct MuJoCoApp: App {
                     }
                 }
                 #if os(iOS)
+                .onReceive(NotificationCenter.default.publisher(for: .caffeineBackgroundTaskLaunched)) { notification in
+                    if let task = notification.object as? BGProcessingTask {
+                        gridManager.handleCaffeineTask(task)
+                    }
+                }
                 .onChange(of: caffeineMode) { _, level in
                     UIApplication.shared.isIdleTimerDisabled = level >= 1
                     if level < 2 {
