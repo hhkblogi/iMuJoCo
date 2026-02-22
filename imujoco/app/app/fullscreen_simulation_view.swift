@@ -139,25 +139,28 @@ struct FullscreenSimulationView: View {
             VStack {
                 HStack {
                     VStack(spacing: 8) {
-                        // Lock button (standalone toggle)
-                        Button(action: { instance.isLocked.toggle() }) {
-                            let frameSize: CGFloat = 14 * 2.2
-                            Image(systemName: instance.isLocked ? "lock.fill" : "lock.open")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(overlayTextColor(brightness: brightness))
-                                .frame(width: frameSize, height: frameSize)
-                        }
-                        .buttonStyle(.plain)
+                        // Lock + Eye buttons
+                        VStack(spacing: 6) {
+                            Button(action: { instance.isLocked.toggle() }) {
+                                let frameSize: CGFloat = 14 * 2.8
+                                Image(systemName: instance.isLocked ? "lock.fill" : "lock.open")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(overlayTextColor(brightness: brightness))
+                                    .frame(width: frameSize, height: frameSize)
+                            }
+                            .buttonStyle(.plain)
 
-                        // Eye button (toggle rendering)
-                        Button(action: { instance.isBlinded.toggle() }) {
-                            let frameSize: CGFloat = 14 * 2.2
-                            Image(systemName: instance.isBlinded ? "eye.slash.fill" : "eye.fill")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(overlayTextColor(brightness: brightness))
-                                .frame(width: frameSize, height: frameSize)
+                            Button(action: { instance.isBlinded.toggle() }) {
+                                let frameSize: CGFloat = 14 * 2.8
+                                Image(systemName: instance.isBlinded ? "eye.slash.fill" : "eye.fill")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(instance.isBlinded ? .white : overlayTextColor(brightness: brightness))
+                                    .frame(width: frameSize, height: frameSize)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
+                        .padding(4)
+                        .contentShape(Rectangle())
 
                         // Controls pill (visible when unlocked)
                         if !instance.isLocked {
