@@ -15,6 +15,10 @@ struct MuJoCoApp: App {
                 .onChange(of: scenePhase) { _, newPhase in
                     switch newPhase {
                     case .background:
+                        // Always suspend GPU-based video capture — Metal command
+                        // buffers are rejected from background regardless of
+                        // caffeine mode (physics can continue without GPU).
+                        gridManager.suspendVideoCapture()
                         #if os(iOS)
                         if caffeineMode >= 2 {
                             gridManager.beginCaffeineBackground()
@@ -34,6 +38,8 @@ struct MuJoCoApp: App {
                         #else
                         gridManager.endBackgroundExecution()
                         #endif
+                        // Resume GPU-based video capture now that we're foreground
+                        gridManager.resumeVideoCapture()
                     case .inactive:
                         break
                     @unknown default:

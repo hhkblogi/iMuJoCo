@@ -19,6 +19,7 @@ enum class MJVideoFormat : uint8_t {
     RGB8     = 1,  ///< 3 bytes/pixel, uncompressed
     DEPTH32F = 2,  ///< 4 bytes/pixel, 32-bit float depth
     JPEG     = 3,  ///< Variable length, JPEG-compressed
+    HEVC     = 4,  ///< Variable length, H.265/HEVC HVCC (4-byte length-prefixed NALUs)
 };
 
 // MARK: - Video Frame Descriptor (40 bytes, packed)
@@ -59,7 +60,7 @@ struct MJVideoCameraConfig {
 /// Overall video streaming configuration.
 struct MJVideoConfig {
     bool     enabled = false;       ///< Master enable/disable
-    float    target_fps = 10.0f;    ///< Target capture FPS (independent of display FPS)
+    float    target_fps = 30.0f;    ///< Target capture FPS (independent of display FPS)
     uint16_t port = 0;              ///< Video port (0 = control_port + 100)
     float    jpeg_quality = 0.8f;   ///< JPEG quality (0.0–1.0, used when format=JPEG)
 };

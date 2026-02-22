@@ -137,8 +137,9 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     @ObservationIgnored private var _renderedFrameTime: Double = 0
     @ObservationIgnored private var _renderedGeomCount: Int32 = 0
 
-    // Video streaming
+    // Video streaming (raw UDP for Python driver + VLC-facing streamer)
     @ObservationIgnored private var videoStreamer: MJCVideoStreamer?
+    @ObservationIgnored private var vlcStreamer: MJCVideoStreamer?
 
     // State polling timer
     private var stateUpdateTask: Task<Void, Never>?
@@ -185,6 +186,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     @MainActor
     func unload() {
         stop()
+        vlcStreamer = nil
         videoStreamer = nil
         runtime?.unload()
         runtime = nil
@@ -202,13 +204,33 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         // Start physics on C++ thread
         runtime.start()
 
-        // Start video streaming (port = control_port + 100)
+        // Start video streaming
+        // Camera port scheme: 9000 + instance_id * 100 + camera_id
+        // Instance IDs are 1-indexed, so ports start at 9100 (instance 1, camera 0)
+        // Cam0 = default free camera
+        let cameraPort = UInt16(9000 + id * 100 + 0)
+
+        // Raw UDP streamer for Python driver
         if videoStreamer == nil {
             var config = MJCVideoStreamerConfig()
-            config.port = port + 100
+            config.port = cameraPort
+            config.transportMode = .rawUDP
             videoStreamer = MJCVideoStreamer(config: config, dataSource: self)
         }
         videoStreamer?.start()
+
+        // VLC-facing streamer (MJPEG/HTTP or RTP/RTSP per user setting)
+        // Uses same camera port (TCP vs UDP — no conflict)
+        if vlcStreamer == nil {
+            let vlcMode: MJCVideoTransportMode = UserDefaults.standard.integer(forKey: "videoTransport") == 1
+                ? .rtpRTSP : .mjpegHTTP
+            var config = MJCVideoStreamerConfig()
+            config.port = cameraPort
+            config.transportMode = vlcMode
+            config.rtspPort = 8553 + UInt16(id)  // Per-instance: 8554, 8555, ...
+            vlcStreamer = MJCVideoStreamer(config: config, dataSource: self)
+        }
+        vlcStreamer?.start()
 
         // Start state polling for SwiftUI updates
         startStatePolling()
@@ -217,6 +239,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     @MainActor
     func pause() {
         guard let runtime = runtime else { return }
+        vlcStreamer?.stop()
         videoStreamer?.stop()
         runtime.pause()
         stopStatePolling()
@@ -228,6 +251,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     /// Stops simulation polling and pauses runtime. Not @MainActor since it's
     /// called from deinit and async contexts. Only performs thread-safe operations.
     func stop() {
+        vlcStreamer?.stop()
         videoStreamer?.stop()
         stopStatePolling()
         runtime?.pause()
@@ -365,6 +389,61 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     var renderFPS: Double { displayRenderFPS }
     var frameTime: Double { displayFrameTime }
     var geomCount: Int32 { displayGeomCount }
+
+    /// Camera port for this instance (9000 + id * 100 + camera_id).
+    /// Cam0 = default free camera.
+    var cameraPort: UInt16 {
+        UInt16(9000 + id * 100 + 0)
+    }
+
+    /// Whether video streaming is active (streamers are running).
+    var isStreaming: Bool {
+        videoStreamer?.isRunning == true || vlcStreamer?.isRunning == true
+    }
+
+    /// Measured output FPS of the active video streamer (updated once per second).
+    var videoFPS: Double {
+        videoStreamer?.measuredFPS ?? vlcStreamer?.measuredFPS ?? 0
+    }
+
+    /// Suspend GPU-based video capture (app entering background).
+    /// Transports stay alive so clients remain connected.
+    func suspendVideoCapture() {
+        videoStreamer?.suspend()
+        vlcStreamer?.suspend()
+    }
+
+    /// Resume GPU-based video capture (app returning to foreground).
+    func resumeVideoCapture() {
+        videoStreamer?.resume()
+        vlcStreamer?.resume()
+    }
+
+    /// Restart the VLC-facing streamer with a new transport mode.
+    /// Only acts if the instance is currently running.
+    @MainActor
+    func restartVLCStreamer(mode: MJCVideoTransportMode) {
+        let modeStr: String
+        switch mode {
+        case .mjpegHTTP: modeStr = "MJPEG/HTTP"
+        case .rtpRTSP: modeStr = "RTP/RTSP"
+        case .rawUDP: modeStr = "rawUDP"
+        }
+        guard state == .running else {
+            logger.debug("restartVLCStreamer(\(modeStr)): skipped, instance \(self.id) state=\(self.stateDescription)")
+            return
+        }
+        logger.info("restartVLCStreamer(\(modeStr)): restarting VLC streamer on instance \(self.id)")
+        vlcStreamer?.stop()
+        vlcStreamer = nil
+        let cameraPort = UInt16(9000 + id * 100 + 0)
+        var config = MJCVideoStreamerConfig()
+        config.port = cameraPort
+        config.transportMode = mode
+        config.rtspPort = 8553 + UInt16(id)  // Per-instance: 8554, 8555, ...
+        vlcStreamer = MJCVideoStreamer(config: config, dataSource: self)
+        vlcStreamer?.start()
+    }
 
     // MARK: - Network Status
 
@@ -514,7 +593,7 @@ final class SimulationGridManager: @unchecked Sendable {
     }
 
     init() {
-        instances = (0..<Self.gridSize).map { index in
+        instances = (1...Self.gridSize).map { index in
             SimulationInstance(id: index, basePort: Self.basePort)
         }
     }
@@ -667,6 +746,35 @@ final class SimulationGridManager: @unchecked Sendable {
             instances[i].start()
         }
         pausedIndices = []
+    }
+
+    // MARK: - Video Capture Suspend / Resume
+
+    /// Suspend GPU-based video capture on all instances (app backgrounded).
+    /// Call this even in caffeine mode — physics can run without GPU, but
+    /// Metal command buffers are rejected from background.
+    func suspendVideoCapture() {
+        for instance in instances {
+            instance.suspendVideoCapture()
+        }
+    }
+
+    /// Resume GPU-based video capture on all instances (app foregrounded).
+    func resumeVideoCapture() {
+        for instance in instances {
+            instance.resumeVideoCapture()
+        }
+    }
+
+    /// Restart VLC-facing streamers on all running instances with the given transport setting.
+    /// `videoTransport`: 0 = MJPEG/HTTP, 1 = RTP/RTSP.
+    @MainActor
+    func restartVLCStreamers(videoTransport: Int) {
+        logger.info("restartVLCStreamers: videoTransport=\(videoTransport)")
+        let mode: MJCVideoTransportMode = videoTransport == 1 ? .rtpRTSP : .mjpegHTTP
+        for instance in instances {
+            instance.restartVLCStreamer(mode: mode)
+        }
     }
 
     // MARK: - Background Execution

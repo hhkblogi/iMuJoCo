@@ -218,6 +218,8 @@ struct SimulationCellView: View {
     @AppStorage("tripleClickAction") private var tripleClickAction: Int = 0
     @State private var resetProgress: CGFloat = 0
     @State private var stopProgress: CGFloat = 0
+    @State private var showPortInfo = false
+    @State private var showCamInfo = false
 
     #if os(tvOS)
     @FocusState private var isFocused: Bool
@@ -412,9 +414,57 @@ struct SimulationCellView: View {
                 HStack {
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text(verbatim: "Port :\(instance.port)")
-                            .font(.system(size: 9, weight: .medium))
+                        HStack(spacing: 2) {
+                            Text(verbatim: "C/S")
+                                .font(.system(size: 9, weight: .medium))
+                            #if !os(tvOS)
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 7))
+                                .onTapGesture { showPortInfo = true }
+                                .popover(isPresented: $showPortInfo) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("C/S = Control / State")
+                                            .font(.system(size: 11, weight: .semibold))
+                                        Text("Bidirectional UDP port for\ncontrol input and state output")
+                                            .font(.system(size: 10))
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .padding(8)
+                                }
+                            #endif
+                            Text(verbatim: ":\(instance.port)")
+                                .font(.system(size: 9, weight: .medium))
+                        }
+                        .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
+                        if instance.isStreaming {
+                            HStack(spacing: 2) {
+                                Text(verbatim: "Cam0")
+                                    .font(.system(size: 9, weight: .medium))
+                                #if !os(tvOS)
+                                Image(systemName: "info.circle")
+                                    .font(.system(size: 7))
+                                    .onTapGesture { showCamInfo = true }
+                                    .popover(isPresented: $showCamInfo) {
+                                        let ip = getDeviceIPAddress() ?? "<ip>"
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text("Cam0 = Default Free Camera")
+                                                .font(.system(size: 11, weight: .semibold))
+                                            Text("Video stream port (UDP + HTTP)\nfor offscreen camera capture")
+                                                .font(.system(size: 10))
+                                                .foregroundColor(.secondary)
+                                            Text(verbatim: "http://\(ip):\(instance.cameraPort)")
+                                                .font(.system(size: 10, design: .monospaced))
+                                                .foregroundColor(.accentColor)
+                                                .textSelection(.enabled)
+                                        }
+                                        .padding(8)
+                                    }
+                                #endif
+                                Text(verbatim: ":\(instance.cameraPort)")
+                                    .font(.system(size: 9, weight: .medium))
+                            }
                             .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
+                        }
                         if instance.geomCount > 0 {
                             Text(verbatim: "Geom :\(instance.geomCount)")
                                 .font(.system(size: 9, weight: .medium))
@@ -505,6 +555,19 @@ struct SimulationCellView: View {
                         .font(Self.metricLabelFont)
                         .foregroundColor(metricLabelColor)
                     Text("Control RX")
+                        .font(Self.metricLabelFont)
+                        .foregroundColor(metricLabelColor)
+                }
+            }
+            if instance.isStreaming {
+                GridRow {
+                    Text(String(format: "%7.1f", instance.videoFPS))
+                        .font(Self.metricValueFont)
+                        .foregroundColor(rateColor(Float(instance.videoFPS)))
+                    Text("fps")
+                        .font(Self.metricLabelFont)
+                        .foregroundColor(metricLabelColor)
+                    Text("Cam0")
                         .font(Self.metricLabelFont)
                         .foregroundColor(metricLabelColor)
                 }

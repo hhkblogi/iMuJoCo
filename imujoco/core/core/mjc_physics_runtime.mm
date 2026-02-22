@@ -42,7 +42,9 @@
 
 namespace {
 
-constexpr std::size_t kFrameQueueCapacity = 3;  // Triple buffering for frame data
+constexpr std::size_t kFrameQueueCapacity = 5;  // 5-slot ring buffer: 4 writes of safety margin
+                                                 // for video capture thread (10fps) reading while
+                                                 // physics writes at 80Hz (~12.5ms per write = 50ms margin)
 constexpr int kErrorLength = 1024;              // Error buffer size
 constexpr int kMaxPacketsPerLoop = 100;         // Max UDP packets to process per physics step
 constexpr int kMaxActuators = 256;              // Maximum actuators for control buffer

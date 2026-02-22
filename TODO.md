@@ -28,3 +28,30 @@ Future improvements:
   durations, drift between `steady_clock` instances could cause the replay
   cadence to gradually shift. A periodic re-anchoring or drift estimation
   algorithm could mitigate this.
+
+## RTP/RTSP Transport — HEVC Pipeline
+
+The RTP/RTSP transport uses **H.265/HEVC** with VideoToolbox hardware encoding and
+RFC 7798 RTP payload format. Zero-copy pipeline from GPU render to encoder input:
+
+- Metal renders BGRA directly into `.storageModeShared` MTLBuffer
+- `CVPixelBufferCreateWithBytes` wraps the UMA pointer (no pixel copy)
+- VideoToolbox HW encoder reads the buffer directly
+- Output is HVCC format (4-byte length-prefixed NALUs) into a pre-allocated buffer
+- RTP transport parses HVCC lengths inline (no Annex B conversion)
+
+Play with: `ffplay -fflags nobuffer rtsp://<device-ip>:8554/camera0`
+
+## WebRTC Transport (Future Work)
+
+MJPEG-over-HTTP has 1-3s perceived latency due to client-side buffering in
+VLC/ffplay. The sender pipeline is ~1.2ms; the bottleneck is entirely on
+the receiver side.
+
+- **WebRTC** would give ~50-150ms end-to-end latency with built-in jitter
+  buffer tuning, NAT traversal, and adaptive bitrate
+- Could use Apple's VideoToolbox for hardware H.264/HEVC encode (vs
+  CoreGraphics JPEG) for better compression and lower CPU usage
+- Signaling via a lightweight WebSocket server on the device
+- Browser-native playback — no VLC/ffplay needed
+- Libraries to evaluate: libwebrtc (Google), or libdatachannel (lighter)
