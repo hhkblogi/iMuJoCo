@@ -3,6 +3,36 @@
 
 import SwiftUI
 import render
+import video
+
+// MARK: - Shared Transport Helpers
+
+func transportBadgeLabel(_ mode: MJCVideoTransportMode) -> String {
+    switch mode {
+    case .mjpegHTTP: return "MJPEG"
+    case .rtpRTSP: return "HEVC"
+    case .hevcQUIC: return "QUIC"
+    case .rawUDP: return "UDP"
+    }
+}
+
+func transportFullLabel(_ mode: MJCVideoTransportMode) -> String {
+    switch mode {
+    case .mjpegHTTP: return "MJPEG/HTTP"
+    case .rtpRTSP: return "HEVC/RTSP"
+    case .hevcQUIC: return "HEVC/QUIC"
+    case .rawUDP: return "rawUDP"
+    }
+}
+
+func transportURL(_ mode: MJCVideoTransportMode, ip: String, port: UInt16) -> String {
+    switch mode {
+    case .mjpegHTTP: return "http://\(ip):\(port)"
+    case .rtpRTSP: return "rtsp://\(ip):\(port)/camera0"
+    case .hevcQUIC: return "quic://\(ip):\(port)"
+    case .rawUDP: return "udp://\(ip):\(port)"
+    }
+}
 
 // MARK: - Shared Time Formatter
 
@@ -444,7 +474,7 @@ struct SimulationCellView: View {
                                 Text(verbatim: "Cam0")
                                     .font(.system(size: 9, weight: .medium))
                                 #if !os(tvOS)
-                                Text(verbatim: instance.vlcTransportMode == .mjpegHTTP ? "MJPEG" : "HEVC")
+                                Text(verbatim: transportBadgeLabel(instance.vlcTransportMode))
                                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                                     .padding(.horizontal, 3)
                                     .padding(.vertical, 1)
@@ -453,22 +483,19 @@ struct SimulationCellView: View {
                                             .fill(Color.white.opacity(0.15))
                                     )
                                     .onTapGesture { instance.toggleVLCTransport() }
-                                    .accessibilityLabel("Video transport: \(instance.vlcTransportMode == .mjpegHTTP ? "MJPEG/HTTP" : "HEVC/RTSP"), tap to toggle")
+                                    .accessibilityLabel("Video transport: \(transportFullLabel(instance.vlcTransportMode)), tap to cycle")
                                 Image(systemName: "info.circle")
                                     .font(.system(size: 7))
                                     .onTapGesture { showCamInfo = true }
                                     .popover(isPresented: $showCamInfo) {
                                         let ip = getDeviceIPAddress() ?? "<ip>"
-                                        let isMJPEG = instance.vlcTransportMode == .mjpegHTTP
                                         VStack(alignment: .leading, spacing: 4) {
                                             Text("Cam0 = Default Free Camera")
                                                 .font(.system(size: 11, weight: .semibold))
-                                            Text("Video stream port (UDP + \(isMJPEG ? "HTTP" : "RTSP"))\nfor offscreen camera capture")
+                                            Text("Video stream port for\noffscreen camera capture")
                                                 .font(.system(size: 10))
                                                 .foregroundColor(.secondary)
-                                            Text(verbatim: isMJPEG
-                                                ? "http://\(ip):\(instance.cameraPort)"
-                                                : "rtsp://\(ip):\(instance.cameraPort)/camera0")
+                                            Text(verbatim: transportURL(instance.vlcTransportMode, ip: ip, port: instance.cameraPort))
                                                 .font(.system(size: 10, design: .monospaced))
                                                 .foregroundColor(.accentColor)
                                                 .textSelection(.enabled)

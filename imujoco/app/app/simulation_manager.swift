@@ -215,21 +215,25 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         // Cam0 = default free camera
         let cameraPort = UInt16(9000 + id * 100 + 0)
 
-        // Raw UDP streamer for Python driver
+        // Raw UDP streamer for Python driver (port + 1 to leave cameraPort for QUIC)
         if videoStreamer == nil {
             var config = MJCVideoStreamerConfig()
-            config.port = cameraPort
+            config.port = cameraPort + 1
             config.transportMode = .rawUDP
             videoStreamer = MJCVideoStreamer(config: config, dataSource: self)
         }
         videoStreamer?.start()
 
-        // VLC-facing streamer (MJPEG/HTTP or RTP/RTSP per user setting)
-        // Uses same camera port (TCP vs UDP — no conflict)
+        // VLC-facing streamer (MJPEG/HTTP, RTP/RTSP, or HEVC/QUIC per user setting)
+        // QUIC uses cameraPort directly (UDP); MJPEG/RTSP use TCP so no conflict
         if vlcStreamer == nil {
             if !vlcTransportModeExplicit {
-                vlcTransportMode = UserDefaults.standard.integer(forKey: "videoTransport") == 1
-                    ? .rtpRTSP : .mjpegHTTP
+                let setting = UserDefaults.standard.integer(forKey: "videoTransport")
+                switch setting {
+                case 1: vlcTransportMode = .rtpRTSP
+                case 2: vlcTransportMode = .hevcQUIC
+                default: vlcTransportMode = .mjpegHTTP
+                }
             }
             var config = MJCVideoStreamerConfig()
             config.port = cameraPort
@@ -434,6 +438,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         switch mode {
         case .mjpegHTTP: modeStr = "MJPEG/HTTP"
         case .rtpRTSP: modeStr = "RTP/RTSP"
+        case .hevcQUIC: modeStr = "HEVC/QUIC"
         case .rawUDP: modeStr = "rawUDP"
         }
         guard state == .running else {
@@ -453,10 +458,16 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         vlcStreamer?.start()
     }
 
-    /// Toggle the VLC transport mode between MJPEG/HTTP and RTP/RTSP.
+    /// Cycle the VLC transport mode: MJPEG/HTTP → RTP/RTSP → HEVC/QUIC → MJPEG/HTTP.
     @MainActor
     func toggleVLCTransport() {
-        let newMode: MJCVideoTransportMode = vlcTransportMode == .mjpegHTTP ? .rtpRTSP : .mjpegHTTP
+        let newMode: MJCVideoTransportMode
+        switch vlcTransportMode {
+        case .mjpegHTTP: newMode = .rtpRTSP
+        case .rtpRTSP: newMode = .hevcQUIC
+        case .hevcQUIC: newMode = .mjpegHTTP
+        case .rawUDP: newMode = .mjpegHTTP
+        }
         restartVLCStreamer(mode: newMode)
     }
 
@@ -785,11 +796,16 @@ final class SimulationGridManager: @unchecked Sendable {
     }
 
     /// Restart VLC-facing streamers on all running instances with the given transport setting.
-    /// `videoTransport`: 0 = MJPEG/HTTP, 1 = RTP/RTSP.
+    /// `videoTransport`: 0 = MJPEG/HTTP, 1 = RTP/RTSP, 2 = HEVC/QUIC.
     @MainActor
     func restartVLCStreamers(videoTransport: Int) {
         logger.info("restartVLCStreamers: videoTransport=\(videoTransport)")
-        let mode: MJCVideoTransportMode = videoTransport == 1 ? .rtpRTSP : .mjpegHTTP
+        let mode: MJCVideoTransportMode
+        switch videoTransport {
+        case 1: mode = .rtpRTSP
+        case 2: mode = .hevcQUIC
+        default: mode = .mjpegHTTP
+        }
         for instance in instances {
             instance.restartVLCStreamer(mode: mode)
         }

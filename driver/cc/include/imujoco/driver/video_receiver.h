@@ -62,8 +62,8 @@ struct VideoReceiverConfig {
     /// Target simulation host (default: localhost)
     std::string host = "127.0.0.1";
 
-    /// Target simulation video port
-    uint16_t port = 9100;
+    /// Target simulation video port (rawUDP = cameraPort + 1, e.g. 9101)
+    uint16_t port = 9101;
 
     /// Local bind port (0 = ephemeral)
     uint16_t local_port = 0;
@@ -88,7 +88,7 @@ struct VideoReceiverStats {
 ///
 /// Usage:
 /// ```cpp
-/// VideoReceiver rx({.host = "192.168.1.5", .port = 9100});
+/// VideoReceiver rx({.host = "192.168.1.5", .port = 9101});
 /// rx.Start([](const VideoFrame& frame) {
 ///     printf("Frame %llu: %ux%u\n", frame.desc.frame_number,
 ///            frame.desc.width, frame.desc.height);

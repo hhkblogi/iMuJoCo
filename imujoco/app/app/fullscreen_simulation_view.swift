@@ -253,7 +253,7 @@ struct FullscreenSimulationView: View {
                                 Text(verbatim: "Cam0")
                                     .font(.system(size: 11, weight: .medium))
                                 #if !os(tvOS)
-                                Text(verbatim: instance.vlcTransportMode == .mjpegHTTP ? "MJPEG" : "HEVC")
+                                Text(verbatim: transportBadgeLabel(instance.vlcTransportMode))
                                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                                     .padding(.horizontal, 4)
                                     .padding(.vertical, 2)
@@ -262,22 +262,19 @@ struct FullscreenSimulationView: View {
                                             .fill(Color.white.opacity(0.15))
                                     )
                                     .onTapGesture { instance.toggleVLCTransport() }
-                                    .accessibilityLabel("Video transport: \(instance.vlcTransportMode == .mjpegHTTP ? "MJPEG/HTTP" : "HEVC/RTSP"), tap to toggle")
+                                    .accessibilityLabel("Video transport: \(transportFullLabel(instance.vlcTransportMode)), tap to cycle")
                                 Image(systemName: "info.circle")
                                     .font(.system(size: 9))
                                     .onTapGesture { showCamInfo = true }
                                     .popover(isPresented: $showCamInfo) {
                                         let ip = getDeviceIPAddress() ?? "<ip>"
-                                        let isMJPEG = instance.vlcTransportMode == .mjpegHTTP
                                         VStack(alignment: .leading, spacing: 4) {
                                             Text("Cam0 = Default Free Camera")
                                                 .font(.system(size: 13, weight: .semibold))
-                                            Text("Video stream port (UDP + \(isMJPEG ? "HTTP" : "RTSP"))\nfor offscreen camera capture")
+                                            Text("Video stream port for\noffscreen camera capture")
                                                 .font(.system(size: 12))
                                                 .foregroundColor(.secondary)
-                                            Text(verbatim: isMJPEG
-                                                ? "http://\(ip):\(instance.cameraPort)"
-                                                : "rtsp://\(ip):\(instance.cameraPort)/camera0")
+                                            Text(verbatim: transportURL(instance.vlcTransportMode, ip: ip, port: instance.cameraPort))
                                                 .font(.system(size: 12, design: .monospaced))
                                                 .foregroundColor(.accentColor)
                                                 .textSelection(.enabled)
