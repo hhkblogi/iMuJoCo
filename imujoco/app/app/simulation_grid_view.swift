@@ -110,9 +110,9 @@ struct SimulationGridView: View {
         .onAppear {
             updateDeviceIP()
         }
-        .onChange(of: videoTransport) { _, newValue in
-            gridManager.restartVLCStreamers(videoTransport: newValue)
-        }
+        // videoTransport is persisted via @AppStorage; new instances
+        // read it in start(). Changing it does NOT restart running streamers
+        // — use the per-instance MJPEG/HEVC toggle for that.
         #if os(iOS)
         .sheet(isPresented: $showingModelPicker) {
             ModelPickerView(
@@ -651,7 +651,7 @@ struct SettingsView: View {
                 Section {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
-                            Text("Video Transport")
+                            Text("Default Video Transport")
                                 .font(.subheadline)
                             #if !os(tvOS)
                             Button {
@@ -662,7 +662,7 @@ struct SettingsView: View {
                                     .foregroundStyle(.secondary)
                             }
                             .buttonStyle(.plain)
-                            .accessibilityLabel("About Video Transport")
+                            .accessibilityLabel("About Default Video Transport")
                             .popover(isPresented: $showVideoTransportInfo) {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("**MJPEG/HTTP** — Works with VLC, ffplay, browsers. Simpler, more reliable.")
@@ -679,7 +679,7 @@ struct SettingsView: View {
                         }
                         HStack {
                             ForEach(
-                                [(0, "MJPEG/HTTP", "photo.on.rectangle"), (1, "HEVC/RTSP", "antenna.radiowaves.left.and.right")],
+                                [(0, "MJPEG/HTTP", "photo.on.rectangle"), (1, "HEVC/RTSP", "video.fill")],
                                 id: \.0
                             ) { tag, label, icon in
                                 Button(action: { videoTransport = tag }) {

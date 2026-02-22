@@ -141,6 +141,11 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     @ObservationIgnored private var videoStreamer: MJCVideoStreamer?
     @ObservationIgnored private var vlcStreamer: MJCVideoStreamer?
 
+    /// Current VLC transport mode for this instance (observable for UI toggle).
+    private(set) var vlcTransportMode: MJCVideoTransportMode = .mjpegHTTP
+    /// Whether the user has explicitly toggled the transport mode on this instance.
+    @ObservationIgnored private var vlcTransportModeExplicit = false
+
     // State polling timer
     private var stateUpdateTask: Task<Void, Never>?
 
@@ -222,12 +227,14 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         // VLC-facing streamer (MJPEG/HTTP or RTP/RTSP per user setting)
         // Uses same camera port (TCP vs UDP — no conflict)
         if vlcStreamer == nil {
-            let vlcMode: MJCVideoTransportMode = UserDefaults.standard.integer(forKey: "videoTransport") == 1
-                ? .rtpRTSP : .mjpegHTTP
+            if !vlcTransportModeExplicit {
+                vlcTransportMode = UserDefaults.standard.integer(forKey: "videoTransport") == 1
+                    ? .rtpRTSP : .mjpegHTTP
+            }
             var config = MJCVideoStreamerConfig()
             config.port = cameraPort
-            config.transportMode = vlcMode
-            config.rtspPort = 8553 + UInt16(id)  // Per-instance: 8554, 8555, ...
+            config.transportMode = vlcTransportMode
+            config.rtspPort = cameraPort
             vlcStreamer = MJCVideoStreamer(config: config, dataSource: self)
         }
         vlcStreamer?.start()
@@ -436,13 +443,21 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         logger.info("restartVLCStreamer(\(modeStr)): restarting VLC streamer on instance \(self.id)")
         vlcStreamer?.stop()
         vlcStreamer = nil
-        let cameraPort = UInt16(9000 + id * 100 + 0)
+        vlcTransportMode = mode
+        vlcTransportModeExplicit = true
         var config = MJCVideoStreamerConfig()
         config.port = cameraPort
         config.transportMode = mode
-        config.rtspPort = 8553 + UInt16(id)  // Per-instance: 8554, 8555, ...
+        config.rtspPort = cameraPort
         vlcStreamer = MJCVideoStreamer(config: config, dataSource: self)
         vlcStreamer?.start()
+    }
+
+    /// Toggle the VLC transport mode between MJPEG/HTTP and RTP/RTSP.
+    @MainActor
+    func toggleVLCTransport() {
+        let newMode: MJCVideoTransportMode = vlcTransportMode == .mjpegHTTP ? .rtpRTSP : .mjpegHTTP
+        restartVLCStreamer(mode: newMode)
     }
 
     // MARK: - Network Status
