@@ -105,18 +105,22 @@ def _mujoco_deps_impl(_ctx):
             "mkdir -p unitree_g1_rl/meshes",
             "cp resources/robots/g1_description/scene.xml unitree_g1_rl/",
             "cp resources/robots/g1_description/g1_12dof.xml unitree_g1_rl/",
-            "cp resources/robots/g1_description/meshes/*.STL unitree_g1_rl/meshes/",
-            # Add rl_stand keyframe and simulation timestep to scene.xml
-            "sed -i '' " +
-            "-e 's|</mujoco>|" +
-            "\\n  <option timestep=\"0.002\"/>\\n" +
-            "\\n  <keyframe>\\n" +
-            "    <key name=\"rl_stand\" qpos=\"0 0 0.8 1 0 0 0 " +
+            # Copy mesh files (case-insensitive: .stl or .STL)
+            "for f in resources/robots/g1_description/meshes/*.[sS][tT][lL]; do [ -e \"$f\" ] || continue; cp \"$f\" unitree_g1_rl/meshes/; done",
+            # Copy license for compliance
+            "cp resources/robots/g1_description/../../../LICENSE unitree_g1_rl/ 2>/dev/null || cp LICENSE unitree_g1_rl/ 2>/dev/null || true",
+            # Add rl_stand keyframe and simulation timestep to scene.xml (portable Python)
+            "python3 -c \"" +
+            "from pathlib import Path; " +
+            "p = Path('unitree_g1_rl/scene.xml'); " +
+            "t = p.read_text(); " +
+            "t = t.replace('</mujoco>', " +
+            "'\\n  <option timestep=\\\"0.002\\\"/>\\n\\n  <keyframe>\\n" +
+            "    <key name=\\\"rl_stand\\\" qpos=\\\"0 0 0.8 1 0 0 0 " +
             "-0.1 0 0 0.3 -0.2 0 " +
-            "-0.1 0 0 0.3 -0.2 0\"/>\\n" +
-            "  </keyframe>\\n" +
-            "</mujoco>|' " +
-            "unitree_g1_rl/scene.xml",
+            "-0.1 0 0 0.3 -0.2 0\\\"/>\\n" +
+            "  </keyframe>\\n</mujoco>'); " +
+            "p.write_text(t)\"",
         ],
         strip_prefix = "unitree_rl_gym-276801e46c5d433564f24658bac64f254b7d2d4b",
         urls = ["https://github.com/unitreerobotics/unitree_rl_gym/archive/276801e46c5d433564f24658bac64f254b7d2d4b.tar.gz"],

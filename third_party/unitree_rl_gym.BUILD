@@ -10,6 +10,7 @@ filegroup(
             "unitree_g1_rl/**/*.xml",
             "unitree_g1_rl/**/*.stl",
             "unitree_g1_rl/**/*.STL",
+            "unitree_g1_rl/LICENSE*",
         ],
         allow_empty = True,  # .stl/.STL: only one case matches per platform
     ),
