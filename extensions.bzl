@@ -96,6 +96,32 @@ def _mujoco_deps_impl(_ctx):
         urls = ["https://github.com/InteractiveComputerGraphics/TriangleMeshDistance/archive/2cb643de1436e1ba8e2be49b07ec5491ac604457.tar.gz"],
     )
 
+    # Unitree RL Gym — G1 12-DOF MuJoCo model with torque actuators (BSD-3)
+    http_archive(
+        name = "unitree_rl_gym",
+        build_file = "//:third_party/unitree_rl_gym.BUILD",
+        patch_cmds = [
+            # Restructure to unitree_g1_rl/ for consistent naming with menagerie models
+            "mkdir -p unitree_g1_rl/meshes",
+            "cp resources/robots/g1_description/scene.xml unitree_g1_rl/",
+            "cp resources/robots/g1_description/g1_12dof.xml unitree_g1_rl/",
+            "cp resources/robots/g1_description/meshes/*.STL unitree_g1_rl/meshes/",
+            # Add rl_stand keyframe and simulation timestep to scene.xml
+            "sed -i '' " +
+            "-e 's|</mujoco>|" +
+            "\\n  <option timestep=\"0.002\"/>\\n" +
+            "\\n  <keyframe>\\n" +
+            "    <key name=\"rl_stand\" qpos=\"0 0 0.8 1 0 0 0 " +
+            "-0.1 0 0 0.3 -0.2 0 " +
+            "-0.1 0 0 0.3 -0.2 0\"/>\\n" +
+            "  </keyframe>\\n" +
+            "</mujoco>|' " +
+            "unitree_g1_rl/scene.xml",
+        ],
+        strip_prefix = "unitree_rl_gym-276801e46c5d433564f24658bac64f254b7d2d4b",
+        urls = ["https://github.com/unitreerobotics/unitree_rl_gym/archive/276801e46c5d433564f24658bac64f254b7d2d4b.tar.gz"],
+    )
+
 mujoco_deps = module_extension(
     implementation = _mujoco_deps_impl,
 )

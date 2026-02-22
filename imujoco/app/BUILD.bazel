@@ -26,6 +26,7 @@ swift_library(
     data = [
         ":menagerie_models",
         ":mujoco_models",
+        ":unitree_rl_models",
     ],
     module_name = "app",
     deps = [
@@ -71,6 +72,14 @@ apple_resource_group(
         "@mujoco_menagerie//:anybotics_anymal_c",
         "@mujoco_menagerie//:unitree_g1",
         "@mujoco_menagerie//:unitree_h1",
+    ],
+)
+
+# Unitree RL Gym G1 12-DOF model (torque actuators for RL locomotion)
+apple_resource_group(
+    name = "unitree_rl_models",
+    structured_resources = [
+        "@unitree_rl_gym//:unitree_g1_rl",
     ],
 )
 
