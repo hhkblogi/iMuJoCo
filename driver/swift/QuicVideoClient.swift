@@ -9,6 +9,7 @@
 //   Server → Client: [4-byte size LE][16-byte hdr][HEVC] -- repeated
 
 import CoreGraphics
+import CoreImage
 import CoreVideo
 import Foundation
 import Network
@@ -30,6 +31,15 @@ struct QUICFrameHeader {
         frameNumber = data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 0, as: UInt64.self).littleEndian }
         simulationTime = data.withUnsafeBytes {
             Double(bitPattern: $0.loadUnaligned(fromByteOffset: 8, as: UInt64.self).littleEndian)
+        }
+    }
+
+    /// Offset-based init — reads directly from buffer at given byte offset (zero-copy).
+    init?(buffer: Data, offset: Int) {
+        guard buffer.count >= offset + Self.size else { return nil }
+        frameNumber = buffer.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: offset, as: UInt64.self).littleEndian }
+        simulationTime = buffer.withUnsafeBytes {
+            Double(bitPattern: $0.loadUnaligned(fromByteOffset: offset + 8, as: UInt64.self).littleEndian)
         }
     }
 }
@@ -76,20 +86,20 @@ final class QuicVideoClient {
     // Connection
     private var connection: NWConnection?
     private let queue = DispatchQueue(label: "com.imujoco.quic-receiver.network", qos: .userInitiated)
-    private let decodeQueue = DispatchQueue(label: "com.imujoco.quic-receiver.decode", qos: .userInitiated)
 
     // Video decode
     private var decompressionSession: VTDecompressionSession?
     private var formatDescription: CMVideoFormatDescription?
     private var metadata: ConnectionMetadata?
+    private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
     // HEVC parameter sets for format description
     private var vps: Data?
     private var sps: Data?
     private var pps: Data?
 
-    // Receive buffer for accumulating partial reads
-    private var receiveBuffer = Data()
+    // Pre-allocated receive buffer (256KB capacity avoids reallocation after warmup)
+    private var receiveBuffer = Data(capacity: 256 * 1024)
 
     // MARK: - Connect
 
@@ -145,7 +155,7 @@ final class QuicVideoClient {
         vps = nil
         sps = nil
         pps = nil
-        receiveBuffer = Data()
+        receiveBuffer.removeAll(keepingCapacity: true)  // Keep the 256KB allocation
         isConnected = false
         connectionStatus = "Disconnected"
     }
@@ -239,6 +249,7 @@ final class QuicVideoClient {
 
     /// Process accumulated data in the receive buffer.
     /// First 12 bytes = metadata (once), then [4-byte size][payload] repeated.
+    /// All parsing is offset-based to avoid intermediate Data copies.
     private func processBuffer() {
         // First: parse metadata if not yet received
         if metadata == nil {
@@ -252,10 +263,10 @@ final class QuicVideoClient {
             DispatchQueue.main.async {
                 self.connectionStatus = "Connected (\(meta.width)x\(meta.height))"
             }
-            receiveBuffer = receiveBuffer.subdata(in: ConnectionMetadata.size..<receiveBuffer.count)
+            receiveBuffer.removeSubrange(0..<ConnectionMetadata.size)
         }
 
-        // Then: parse length-prefixed frames
+        // Then: parse length-prefixed frames using offsets (no intermediate copies)
         while receiveBuffer.count >= 4 {
             let frameSize = receiveBuffer.withUnsafeBytes {
                 $0.loadUnaligned(fromByteOffset: 0, as: UInt32.self).littleEndian
@@ -266,58 +277,65 @@ final class QuicVideoClient {
                 break  // Wait for more data
             }
 
-            let framePayload = receiveBuffer.subdata(in: 4..<totalNeeded)
-            receiveBuffer = receiveBuffer.subdata(in: totalNeeded..<receiveBuffer.count)
+            // Parse header at offset 4 (after the 4-byte length prefix)
+            let headerOffset = 4
+            guard let header = QUICFrameHeader(buffer: receiveBuffer, offset: headerOffset) else {
+                receiveBuffer.removeSubrange(0..<totalNeeded)
+                continue
+            }
+
+            let hevcOffset = 4 + QUICFrameHeader.size
+            let hevcLength = Int(frameSize) - QUICFrameHeader.size
+            guard hevcLength > 0 else {
+                receiveBuffer.removeSubrange(0..<totalNeeded)
+                continue
+            }
 
             let receiveTime = ProcessInfo.processInfo.systemUptime
-            processFrame(data: framePayload, receiveTime: receiveTime)
-        }
-    }
 
-    private func processFrame(data: Data, receiveTime: Double) {
-        guard let header = QUICFrameHeader(data: data) else { return }
+            // Decode inline on network queue — HW decode ~3ms, no backpressure at 30fps
+            decodeHEVC(hevcOffset: hevcOffset, hevcLength: hevcLength, header: header, receiveTime: receiveTime)
 
-        let hevcData = data.subdata(in: QUICFrameHeader.size..<data.count)
-
-        DispatchQueue.main.async {
-            self.stats.framesReceived += 1
-            self.stats.frameNumber = header.frameNumber
-            self.stats.simulationTime = header.simulationTime
-            self.stats.receiveTimestamp = receiveTime
-        }
-
-        // Decode HEVC on a separate queue to avoid blocking the network receive loop
-        decodeQueue.async { [weak self] in
-            self?.decodeHEVC(hevcData, frameNumber: header.frameNumber, receiveTime: receiveTime)
+            // Consume the frame in-place (slides remaining bytes, no new allocation)
+            receiveBuffer.removeSubrange(0..<totalNeeded)
         }
     }
 
     // MARK: - HEVC Decode
 
-    private func decodeHEVC(_ data: Data, frameNumber: UInt64, receiveTime: Double) {
+    /// Decode HEVC data directly from receiveBuffer at the given offset/length.
+    /// NAL parsing uses offsets (zero-copy); CMBlockBuffer gets a single copy from receiveBuffer.
+    private func decodeHEVC(hevcOffset: Int, hevcLength: Int, header: QUICFrameHeader, receiveTime: Double) {
         let decodeStart = ProcessInfo.processInfo.systemUptime
 
-        // Parse HVCC format (4-byte length-prefixed NAL units) and extract parameter sets
-        var offset = 0
+        // Parse HVCC format (4-byte length-prefixed NAL units) directly from receiveBuffer
+        var nalOffset = hevcOffset
+        let hevcEnd = hevcOffset + hevcLength
 
-        while offset + 4 < data.count {
-            let length = data.withUnsafeBytes {
-                CFSwapInt32BigToHost($0.loadUnaligned(fromByteOffset: offset, as: UInt32.self))
+        while nalOffset + 4 < hevcEnd {
+            let nalSize = receiveBuffer.withUnsafeBytes {
+                CFSwapInt32BigToHost($0.loadUnaligned(fromByteOffset: nalOffset, as: UInt32.self))
             }
 
-            guard length > 0, offset + 4 + Int(length) <= data.count else { break }
+            guard nalSize > 0, nalOffset + 4 + Int(nalSize) <= hevcEnd else { break }
 
-            let nalData = data.subdata(in: offset + 4..<offset + 4 + Int(length))
-            let nalType = (nalData[0] >> 1) & 0x3F  // HEVC NAL type
+            let nalDataOffset = nalOffset + 4
 
+            // Read NAL type byte directly — no copy needed
+            let nalTypeByte = receiveBuffer.withUnsafeBytes {
+                $0.load(fromByteOffset: nalDataOffset, as: UInt8.self)
+            }
+            let nalType = (nalTypeByte >> 1) & 0x3F  // HEVC NAL type
+
+            // Only copy VPS/SPS/PPS (small, ~100 bytes total, extracted once)
             switch nalType {
-            case 32: vps = nalData  // VPS
-            case 33: sps = nalData  // SPS
-            case 34: pps = nalData  // PPS
+            case 32: vps = receiveBuffer.subdata(in: nalDataOffset..<nalDataOffset + Int(nalSize))
+            case 33: sps = receiveBuffer.subdata(in: nalDataOffset..<nalDataOffset + Int(nalSize))
+            case 34: pps = receiveBuffer.subdata(in: nalDataOffset..<nalDataOffset + Int(nalSize))
             default: break
             }
 
-            offset += 4 + Int(length)
+            nalOffset += 4 + Int(nalSize)
         }
 
         // Create format description if we have parameter sets
@@ -330,32 +348,32 @@ final class QuicVideoClient {
             return
         }
 
-        // Create CMBlockBuffer with its own copy of the data (safe memory ownership)
+        // Create CMBlockBuffer: single alloc, copy directly from receiveBuffer (no intermediate Data)
         var blockBuffer: CMBlockBuffer?
         var status = CMBlockBufferCreateWithMemoryBlock(
             allocator: kCFAllocatorDefault,
             memoryBlock: nil,
-            blockLength: data.count,
+            blockLength: hevcLength,
             blockAllocator: nil,
             customBlockSource: nil,
             offsetToData: 0,
-            dataLength: data.count,
+            dataLength: hevcLength,
             flags: 0,
             blockBufferOut: &blockBuffer
         )
 
-        guard status == kCMBlockBufferNoErr, let blockBuffer else {
+        guard status == kCMBlockBufferNoErr, let blockBuf = blockBuffer else {
             logger.error("Failed to create CMBlockBuffer: \(status)")
             return
         }
 
-        // Copy HEVC data into the block buffer's own memory
-        status = data.withUnsafeBytes { rawPtr in
+        // Single copy: receiveBuffer[hevcOffset..<hevcOffset+hevcLength] → CMBlockBuffer
+        status = receiveBuffer.withUnsafeBytes { rawPtr in
             CMBlockBufferReplaceDataBytes(
-                with: rawPtr.baseAddress!,
-                blockBuffer: blockBuffer,
+                with: rawPtr.baseAddress!.advanced(by: hevcOffset),
+                blockBuffer: blockBuf,
                 offsetIntoDestination: 0,
-                dataLength: data.count
+                dataLength: hevcLength
             )
         }
 
@@ -367,19 +385,19 @@ final class QuicVideoClient {
         var sampleBuffer: CMSampleBuffer?
         var timingInfo = CMSampleTimingInfo(
             duration: CMTime(value: 1, timescale: 30),
-            presentationTimeStamp: CMTime(value: CMTimeValue(frameNumber), timescale: 30),
+            presentationTimeStamp: CMTime(value: CMTimeValue(header.frameNumber), timescale: 30),
             decodeTimeStamp: .invalid
         )
 
         let sampleStatus = CMSampleBufferCreateReady(
             allocator: kCFAllocatorDefault,
-            dataBuffer: blockBuffer,
+            dataBuffer: blockBuf,
             formatDescription: formatDesc,
             sampleCount: 1,
             sampleTimingEntryCount: 1,
             sampleTimingArray: &timingInfo,
             sampleSizeEntryCount: 1,
-            sampleSizeArray: [data.count],
+            sampleSizeArray: [hevcLength],
             sampleBufferOut: &sampleBuffer
         )
 
@@ -413,18 +431,19 @@ final class QuicVideoClient {
 
         if decodeStatus != noErr {
             logger.error("VTDecompressionSessionDecodeFrame failed: \(decodeStatus)")
-            DispatchQueue.main.async {
-                self.stats.framesDropped += 1
-            }
+            DispatchQueue.main.async { self.stats.framesDropped += 1 }
             return
         }
 
         VTDecompressionSessionWaitForAsynchronousFrames(session)
 
-        let decodeEnd = ProcessInfo.processInfo.systemUptime
-        let decodeMs = (decodeEnd - decodeStart) * 1000
-
+        // Batched stats update — single dispatch instead of 3-4 separate ones
+        let decodeMs = (ProcessInfo.processInfo.systemUptime - decodeStart) * 1000
         DispatchQueue.main.async {
+            self.stats.framesReceived += 1
+            self.stats.frameNumber = header.frameNumber
+            self.stats.simulationTime = header.simulationTime
+            self.stats.receiveTimestamp = receiveTime
             self.stats.decodeLatencyMs = decodeMs
             self.stats.framesDecoded += 1
         }
@@ -479,14 +498,12 @@ final class QuicVideoClient {
         }
     }
 
+    /// Convert decoded pixel buffer to CGImage via GPU-accelerated CIContext (avoids CPU copy).
     private func handleDecodedFrame(_ pixelBuffer: CVPixelBuffer) {
-        var cgImage: CGImage?
-        VTCreateCGImageFromCVPixelBuffer(pixelBuffer, options: nil, imageOut: &cgImage)
-
-        if let cgImage {
-            DispatchQueue.main.async {
-                self.currentFrame = cgImage
-            }
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else { return }
+        DispatchQueue.main.async {
+            self.currentFrame = cgImage
         }
     }
 }
