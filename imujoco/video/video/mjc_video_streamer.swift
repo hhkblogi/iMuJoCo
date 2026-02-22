@@ -29,7 +29,7 @@ public protocol MJCVideoDataSource: AnyObject {
 public enum MJCVideoTransportMode {
     /// Raw UDP with custom fragment protocol (for Python driver)
     case rawUDP
-    /// RTP/RTSP with JPEG encoding (for VLC/ffplay)
+    /// RTP/RTSP with H.265/HEVC encoding (for VLC/ffplay)
     case rtpRTSP
     /// MJPEG over HTTP (for VLC/browsers, simpler and more reliable than RTP)
     case mjpegHTTP

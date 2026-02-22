@@ -29,44 +29,18 @@ Future improvements:
   cadence to gradually shift. A periodic re-anchoring or drift estimation
   algorithm could mitigate this.
 
-## RTP/RTSP Transport — Huffman Table Incompatibility (Known Issue)
+## RTP/RTSP Transport — HEVC Pipeline
 
-The RTP/RTSP transport (RFC 2435 JPEG payload) produces **color corruption** (green/pink
-flickering) in VLC and ffplay. Root cause:
+The RTP/RTSP transport uses **H.265/HEVC** with VideoToolbox hardware encoding and
+RFC 7798 RTP payload format. Zero-copy pipeline from GPU render to encoder input:
 
-- **RFC 2435** mandates that receivers reconstruct JPEG headers using the **standard
-  Annex K Huffman tables**. Only quantization tables are transmitted in-band.
-- **CGImageDestination** (CoreGraphics JPEG encoder) uses **non-standard Huffman tables**
-  that differ from Annex K. The entropy-coded scan data is encoded against these
-  custom tables.
-- When the receiver rebuilds the JPEG with standard Huffman tables, every Huffman
-  code is decoded incorrectly → `bad vlc: 0:0` errors in ffplay, visual corruption.
+- Metal renders BGRA directly into `.storageModeShared` MTLBuffer
+- `CVPixelBufferCreateWithBytes` wraps the UMA pointer (no pixel copy)
+- VideoToolbox HW encoder reads the buffer directly
+- Output is HVCC format (4-byte length-prefixed NALUs) into a pre-allocated buffer
+- RTP transport parses HVCC lengths inline (no Annex B conversion)
 
-This is a fundamental mismatch: the scan data is encoded with one set of Huffman tables
-but decoded with another. MJPEG/HTTP works because it sends the complete JFIF file
-(including the actual Huffman tables used for encoding).
-
-Confirmed by source code review of all major receivers:
-
-- **live555** (`JPEGVideoRTPSource.cpp`): hardcodes Annex K tables, no custom table support
-- **FFmpeg** (`rtpdec_jpeg.c`): hardcodes Annex K tables, no alternative path
-- **FFmpeg RTP JPEG encoder** (`rtpenc_jpeg.c`): `memcmp`s input Huffman tables against
-  Annex K and **refuses to send** if they don't match
-
-Recommended fix: **Replace CGImageDestination with libjpeg-turbo** for the RTP encode
-path. libjpeg-turbo defaults to standard Annex K Huffman tables and has NEON SIMD
-acceleration on ARM. CGImageDestination continues to work fine for MJPEG/HTTP (which
-sends the complete JFIF including custom DHT markers).
-
-Other options:
-
-- **VideoToolbox H.264** — switch to H.264 RTP payload (RFC 6184) with hardware
-  encoding. Better compression, no Huffman table issue, but requires different SDP/RTSP
-  negotiation and is a larger change
-- **Re-encode**: decompress CGImageDestination output, re-compress with libjpeg — wasteful
-
-Current status: **MJPEG/HTTP is the recommended transport**. RTP/RTSP is available in
-Settings but produces visual artifacts with standard receivers.
+Play with: `ffplay -fflags nobuffer rtsp://<device-ip>:8554/camera0`
 
 ## WebRTC Transport (Future Work)
 

@@ -113,7 +113,10 @@ public final class MJCHEVCEncoder: MJCVideoEncoder {
 
     public func encode(data: Data, width: Int, height: Int) -> Data? {
         guard let session else { return nil }
-        guard width == self.width && height == self.height else { return nil }
+        guard width == self.width && height == self.height else {
+            logger.error("HEVC encode size mismatch: got \(width)x\(height), expected \(self.width)x\(self.height)")
+            return nil
+        }
 
         let bytesPerRow = width * 4
         let expectedSize = bytesPerRow * height
@@ -159,7 +162,11 @@ public final class MJCHEVCEncoder: MJCVideoEncoder {
         }
 
         // Force synchronous completion — encoding finishes before pixel pointer scope ends
-        VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: pts)
+        let completeStatus = VTCompressionSessionCompleteFrames(session, untilPresentationTimeStamp: pts)
+        if completeStatus != noErr {
+            logger.error("VTCompressionSessionCompleteFrames failed: \(completeStatus)")
+            return nil
+        }
 
         return encodedOutput
     }

@@ -209,7 +209,11 @@ bool MJVideoRTPTransport::SendFrame(const MJVideoFrameDesc& desc,
         std::memcpy(&nal_length, data + offset, 4);
         nal_length = ntohl(nal_length);
         offset += 4;
-        if (offset + nal_length > size) break;
+        if (offset + nal_length > size) {
+            os_log_error(OS_LOG_DEFAULT, "RTP: Invalid NAL length %u at offset %zu (frame size %zu)",
+                         nal_length, offset - 4, size);
+            break;
+        }
 
         const uint8_t* nal_data = data + offset;
         size_t nal_size = nal_length;

@@ -6,7 +6,7 @@
 // Stages benchmarked:
 //   1. CRC-32 checksum computation
 //   2. JPEG encode (CoreGraphics CGImageDestination)
-//   3. RTP packetize + send (RFC 2435 JPEG over RTP)
+//   3. RTP packetize + send (RFC 7798 HEVC over RTP)
 //   4. MJPEG HTTP frame send (multipart/x-mixed-replace)
 //   5. Raw UDP fragment + send (custom protocol)
 
@@ -156,8 +156,28 @@ BENCHMARK(BM_JPEGEncode)
     ->Unit(benchmark::kMicrosecond);
 
 // ============================================================================
-// 3. RTP SendFrame (JPEG parse + RFC 2435 packetize + sendto)
+// 3. RTP SendFrame (HVCC parse + RFC 7798 HEVC packetize + sendto)
 // ============================================================================
+
+// Build synthetic HVCC data: 4-byte BE length prefix + HEVC NAL unit.
+// Creates `nal_count` NAL units of `nal_size` bytes each.
+// NAL header: type=1 (TRAIL_R), layerID=0, tid=1 — valid non-IDR slice.
+static std::vector<uint8_t> MakeSyntheticHVCC(int nal_count, size_t nal_size) {
+    std::vector<uint8_t> hvcc;
+    hvcc.reserve(static_cast<size_t>(nal_count) * (4 + nal_size));
+    for (int i = 0; i < nal_count; i++) {
+        uint32_t len = htonl(static_cast<uint32_t>(nal_size));
+        hvcc.insert(hvcc.end(), reinterpret_cast<uint8_t*>(&len),
+                    reinterpret_cast<uint8_t*>(&len) + 4);
+        // HEVC NAL header: forbidden=0, type=1 (TRAIL_R), layerID=0, tid=1
+        hvcc.push_back(0x02);  // (type=1)<<1 = 0x02
+        hvcc.push_back(0x01);  // tid=1
+        for (size_t j = 2; j < nal_size; j++) {
+            hvcc.push_back(static_cast<uint8_t>(j & 0xFF));
+        }
+    }
+    return hvcc;
+}
 
 class RTPFixture : public benchmark::Fixture {
 public:
@@ -165,11 +185,12 @@ public:
         int width = static_cast<int>(state.range(0));
         int height = width;
 
-        // Pre-encode synthetic JPEG
-        auto rgba = MakeSyntheticRGBA(width, height);
-        jpeg_ = EncodeJPEG(rgba.data(), width, height, 0.8f);
-        desc_ = MakeFrameDesc(width, height, jpeg_.size(), MJVideoFormat::JPEG);
-        desc_.checksum = mjc_video_crc32(jpeg_.data(), jpeg_.size());
+        // Build synthetic HVCC data (~same size as a typical HEVC frame)
+        // Use a few NAL units of varying size to exercise both single-NAL and FU paths
+        size_t target_size = static_cast<size_t>(width * height / 4);  // ~compressed size
+        hevc_ = MakeSyntheticHVCC(3, target_size / 3);
+        desc_ = MakeFrameDesc(width, height, hevc_.size(), MJVideoFormat::HEVC);
+        desc_.checksum = mjc_video_crc32(hevc_.data(), hevc_.size());
 
         // Create loopback receiver socket (so sendto succeeds)
         recv_fd_ = socket(AF_INET, SOCK_DGRAM, 0);
@@ -204,20 +225,20 @@ public:
 protected:
     MJVideoRTPTransport* rtp_ = nullptr;
     int recv_fd_ = -1;
-    std::vector<uint8_t> jpeg_;
+    std::vector<uint8_t> hevc_;
     MJVideoFrameDesc desc_{};
 };
 
 BENCHMARK_DEFINE_F(RTPFixture, SendFrame)(benchmark::State& state) {
     for (auto _ : state) {
-        rtp_->SendFrame(desc_, jpeg_.data(), jpeg_.size());
+        rtp_->SendFrame(desc_, hevc_.data(), hevc_.size());
     }
     state.SetBytesProcessed(
-        static_cast<int64_t>(state.iterations() * jpeg_.size()));
-    state.counters["jpeg_KB"] = static_cast<double>(jpeg_.size()) / 1024.0;
-    // Estimate RTP packet count: jpeg_size / ~1300 payload bytes
+        static_cast<int64_t>(state.iterations() * hevc_.size()));
+    state.counters["hevc_KB"] = static_cast<double>(hevc_.size()) / 1024.0;
+    // Estimate RTP packet count: hevc_size / ~1300 payload bytes
     state.counters["rtp_pkts"] = static_cast<double>(
-        (jpeg_.size() + 1300 - 1) / 1300);
+        (hevc_.size() + 1300 - 1) / 1300);
 }
 
 BENCHMARK_REGISTER_F(RTPFixture, SendFrame)

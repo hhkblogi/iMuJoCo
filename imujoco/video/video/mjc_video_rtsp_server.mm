@@ -166,6 +166,8 @@ void MJVideoRTSPServer::HandleClient(int client_fd, struct sockaddr_in client_ad
         // Cap buffer to prevent unbounded growth from misbehaving clients
         if (buffer.size() > 16384) {
             os_log_error(OS_LOG_DEFAULT, "RTSP: Client buffer exceeded 16KB, disconnecting");
+            const char* resp = "RTSP/1.0 413 Request Entity Too Large\r\n\r\n";
+            send(client_fd, resp, std::strlen(resp), 0);
             break;
         }
 
@@ -192,7 +194,8 @@ void MJVideoRTSPServer::HandleClient(int client_fd, struct sockaddr_in client_ad
             } else if (req.method == "SETUP") {
                 // Parse client_port from Transport header
                 // Example: Transport: RTP/AVP;unicast;client_port=5000-5001
-                uint16_t rtp_port = 0, rtcp_port = 0;
+                uint16_t rtp_port = 0;
+                uint16_t rtcp_port = 0;
                 auto cp_pos = req.transport.find("client_port=");
                 if (cp_pos != std::string::npos) {
                     std::string ports = req.transport.substr(cp_pos + 12);
