@@ -143,6 +143,8 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
 
     /// Current VLC transport mode for this instance (observable for UI toggle).
     private(set) var vlcTransportMode: MJCVideoTransportMode = .mjpegHTTP
+    /// Whether the user has explicitly toggled the transport mode on this instance.
+    @ObservationIgnored private var vlcTransportModeExplicit = false
 
     // State polling timer
     private var stateUpdateTask: Task<Void, Never>?
@@ -225,8 +227,10 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         // VLC-facing streamer (MJPEG/HTTP or RTP/RTSP per user setting)
         // Uses same camera port (TCP vs UDP — no conflict)
         if vlcStreamer == nil {
-            vlcTransportMode = UserDefaults.standard.integer(forKey: "videoTransport") == 1
-                ? .rtpRTSP : .mjpegHTTP
+            if !vlcTransportModeExplicit {
+                vlcTransportMode = UserDefaults.standard.integer(forKey: "videoTransport") == 1
+                    ? .rtpRTSP : .mjpegHTTP
+            }
             var config = MJCVideoStreamerConfig()
             config.port = cameraPort
             config.transportMode = vlcTransportMode
@@ -440,6 +444,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         vlcStreamer?.stop()
         vlcStreamer = nil
         vlcTransportMode = mode
+        vlcTransportModeExplicit = true
         var config = MJCVideoStreamerConfig()
         config.port = cameraPort
         config.transportMode = mode

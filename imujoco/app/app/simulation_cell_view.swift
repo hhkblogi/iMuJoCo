@@ -453,6 +453,7 @@ struct SimulationCellView: View {
                                             .fill(Color.white.opacity(0.15))
                                     )
                                     .onTapGesture { instance.toggleVLCTransport() }
+                                    .accessibilityLabel("Video transport: \(instance.vlcTransportMode == .mjpegHTTP ? "MJPEG/HTTP" : "HEVC/RTSP"), tap to toggle")
                                 Image(systemName: "info.circle")
                                     .font(.system(size: 7))
                                     .onTapGesture { showCamInfo = true }
