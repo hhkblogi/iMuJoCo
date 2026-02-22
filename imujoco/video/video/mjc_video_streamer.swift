@@ -161,9 +161,7 @@ public final class MJCVideoStreamer {
                 return
             }
             if let rtsp = rtspServer {
-                if !rtsp.Start(config.rtspPort,
-                               UInt16(config.width),
-                               UInt16(config.height)) {
+                if !rtsp.Start(config.rtspPort) {
                     logger.error("Failed to start RTSP server on port \(self.config.rtspPort)")
                 }
             }

@@ -2,7 +2,7 @@
 // Minimal RTSP server implementation for VLC compatibility
 //
 // Supports: OPTIONS, DESCRIBE, SETUP, PLAY, TEARDOWN
-// SDP describes a single JPEG video stream over RTP/UDP
+// SDP describes a single HEVC video stream over RTP/UDP
 
 #include "mjc_video_rtsp_server.h"
 
@@ -41,11 +41,8 @@ MJVideoRTSPServer::~MJVideoRTSPServer() {
 
 // MARK: - Start / Stop
 
-bool MJVideoRTSPServer::Start(uint16_t port, uint16_t width, uint16_t height) {
+bool MJVideoRTSPServer::Start(uint16_t port) {
     if (active_.load(std::memory_order_acquire)) return true;
-
-    (void)width;   // Reserved for future SDP use
-    (void)height;
 
     listen_fd_ = socket(AF_INET, SOCK_STREAM, 0);
     if (listen_fd_ < 0) {
@@ -199,6 +196,9 @@ void MJVideoRTSPServer::HandleClient(int client_fd, struct sockaddr_in client_ad
                 auto cp_pos = req.transport.find("client_port=");
                 if (cp_pos != std::string::npos) {
                     std::string ports = req.transport.substr(cp_pos + 12);
+                    // Truncate at semicolon to avoid parsing trailing parameters
+                    auto semi = ports.find(';');
+                    if (semi != std::string::npos) ports.resize(semi);
                     if (sscanf(ports.c_str(), "%hu-%hu", &rtp_port, &rtcp_port) < 1) {
                         rtp_port = 0;
                     }
@@ -223,12 +223,13 @@ void MJVideoRTSPServer::HandleClient(int client_fd, struct sockaddr_in client_ad
                     }
 
                     uint16_t server_rtp_port = rtp_transport_ ? rtp_transport_->GetPort() : 0;
+                    // No timeout advertised — sessions persist until TEARDOWN or server stop
                     response = BuildResponse(req.cseq, 200, "OK",
                         "Transport: RTP/AVP;unicast;client_port=" +
                         std::to_string(rtp_port) + "-" + std::to_string(rtcp_port) +
                         ";server_port=" + std::to_string(server_rtp_port) +
                         "-" + std::to_string(server_rtp_port + 1) + "\r\n"
-                        "Session: " + session_id + ";timeout=60\r\n");
+                        "Session: " + session_id + "\r\n");
                 }
 
             } else if (req.method == "PLAY") {
@@ -349,9 +350,13 @@ std::string MJVideoRTSPServer::BuildResponse(int cseq, int status_code,
 std::string MJVideoRTSPServer::GenerateSDP(const std::string& uri) const {
     uint16_t rtp_port = rtp_transport_ ? rtp_transport_->GetPort() : 0;
 
+    // Unique session ID per RFC 4566 (random, not all zeros)
+    std::random_device rd;
+    uint64_t session_id = (static_cast<uint64_t>(rd()) << 32) | rd();
+
     std::ostringstream sdp;
     sdp << "v=0\r\n";
-    sdp << "o=- 0 0 IN IP4 0.0.0.0\r\n";
+    sdp << "o=- " << session_id << " 1 IN IP4 0.0.0.0\r\n";
     sdp << "s=iMuJoCo Simulation\r\n";
     sdp << "c=IN IP4 0.0.0.0\r\n";
     sdp << "t=0 0\r\n";

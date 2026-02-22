@@ -43,7 +43,7 @@ struct MJRTSPSession {
 ///
 /// Listens on TCP port (default 8554) for RTSP requests. When a client
 /// sends SETUP+PLAY, the server registers the client's RTP port with
-/// the RTP transport, which then streams JPEG frames.
+/// the RTP transport, which then streams HEVC frames.
 ///
 /// Thread safety:
 ///   - Start()/Stop(): call from any thread, not concurrently
@@ -60,10 +60,8 @@ public:
 
     /// Start listening for RTSP connections.
     /// @param port TCP port to listen on (default 8554)
-    /// @param width Stream width for SDP
-    /// @param height Stream height for SDP
     /// @return true if started successfully
-    bool Start(uint16_t port = 8554, uint16_t width = 256, uint16_t height = 256);
+    bool Start(uint16_t port = 8554);
 
     /// Stop the RTSP server and close all connections.
     void Stop();

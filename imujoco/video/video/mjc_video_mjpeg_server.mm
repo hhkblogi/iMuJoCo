@@ -18,6 +18,7 @@
 #include <arpa/inet.h>
 #include <cstring>
 #include <netinet/tcp.h>
+#include <string>
 #include <sys/socket.h>
 #include <unistd.h>
 
