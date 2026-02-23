@@ -57,8 +57,8 @@ public struct MJCVideoStreamerConfig {
     public var transportMode: MJCVideoTransportMode = .rawUDP
     /// JPEG quality for JPEG-based modes (0.0-1.0, default 0.8)
     public var jpegQuality: CGFloat = 0.8
-    /// RTSP server port for rtpRTSP mode (default: 8554)
-    public var rtspPort: UInt16 = 8554
+    /// RTSP server port for rtpRTSP mode (default: same as port)
+    public var rtspPort: UInt16 = 9100
     public init() {}
 }
 
@@ -170,9 +170,9 @@ public final class MJCVideoStreamer {
             }
 
         case .rtpRTSP:
-            let rtpPort = config.port + 2
+            let rtpPort = config.port
             guard let rtp = rtpTransport, rtp.Start(rtpPort) else {
-                logger.error("Failed to start RTP transport on port \(self.config.port + 2)")
+                logger.error("Failed to start RTP transport on port \(self.config.port)")
                 return
             }
             if let rtsp = rtspServer {

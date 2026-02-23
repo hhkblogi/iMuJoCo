@@ -225,7 +225,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         videoStreamer?.start()
 
         // VLC-facing streamer (MJPEG/HTTP, RTP/RTSP, or HEVC/QUIC per user setting)
-        // QUIC uses cameraPort directly (UDP); MJPEG/RTSP use TCP so no conflict
+        // All modes use cameraPort directly; RTP (UDP) + RTSP (TCP) share the port number
         if vlcStreamer == nil {
             if !vlcTransportModeExplicit {
                 let setting = UserDefaults.standard.integer(forKey: "videoTransport")

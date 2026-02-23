@@ -78,6 +78,19 @@ bool MJVideoRTPTransport::Start(uint16_t port) {
     int sndbuf = 256 * 1024;
     setsockopt(socket_fd_, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf));
 
+    // Bind to port so RTP packets have a predictable source address.
+    // Clients use NWConnection to this port for bidirectional UDP flow.
+    struct sockaddr_in bind_addr{};
+    bind_addr.sin_family = AF_INET;
+    bind_addr.sin_addr.s_addr = INADDR_ANY;
+    bind_addr.sin_port = htons(port);
+    if (bind(socket_fd_, reinterpret_cast<struct sockaddr*>(&bind_addr), sizeof(bind_addr)) < 0) {
+        os_log_error(OS_LOG_DEFAULT, "RTP: Failed to bind UDP port %u: %{errno}d", port, errno);
+        close(socket_fd_);
+        socket_fd_ = -1;
+        return false;
+    }
+
     port_ = port;
     active_.store(true, std::memory_order_release);
     packet_buffer_.reserve(kRTPHeaderSize + kMaxRTPPayloadSize);
