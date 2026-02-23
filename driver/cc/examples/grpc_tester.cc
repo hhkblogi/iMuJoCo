@@ -155,9 +155,11 @@ static void PrintPhysicsState(const PhysicsState& ps) {
 
 class Tester {
 public:
-    explicit Tester(std::shared_ptr<Channel> channel, int timeout_ms)
+    explicit Tester(std::shared_ptr<Channel> channel, int timeout_ms,
+                    int load_timeout_ms)
         : stub_(SimulationControl::NewStub(channel)),
-          timeout_ms_(timeout_ms) {}
+          timeout_ms_(timeout_ms),
+          load_timeout_ms_(load_timeout_ms) {}
 
     // --- Instance discovery ---
 
@@ -194,6 +196,9 @@ public:
     }
 
     // --- Lifecycle ---
+    // LoadModel and Unload block server-side until the operation completes
+    // (Swift MainActor work + model parsing/mesh extraction). No client-side
+    // deadline — we wait for the server response which IS the completion signal.
 
     bool LoadModel(int id, const std::string& model) {
         LoadModelRequest req;
@@ -201,7 +206,7 @@ public:
         req.set_model_name(model);
         ControlResponse resp;
         ClientContext ctx;
-        SetDeadline(ctx);
+        SetLoadDeadline(ctx);
 
         Status status = stub_->LoadModel(&ctx, req, &resp);
         PrintControlResponse("LoadModel", status, resp);
@@ -213,7 +218,7 @@ public:
         req.set_instance_id(id);
         ControlResponse resp;
         ClientContext ctx;
-        SetDeadline(ctx);
+        SetLoadDeadline(ctx);
 
         Status status = stub_->Unload(&ctx, req, &resp);
         PrintControlResponse("Unload", status, resp);
@@ -309,7 +314,7 @@ public:
         std::cout << "1. ListInstances\n";
         check(ListInstances());
 
-        std::cout << "\n2. LoadModel\n";
+        std::cout << "\n2. LoadModel (blocking until done)\n";
         check(LoadModel(id, model));
 
         std::cout << "\n3. GetInstanceInfo\n";
@@ -339,7 +344,7 @@ public:
         std::cout << "\n10. GetState (after reset)\n";
         check(GetState(id));
 
-        std::cout << "\n11. Unload\n";
+        std::cout << "\n11. Unload (blocking until done)\n";
         check(Unload(id));
 
         std::cout << "\n=== Results: " << pass << " passed, "
@@ -353,8 +358,14 @@ private:
                          std::chrono::milliseconds(timeout_ms_));
     }
 
+    void SetLoadDeadline(ClientContext& ctx) {
+        ctx.set_deadline(std::chrono::system_clock::now() +
+                         std::chrono::milliseconds(load_timeout_ms_));
+    }
+
     std::unique_ptr<SimulationControl::Stub> stub_;
     int timeout_ms_;
+    int load_timeout_ms_;
 };
 
 // ============================================================================
@@ -374,7 +385,8 @@ int main(int argc, char* argv[]) {
                   << "  --instance  Instance ID (default: 1)\n"
                   << "  --model     Model name for load (default: scene)\n"
                   << "  --keyframe  Keyframe index for reset_kf (default: 0)\n"
-                  << "  --timeout   RPC deadline in ms (default: 5000)\n"
+                  << "  --timeout      RPC deadline in ms (default: 5000)\n"
+                  << "  --load_timeout Deadline for LoadModel/Unload in ms (default: 120000)\n"
                   << "  --smoke     Shorthand for --command smoke\n";
         return 0;
     }
@@ -385,6 +397,8 @@ int main(int argc, char* argv[]) {
     std::string model = args.get("model", "scene");
     int keyframe = args.get_int("keyframe", 0);
     int timeout_ms = args.get_int("timeout", 5000);
+
+    int load_timeout_ms = args.get_int("load_timeout", 120000);
 
     if (args.has("smoke")) {
         command = "smoke";
@@ -398,7 +412,7 @@ int main(int argc, char* argv[]) {
 
     auto channel = grpc::CreateChannel(target,
                                        grpc::InsecureChannelCredentials());
-    Tester tester(channel, timeout_ms);
+    Tester tester(channel, timeout_ms, load_timeout_ms);
 
     bool ok = true;
     if (command == "list") {
