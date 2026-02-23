@@ -108,7 +108,7 @@ git config core.hooksPath .githooks
 **Build the iOS app:**
 
 ```bash
-bazel build //imujoco/app:app
+bazel build //imujoco/app:app_ios
 ```
 
 **Run driver tests:**
@@ -154,10 +154,10 @@ Then select your device in Xcode and build. Xcode handles automatic code signing
 Build for different platforms using named configs:
 
 ```bash
-bazel build //imujoco/app:app --config=ios_device      # iOS device
-bazel build //imujoco/app:app --config=ios_sim          # iOS simulator
-bazel build //imujoco/app:app_macos --config=macos      # macOS
-bazel build //imujoco/app:app_tvos --config=tvos_device # tvOS device
+bazel build //imujoco/app:app_ios --config=ios_device      # iOS device
+bazel build //imujoco/app:app_ios --config=ios_sim          # iOS simulator
+bazel build //imujoco/app:app_macos --config=macos           # macOS
+bazel build //imujoco/app:app_tvos --config=tvos_device     # tvOS device
 ```
 
 ## License

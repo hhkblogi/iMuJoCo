@@ -40,20 +40,7 @@ struct ContentView: View {
         }
         .background(Color.black)
         .preferredColorScheme(.dark)
-        #if os(iOS)
-        .sheet(isPresented: $showingFullscreenModelPicker) {
-            ModelPickerView(
-                modelGroups: gridManager.bundledModelsBySource,
-                onSelectModel: { modelName in
-                    loadFullscreenModel(name: modelName)
-                },
-                onDismiss: {
-                    showingFullscreenModelPicker = false
-                }
-            )
-        }
-        #endif
-        #if os(macOS)
+        #if !os(tvOS)
         .sheet(isPresented: $showingFullscreenModelPicker) {
             ModelPickerView(
                 modelGroups: gridManager.bundledModelsBySource,
