@@ -668,18 +668,10 @@ public:
     }
 
     MJMeshData* GetMeshData() {
-        if (!mesh_storage_ || mesh_storage_->meshCount == 0) return nullptr;
-        if (!mesh_data_) {
-            mesh_data_ = std::make_unique<MJMeshData>(mesh_storage_.get());
-        }
         return mesh_data_.get();
     }
 
     MJTextureData* GetTextureData() {
-        if (!texture_storage_ || texture_storage_->textureCount == 0) return nullptr;
-        if (!texture_data_) {
-            texture_data_ = std::make_unique<MJTextureData>(texture_storage_.get());
-        }
         return texture_data_.get();
     }
 
@@ -794,6 +786,7 @@ private:
                     storage->meshCount, totalUnrolledVerts, totalFaces);
 
         mesh_storage_ = std::move(storage);
+        mesh_data_ = std::make_unique<MJMeshData>(mesh_storage_.get());
     }
 
     void ExtractTextureData() {
@@ -875,6 +868,7 @@ private:
                     storage->textureCount, totalRGBABytes, storage->materialCount);
 
         texture_storage_ = std::move(storage);
+        texture_data_ = std::make_unique<MJTextureData>(texture_storage_.get());
     }
 
     void PhysicsLoop() {

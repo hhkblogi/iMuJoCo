@@ -1,0 +1,5 @@
+module MJCGrpcServer {
+    header "mjc_grpc_server.h"
+    requires cplusplus
+    export *
+}

@@ -8,6 +8,7 @@ import core
 import render
 import video
 import MJCPhysicsRuntime
+import MJCGrpcServer
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -575,6 +576,43 @@ struct BundledModel {
     let cameraDistance: Double?   // Override initial camera distance (nil = use default)
 }
 
+// MARK: - gRPC Callbacks (file-level @convention(c)-compatible functions)
+
+private func grpcLoadModelHandler(_ instanceId: Int32, _ modelName: UnsafePointer<CChar>?, _ context: UnsafeMutableRawPointer?) -> Bool {
+    guard let context = context, let modelName = modelName else { return false }
+    let manager = Unmanaged<SimulationGridManager>.fromOpaque(context).takeUnretainedValue()
+    let name = String(cString: modelName)
+    let arrayIndex = Int(instanceId) - 1
+
+    var success = false
+    let semaphore = DispatchSemaphore(value: 0)
+    Task { @MainActor in
+        do {
+            try await manager.loadBundledModel(at: arrayIndex, name: name)
+            success = true
+        } catch {
+            logger.error("gRPC LoadModel failed: \(error.localizedDescription)")
+        }
+        semaphore.signal()
+    }
+    semaphore.wait()
+    return success
+}
+
+private func grpcUnloadHandler(_ instanceId: Int32, _ context: UnsafeMutableRawPointer?) -> Bool {
+    guard let context = context else { return false }
+    let manager = Unmanaged<SimulationGridManager>.fromOpaque(context).takeUnretainedValue()
+    let arrayIndex = Int(instanceId) - 1
+
+    let semaphore = DispatchSemaphore(value: 0)
+    Task { @MainActor in
+        manager.unload(at: arrayIndex)
+        semaphore.signal()
+    }
+    semaphore.wait()
+    return true
+}
+
 // MARK: - Grid Manager
 
 /// Manages 2x2 grid of simulation instances.
@@ -588,6 +626,7 @@ final class SimulationGridManager: @unchecked Sendable {
 
     private(set) var instances: [SimulationInstance]
     private(set) var fullscreenInstanceId: Int? = nil
+    @ObservationIgnored private var grpcServer: MJGrpcServer?
 
     var bundledModels: [BundledModel] {
         [
@@ -625,6 +664,27 @@ final class SimulationGridManager: @unchecked Sendable {
         instances = (1...Self.gridSize).map { index in
             SimulationInstance(id: index, basePort: Self.basePort)
         }
+        startGrpcServer()
+    }
+
+    // MARK: - gRPC Server
+
+    private func startGrpcServer() {
+        var config = MJGrpcServerConfig()
+        config.port = 8999
+        config.numInstances = Int32(Self.gridSize)
+
+        guard let server = MJGrpcServer.create(config) else {
+            logger.error("Failed to create gRPC server")
+            return
+        }
+
+        let ctx = Unmanaged.passUnretained(self).toOpaque()
+        server.setLoadCallback(grpcLoadModelHandler, ctx)
+        server.setUnloadCallback(grpcUnloadHandler, ctx)
+        server.start()
+        grpcServer = server
+        logger.info("gRPC server started on port 8999")
     }
 
     // MARK: - Instance Access
@@ -647,12 +707,16 @@ final class SimulationGridManager: @unchecked Sendable {
     @MainActor
     func loadModel(at index: Int, fromFile path: String) async throws {
         guard let instance = instance(at: index) else { return }
+        grpcServer?.unregisterRuntime(Int32(instance.id))
         instance.loadingModelName = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
         instance.isLoading = true
         do {
             try await instance.loadModel(fromFile: path)
             instance.isLocked = UserDefaults.standard.object(forKey: "defaultLocked") as? Bool ?? true
             instance.start()
+            if let rt = instance.runtime {
+                grpcServer?.registerRuntime(Int32(instance.id), rt.cppRuntime, instance.modelName)
+            }
             instance.isLoading = false
         } catch {
             instance.isLoading = false
@@ -667,6 +731,7 @@ final class SimulationGridManager: @unchecked Sendable {
             throw MuJoCoError.loadFailed("Unknown model '\(name)'")
         }
 
+        grpcServer?.unregisterRuntime(Int32(instance.id))
         instance.loadingModelName = name
         instance.isLoading = true
 
@@ -716,6 +781,9 @@ final class SimulationGridManager: @unchecked Sendable {
             instance.modelName = name
             instance.isLocked = UserDefaults.standard.object(forKey: "defaultLocked") as? Bool ?? true
             instance.start()
+            if let rt = instance.runtime {
+                grpcServer?.registerRuntime(Int32(instance.id), rt.cppRuntime, name)
+            }
             instance.isLoading = false
         } catch {
             instance.isLoading = false
@@ -725,7 +793,9 @@ final class SimulationGridManager: @unchecked Sendable {
 
     @MainActor
     func unload(at index: Int) {
-        instance(at: index)?.unload()
+        guard let inst = instance(at: index) else { return }
+        grpcServer?.unregisterRuntime(Int32(inst.id))
+        inst.unload()
     }
 
     // MARK: - Fullscreen

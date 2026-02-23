@@ -109,6 +109,16 @@ cc_binary(
     ],
 )
 
+cc_binary(
+    name = "grpc_tester",
+    srcs = ["cc/examples/grpc_tester.cc"],
+    deps = [
+        "//schema:simulation_control_cc_grpc",
+        "//schema:simulation_control_cc_proto",
+        "@grpc//:grpc++_unsecure",
+    ],
+)
+
 # ============================================================================
 # Python examples
 # ============================================================================

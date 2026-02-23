@@ -32,6 +32,7 @@ swift_library(
     deps = [
         "//imujoco/core",
         "//imujoco/core:core_cpp",
+        "//imujoco/grpc:grpc_server",
         "//imujoco/render",
         "//imujoco/video",
         "@mujoco//:mujoco",

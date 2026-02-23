@@ -1,0 +1,432 @@
+// grpc_tester.cc
+// Simple gRPC client for testing the SimulationControl service.
+//
+// Usage:
+//   grpc_tester --target localhost:8999
+//   grpc_tester --target localhost:8999 --command list
+//   grpc_tester --target localhost:8999 --command load --instance 1 --model scene
+//   grpc_tester --target localhost:8999 --smoke --instance 1 --model scene
+//
+// Commands:
+//   list          List all simulation instances
+//   info          Get info for --instance
+//   load          Load --model on --instance
+//   unload        Unload --instance
+//   start         Start --instance
+//   pause         Pause --instance
+//   reset         Reset --instance
+//   reset_kf      Reset --instance to --keyframe
+//   step          Step --instance one tick
+//   state         Get physics state for --instance
+//   smoke         Run full lifecycle smoke test (default)
+
+#include <iostream>
+#include <iomanip>
+#include <map>
+#include <string>
+#include <chrono>
+#include <thread>
+#include <cstdlib>
+
+#include <grpcpp/grpcpp.h>
+#include "schema/simulation_control.grpc.pb.h"
+#include "schema/simulation_control.pb.h"
+
+using grpc::Channel;
+using grpc::ClientContext;
+using grpc::Status;
+using namespace imujoco;
+
+// Minimal --key value argument parser (header-only, no deps).
+class Args {
+public:
+    Args(int argc, char* argv[]) {
+        program_ = (argc > 0) ? argv[0] : "grpc_tester";
+        for (int i = 1; i < argc; i++) {
+            std::string a = argv[i];
+            if (a.size() > 2 && a[0] == '-' && a[1] == '-') {
+                std::string k = a.substr(2);
+                if (i + 1 < argc && !(argv[i+1][0] == '-' && argv[i+1][1] == '-'))
+                    args_[k] = argv[++i];
+                else
+                    args_[k] = "";
+            }
+        }
+    }
+    std::string get(const std::string& k, const std::string& d) const {
+        auto it = args_.find(k); return it != args_.end() ? it->second : d;
+    }
+    int get_int(const std::string& k, int d) const {
+        auto it = args_.find(k);
+        return (it != args_.end() && !it->second.empty()) ? std::atoi(it->second.c_str()) : d;
+    }
+    bool has(const std::string& k) const { return args_.count(k); }
+    const std::string& program() const { return program_; }
+private:
+    std::map<std::string, std::string> args_;
+    std::string program_;
+};
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+static const char* StateName(SimulationState s) {
+    switch (s) {
+        case SIMULATION_STATE_UNSPECIFIED: return "UNSPECIFIED";
+        case SIMULATION_STATE_INACTIVE:   return "INACTIVE";
+        case SIMULATION_STATE_LOADED:     return "LOADED";
+        case SIMULATION_STATE_RUNNING:    return "RUNNING";
+        case SIMULATION_STATE_PAUSED:     return "PAUSED";
+        default:                          return "UNKNOWN";
+    }
+}
+
+static void PrintStatus(const std::string& rpc, const Status& status) {
+    if (status.ok()) {
+        std::cout << "  [OK] " << rpc << "\n";
+    } else {
+        std::cerr << "  [FAIL] " << rpc << ": "
+                  << status.error_code() << " — " << status.error_message()
+                  << "\n";
+    }
+}
+
+static void PrintControlResponse(const std::string& rpc,
+                                 const Status& status,
+                                 const ControlResponse& resp) {
+    PrintStatus(rpc, status);
+    if (status.ok()) {
+        std::cout << "    success: " << (resp.success() ? "true" : "false")
+                  << "\n";
+        if (!resp.error().empty()) {
+            std::cout << "    error:   " << resp.error() << "\n";
+        }
+    }
+}
+
+static void PrintInstanceInfo(const InstanceInfo& info) {
+    std::cout << "  Instance " << info.instance_id()
+              << "  state=" << StateName(info.state())
+              << "  model=\"" << info.model_name() << "\""
+              << "  udp_port=" << info.udp_port()
+              << "\n";
+    if (info.has_stats()) {
+        const auto& s = info.stats();
+        std::cout << "    SPS=" << s.steps_per_second()
+                  << "  tx=" << std::fixed << std::setprecision(1)
+                  << s.tx_rate() << " pkt/s"
+                  << "  rx=" << s.rx_rate() << " pkt/s"
+                  << "  sent=" << s.packets_sent()
+                  << "  recv=" << s.packets_received()
+                  << "  client=" << (s.has_client() ? "yes" : "no")
+                  << "\n";
+    }
+}
+
+static void PrintPhysicsState(const PhysicsState& ps) {
+    std::cout << "    time=" << std::fixed << std::setprecision(4)
+              << ps.time() << "\n";
+    std::cout << "    energy: PE=" << ps.energy_potential()
+              << "  KE=" << ps.energy_kinetic() << "\n";
+
+    auto printVec = [](const char* label,
+                       const google::protobuf::RepeatedField<double>& v,
+                       int max_show = 8) {
+        std::cout << "    " << label << "[" << v.size() << "]: [";
+        int n = std::min(max_show, v.size());
+        for (int i = 0; i < n; i++) {
+            if (i > 0) std::cout << ", ";
+            std::cout << std::fixed << std::setprecision(4) << v[i];
+        }
+        if (v.size() > max_show) std::cout << ", ...";
+        std::cout << "]\n";
+    };
+
+    printVec("qpos",       ps.qpos());
+    printVec("qvel",       ps.qvel());
+    printVec("ctrl",       ps.ctrl());
+    printVec("sensordata", ps.sensordata());
+}
+
+// ============================================================================
+// RPC wrappers
+// ============================================================================
+
+class Tester {
+public:
+    explicit Tester(std::shared_ptr<Channel> channel, int timeout_ms)
+        : stub_(SimulationControl::NewStub(channel)),
+          timeout_ms_(timeout_ms) {}
+
+    // --- Instance discovery ---
+
+    bool ListInstances() {
+        ListInstancesRequest req;
+        ListInstancesResponse resp;
+        ClientContext ctx;
+        SetDeadline(ctx);
+
+        Status status = stub_->ListInstances(&ctx, req, &resp);
+        PrintStatus("ListInstances", status);
+        if (status.ok()) {
+            std::cout << "  " << resp.instances_size() << " instance(s):\n";
+            for (const auto& info : resp.instances()) {
+                PrintInstanceInfo(info);
+            }
+        }
+        return status.ok();
+    }
+
+    bool GetInstanceInfo(int id) {
+        GetInstanceInfoRequest req;
+        req.set_instance_id(id);
+        InstanceInfo resp;
+        ClientContext ctx;
+        SetDeadline(ctx);
+
+        Status status = stub_->GetInstanceInfo(&ctx, req, &resp);
+        PrintStatus("GetInstanceInfo", status);
+        if (status.ok()) {
+            PrintInstanceInfo(resp);
+        }
+        return status.ok();
+    }
+
+    // --- Lifecycle ---
+
+    bool LoadModel(int id, const std::string& model) {
+        LoadModelRequest req;
+        req.set_instance_id(id);
+        req.set_model_name(model);
+        ControlResponse resp;
+        ClientContext ctx;
+        SetDeadline(ctx);
+
+        Status status = stub_->LoadModel(&ctx, req, &resp);
+        PrintControlResponse("LoadModel", status, resp);
+        return status.ok() && resp.success();
+    }
+
+    bool Unload(int id) {
+        InstanceRequest req;
+        req.set_instance_id(id);
+        ControlResponse resp;
+        ClientContext ctx;
+        SetDeadline(ctx);
+
+        Status status = stub_->Unload(&ctx, req, &resp);
+        PrintControlResponse("Unload", status, resp);
+        return status.ok() && resp.success();
+    }
+
+    bool Start(int id) {
+        InstanceRequest req;
+        req.set_instance_id(id);
+        ControlResponse resp;
+        ClientContext ctx;
+        SetDeadline(ctx);
+
+        Status status = stub_->Start(&ctx, req, &resp);
+        PrintControlResponse("Start", status, resp);
+        return status.ok() && resp.success();
+    }
+
+    bool Pause(int id) {
+        InstanceRequest req;
+        req.set_instance_id(id);
+        ControlResponse resp;
+        ClientContext ctx;
+        SetDeadline(ctx);
+
+        Status status = stub_->Pause(&ctx, req, &resp);
+        PrintControlResponse("Pause", status, resp);
+        return status.ok() && resp.success();
+    }
+
+    bool Reset(int id) {
+        InstanceRequest req;
+        req.set_instance_id(id);
+        ControlResponse resp;
+        ClientContext ctx;
+        SetDeadline(ctx);
+
+        Status status = stub_->Reset(&ctx, req, &resp);
+        PrintControlResponse("Reset", status, resp);
+        return status.ok() && resp.success();
+    }
+
+    bool ResetToKeyframe(int id, int keyframe) {
+        ResetToKeyframeRequest req;
+        req.set_instance_id(id);
+        req.set_keyframe_index(keyframe);
+        ControlResponse resp;
+        ClientContext ctx;
+        SetDeadline(ctx);
+
+        Status status = stub_->ResetToKeyframe(&ctx, req, &resp);
+        PrintControlResponse("ResetToKeyframe", status, resp);
+        return status.ok() && resp.success();
+    }
+
+    bool Step(int id) {
+        InstanceRequest req;
+        req.set_instance_id(id);
+        ControlResponse resp;
+        ClientContext ctx;
+        SetDeadline(ctx);
+
+        Status status = stub_->Step(&ctx, req, &resp);
+        PrintControlResponse("Step", status, resp);
+        return status.ok() && resp.success();
+    }
+
+    // --- State query ---
+
+    bool GetState(int id) {
+        InstanceRequest req;
+        req.set_instance_id(id);
+        PhysicsState resp;
+        ClientContext ctx;
+        SetDeadline(ctx);
+
+        Status status = stub_->GetState(&ctx, req, &resp);
+        PrintStatus("GetState", status);
+        if (status.ok()) {
+            PrintPhysicsState(resp);
+        }
+        return status.ok();
+    }
+
+    // --- Smoke test ---
+
+    bool RunSmokeTest(int id, const std::string& model) {
+        std::cout << "\n=== Smoke test: instance " << id
+                  << ", model \"" << model << "\" ===\n\n";
+        int pass = 0, fail = 0;
+        auto check = [&](bool ok) { ok ? pass++ : fail++; };
+
+        std::cout << "1. ListInstances\n";
+        check(ListInstances());
+
+        std::cout << "\n2. LoadModel\n";
+        check(LoadModel(id, model));
+
+        std::cout << "\n3. GetInstanceInfo\n";
+        check(GetInstanceInfo(id));
+
+        std::cout << "\n4. Start\n";
+        check(Start(id));
+
+        // Let it run briefly so we get non-zero state.
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+        std::cout << "\n5. GetState (running)\n";
+        check(GetState(id));
+
+        std::cout << "\n6. Pause\n";
+        check(Pause(id));
+
+        std::cout << "\n7. Step (single)\n";
+        check(Step(id));
+
+        std::cout << "\n8. GetState (after step)\n";
+        check(GetState(id));
+
+        std::cout << "\n9. Reset\n";
+        check(Reset(id));
+
+        std::cout << "\n10. GetState (after reset)\n";
+        check(GetState(id));
+
+        std::cout << "\n11. Unload\n";
+        check(Unload(id));
+
+        std::cout << "\n=== Results: " << pass << " passed, "
+                  << fail << " failed ===\n";
+        return fail == 0;
+    }
+
+private:
+    void SetDeadline(ClientContext& ctx) {
+        ctx.set_deadline(std::chrono::system_clock::now() +
+                         std::chrono::milliseconds(timeout_ms_));
+    }
+
+    std::unique_ptr<SimulationControl::Stub> stub_;
+    int timeout_ms_;
+};
+
+// ============================================================================
+// Main
+// ============================================================================
+
+int main(int argc, char* argv[]) {
+    Args args(argc, argv);
+
+    if (args.has("help")) {
+        std::cout << "Usage: " << args.program()
+                  << " [--target HOST:PORT] [--command CMD] [options]\n\n"
+                  << "Options:\n"
+                  << "  --target    gRPC server address (default: localhost:8999)\n"
+                  << "  --command   RPC to call: list, info, load, unload, start,\n"
+                  << "              pause, reset, reset_kf, step, state, smoke\n"
+                  << "  --instance  Instance ID (default: 1)\n"
+                  << "  --model     Model name for load (default: scene)\n"
+                  << "  --keyframe  Keyframe index for reset_kf (default: 0)\n"
+                  << "  --timeout   RPC deadline in ms (default: 5000)\n"
+                  << "  --smoke     Shorthand for --command smoke\n";
+        return 0;
+    }
+
+    std::string target = args.get("target", "localhost:8999");
+    std::string command = args.get("command", "");
+    int instance = args.get_int("instance", 1);
+    std::string model = args.get("model", "scene");
+    int keyframe = args.get_int("keyframe", 0);
+    int timeout_ms = args.get_int("timeout", 5000);
+
+    if (args.has("smoke")) {
+        command = "smoke";
+    }
+    if (command.empty()) {
+        command = "smoke";
+    }
+
+    std::cout << "gRPC SimulationControl Tester\n"
+              << "Target: " << target << "\n\n";
+
+    auto channel = grpc::CreateChannel(target,
+                                       grpc::InsecureChannelCredentials());
+    Tester tester(channel, timeout_ms);
+
+    bool ok = true;
+    if (command == "list") {
+        ok = tester.ListInstances();
+    } else if (command == "info") {
+        ok = tester.GetInstanceInfo(instance);
+    } else if (command == "load") {
+        ok = tester.LoadModel(instance, model);
+    } else if (command == "unload") {
+        ok = tester.Unload(instance);
+    } else if (command == "start") {
+        ok = tester.Start(instance);
+    } else if (command == "pause") {
+        ok = tester.Pause(instance);
+    } else if (command == "reset") {
+        ok = tester.Reset(instance);
+    } else if (command == "reset_kf") {
+        ok = tester.ResetToKeyframe(instance, keyframe);
+    } else if (command == "step") {
+        ok = tester.Step(instance);
+    } else if (command == "state") {
+        ok = tester.GetState(instance);
+    } else if (command == "smoke") {
+        ok = tester.RunSmokeTest(instance, model);
+    } else {
+        std::cerr << "Unknown command: " << command << "\n";
+        return 1;
+    }
+
+    return ok ? 0 : 1;
+}

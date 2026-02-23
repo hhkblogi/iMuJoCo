@@ -117,6 +117,11 @@ public final class MJRuntime {
         MJSimulationRuntime.destroy(runtime)
     }
 
+    // MARK: - C++ Runtime Access
+
+    /// Direct access to the underlying C++ runtime pointer (for gRPC server registration)
+    public var cppRuntime: MJSimulationRuntime { runtime }
+
     // MARK: - Model Loading
 
     /// Load a model from an XML file path

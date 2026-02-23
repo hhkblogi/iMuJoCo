@@ -1,0 +1,38 @@
+load("@build_bazel_rules_swift//swift:swift.bzl", "swift_interop_hint")
+load("@rules_cc//cc:defs.bzl", "objc_library")
+
+# ============================================================================
+# Swift interop hint for exposing gRPC server C++ headers to Swift
+# ============================================================================
+
+swift_interop_hint(
+    name = "grpc_cpp_swift_hint",
+    module_map = "grpc/module.modulemap",
+    module_name = "MJCGrpcServer",
+)
+
+# ============================================================================
+# gRPC server for simulation control
+# ============================================================================
+
+objc_library(
+    name = "grpc_server",
+    srcs = ["grpc/mjc_grpc_server.mm"],
+    hdrs = ["grpc/mjc_grpc_server.h"],
+    aspect_hints = [":grpc_cpp_swift_hint"],
+    copts = [
+        "-std=c++20",
+        "-fvisibility=hidden",
+    ],
+    sdk_frameworks = [
+        "Foundation",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//imujoco/core:core_cpp",
+        "//schema:simulation_control_cc_grpc",
+        "//schema:simulation_control_cc_proto",
+        "@grpc//:grpc++_unsecure",
+        "@mujoco//:mujoco",
+    ],
+)
