@@ -1,0 +1,190 @@
+diff -ruN a/MODULE.bazel b/MODULE.bazel
+--- a/MODULE.bazel
++++ b/MODULE.bazel
+@@ -64,7 +64,6 @@
+     "3.11",
+     "3.12",
+     "3.13",
+-    "3.14.0b2",
+ ]
+ 
+ python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+diff -ruN a/bazel/cc_grpc_library.bzl b/bazel/cc_grpc_library.bzl
+--- a/bazel/cc_grpc_library.bzl
++++ b/bazel/cc_grpc_library.bzl
+@@ -13,6 +13,7 @@
+ # limitations under the License.
+ """Generates and compiles C++ grpc stubs from proto_library rules."""
+ 
++load("@rules_cc//cc:defs.bzl", "cc_library")
+ load("@com_google_protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+ load("@rules_proto//proto:defs.bzl", "proto_library")
+ load("//bazel:generate_cc.bzl", "generate_cc")
+@@ -112,7 +113,7 @@
+             **kwargs
+         )
+ 
+-        native.cc_library(
++        cc_library(
+             name = name,
+             srcs = [":" + codegen_grpc_target],
+             hdrs = [":" + codegen_grpc_target],
+diff -ruN a/bazel/cython_library.bzl b/bazel/cython_library.bzl
+--- a/bazel/cython_library.bzl
++++ b/bazel/cython_library.bzl
+@@ -13,6 +13,7 @@
+ # limitations under the License.
+ """Custom rules for gRPC Python"""
+ 
++load("@rules_cc//cc:defs.bzl", "cc_binary")
+ load("@rules_python//python:defs.bzl", "py_library")
+ 
+ # Adapted with modifications from
+@@ -71,7 +72,7 @@
+     for src in pyx_srcs:
+         stem = src.split(".")[0]
+         shared_object_name = stem + ".so"
+-        native.cc_binary(
++        cc_binary(
+             name = shared_object_name,
+             srcs = [stem + ".cpp"],
+             deps = deps + [
+diff -ruN a/bazel/grpc_build_system.bzl b/bazel/grpc_build_system.bzl
+--- a/bazel/grpc_build_system.bzl
++++ b/bazel/grpc_build_system.bzl
+@@ -27,6 +27,7 @@
+ Contains macros used throughout the repo.
+ """
+ 
++load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test", "objc_library")
+ load("@build_bazel_apple_support//rules:universal_binary.bzl", "universal_binary")
+ load("@build_bazel_rules_apple//apple:ios.bzl", "ios_unit_test")
+ load("@build_bazel_rules_apple//apple/testing/default_runner:ios_test_runner.bzl", "ios_test_runner")
+@@ -151,7 +152,7 @@
+     # See b/391433873.
+     if "fuzztest" in external_deps and "grpc-fuzztest" not in tags:
+         tags = tags + ["grpc-fuzztest"]
+-    native.cc_library(
++    cc_library(
+         name = name,
+         srcs = srcs,
+         defines = defines +
+@@ -186,7 +187,7 @@
+     )
+ 
+ def grpc_proto_plugin(name, srcs = [], deps = []):
+-    native.cc_binary(
++    cc_binary(
+         name = name + "_native",
+         srcs = srcs,
+         deps = deps,
+@@ -289,7 +290,7 @@
+         device_type = "iPhone X",
+     )
+     if not any([t for t in tags if t.startswith("no_test_ios")]):
+-        native.objc_library(
++        objc_library(
+             name = test_lib_ios,
+             srcs = kwargs.get("srcs"),
+             deps = kwargs.get("deps"),
+@@ -582,7 +583,7 @@
+             **test_args
+         )
+ 
+-    native.cc_library(
++    cc_library(
+         name = "%s_TEST_LIBRARY" % name,
+         testonly = 1,
+         srcs = srcs,
+@@ -596,7 +597,7 @@
+             fail("srcs changed")
+         if poller_config["deps"] != core_deps:
+             fail("deps changed: %r --> %r" % (deps, poller_config["deps"]))
+-        native.cc_test(
++        cc_test(
+             name = poller_config["name"],
+             deps = ["%s_TEST_LIBRARY" % name],
+             tags = poller_config["tags"],
+@@ -626,7 +627,7 @@
+     """
+     visibility = _update_visibility(visibility)
+     copts = []
+-    native.cc_binary(
++    cc_binary(
+         name = name,
+         srcs = srcs,
+         args = args,
+@@ -793,7 +794,7 @@
+         visibility: visibility, default to public
+     """
+ 
+-    native.objc_library(
++    objc_library(
+         name = name,
+         hdrs = hdrs,
+         srcs = srcs,
+diff -ruN a/bazel/objc_grpc_library.bzl b/bazel/objc_grpc_library.bzl
+--- a/bazel/objc_grpc_library.bzl
++++ b/bazel/objc_grpc_library.bzl
+@@ -15,6 +15,7 @@
+ Contains the objc_grpc_library rule.
+ """
+ 
++load("@rules_cc//cc:defs.bzl", "objc_library")
+ load(
+     "//bazel:generate_objc.bzl",
+     "generate_objc",
+@@ -63,7 +64,7 @@
+         )
+         arc_srcs = [":" + objc_grpc_library_name + "_srcs"]
+ 
+-    native.objc_library(
++    objc_library(
+         name = name,
+         hdrs = [":" + objc_grpc_library_name + "_hdrs"],
+         non_arc_srcs = [":" + objc_grpc_library_name + "_non_arc_srcs"],
+diff -ruN a/grpc.bzl b/grpc.bzl
+--- a/grpc.bzl
++++ b/grpc.bzl
+@@ -20,6 +20,8 @@
+ - objc_grpc_library
+ """
+ 
++load("@rules_cc//cc:defs.bzl", "objc_library")
++
+ def _lower_underscore_to_upper_camel(str):
+     humps = []
+     for hump in str.split("_"):
+@@ -73,7 +75,7 @@
+         outs = h_files + m_files,
+         cmd = _protoc_invocation(srcs, protoc_flags),
+     )
+-    native.objc_library(
++    objc_library(
+         name = name,
+         hdrs = h_files,
+         includes = ["."],
+@@ -114,7 +116,7 @@
+         outs = h_files + m_files,
+         cmd = _protoc_invocation(services, protoc_flags),
+     )
+-    native.objc_library(
++    objc_library(
+         name = name,
+         hdrs = h_files,
+         includes = ["."],
+diff -ruN a/third_party/address_sorting/address_sorting.bzl b/third_party/address_sorting/address_sorting.bzl
+--- a/third_party/address_sorting/address_sorting.bzl
++++ b/third_party/address_sorting/address_sorting.bzl
+@@ -28,8 +28,10 @@
+ # OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ # SUCH DAMAGE.
+ 
++load("@rules_cc//cc:defs.bzl", "cc_library")
++
+ def address_sorting_cc_library(name, srcs, hdrs, copts, includes, linkopts=[]):
+-    native.cc_library(
++    cc_library(
+         name = name,
+         srcs = srcs,
+         hdrs = hdrs,

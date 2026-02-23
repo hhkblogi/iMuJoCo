@@ -33,6 +33,20 @@ bazel_dep(name = "google_benchmark", version = "1.9.5")
 bazel_dep(name = "rules_python", version = "1.8.4")
 bazel_dep(name = "pybind11_bazel", version = "3.0.0")
 
+# gRPC + Protobuf (for simulation instance control RPC)
+bazel_dep(name = "grpc", version = "1.78.0")
+bazel_dep(name = "protobuf", version = "33.4")
+
+# gRPC 1.78.0 needs patches for Bazel 9:
+# - Python 3.14.0b2 not in rules_python's known versions
+# - native.cc_library/cc_binary/cc_test/objc_library removed in Bazel 9
+single_version_override(
+    module_name = "grpc",
+    version = "1.78.0",
+    patches = ["//third_party/patches:grpc_bazel9_compat.patch"],
+    patch_strip = 1,
+)
+
 # ============================================================================
 # Git overrides for Bazel 9 compatibility (unreleased fixes on main)
 # ============================================================================
