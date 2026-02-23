@@ -505,7 +505,7 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
             || event.modifierFlags.contains(.option)
 
         if wantsPan {
-            let deltaX = -Double(event.scrollingDeltaX)
+            let deltaX = Double(event.scrollingDeltaX)
             let deltaY = -Double(event.scrollingDeltaY)
             translate_camera(dataSource: dataSource, deltaX: deltaX, deltaY: deltaY)
         } else {
