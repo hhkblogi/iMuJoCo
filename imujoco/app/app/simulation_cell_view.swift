@@ -340,7 +340,7 @@ struct SimulationCellView: View {
             VStack(spacing: 0) {
                 // Top: title row, then metrics below (right-aligned)
                 VStack(alignment: .leading, spacing: 4) {
-                    // Title (full width, no wrap) — triple-click to enter fullscreen
+                    // Title (full width, no wrap) — triple-tap to enter fullscreen (iOS/tvOS)
                     Text(instance.modelName)
                         .font(.caption)
                         .fontWeight(.semibold)

@@ -527,6 +527,8 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         // 'R' key to reset camera
         if event.charactersIgnoringModifiers == "r" {
             dataSource?.resetCamera()
+        } else {
+            super.keyDown(with: event)
         }
     }
     #endif
