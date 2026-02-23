@@ -3,6 +3,7 @@
 
 #import "mjc_grpc_server.h"
 
+#include <atomic>
 #include <mutex>
 #include <string>
 #include <memory>
@@ -95,6 +96,7 @@ static constexpr int kMaxInstances = 4;
 struct MJGrpcServerImpl {
     MJGrpcServerConfig config;
 
+    std::atomic<uint64_t> rpcCount{0};
     std::mutex mutex;
     MJSimulationRuntime* runtimes[kMaxInstances] = {};
     std::string modelNames[kMaxInstances];
@@ -121,6 +123,7 @@ grpc::Status SimulationControlServiceImpl::ListInstances(
         grpc::ServerContext* /*ctx*/,
         const imujoco::ListInstancesRequest* /*req*/,
         imujoco::ListInstancesResponse* resp) {
+    impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
     std::lock_guard<std::mutex> lock(impl_->mutex);
     for (int i = 0; i < impl_->config.numInstances; i++) {
         auto* info = resp->add_instances();
@@ -145,6 +148,7 @@ grpc::Status SimulationControlServiceImpl::GetInstanceInfo(
         grpc::ServerContext* /*ctx*/,
         const imujoco::GetInstanceInfoRequest* req,
         imujoco::InstanceInfo* resp) {
+    impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
     int id = req->instance_id();
     int idx = id - 1;
     if (idx < 0 || idx >= impl_->config.numInstances) {
@@ -171,6 +175,7 @@ grpc::Status SimulationControlServiceImpl::LoadModel(
         grpc::ServerContext* /*ctx*/,
         const imujoco::LoadModelRequest* req,
         imujoco::ControlResponse* resp) {
+    impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
     MJGrpcLoadModelCallback cb;
     void* cbCtx;
     {
@@ -197,6 +202,7 @@ grpc::Status SimulationControlServiceImpl::Unload(
         grpc::ServerContext* /*ctx*/,
         const imujoco::InstanceRequest* req,
         imujoco::ControlResponse* resp) {
+    impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
     MJGrpcUnloadCallback cb;
     void* cbCtx;
     {
@@ -223,6 +229,7 @@ grpc::Status SimulationControlServiceImpl::Start(
         grpc::ServerContext* /*ctx*/,
         const imujoco::InstanceRequest* req,
         imujoco::ControlResponse* resp) {
+    impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
     auto* rt = getRuntime(req->instance_id());
     if (!rt) {
         resp->set_success(false);
@@ -238,6 +245,7 @@ grpc::Status SimulationControlServiceImpl::Pause(
         grpc::ServerContext* /*ctx*/,
         const imujoco::InstanceRequest* req,
         imujoco::ControlResponse* resp) {
+    impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
     auto* rt = getRuntime(req->instance_id());
     if (!rt) {
         resp->set_success(false);
@@ -253,6 +261,7 @@ grpc::Status SimulationControlServiceImpl::Reset(
         grpc::ServerContext* /*ctx*/,
         const imujoco::InstanceRequest* req,
         imujoco::ControlResponse* resp) {
+    impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
     auto* rt = getRuntime(req->instance_id());
     if (!rt) {
         resp->set_success(false);
@@ -271,6 +280,7 @@ grpc::Status SimulationControlServiceImpl::ResetToKeyframe(
         grpc::ServerContext* /*ctx*/,
         const imujoco::ResetToKeyframeRequest* req,
         imujoco::ControlResponse* resp) {
+    impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
     auto* rt = getRuntime(req->instance_id());
     if (!rt) {
         resp->set_success(false);
@@ -309,6 +319,7 @@ grpc::Status SimulationControlServiceImpl::Step(
         grpc::ServerContext* /*ctx*/,
         const imujoco::InstanceRequest* req,
         imujoco::ControlResponse* resp) {
+    impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
     auto* rt = getRuntime(req->instance_id());
     if (!rt) {
         resp->set_success(false);
@@ -324,6 +335,7 @@ grpc::Status SimulationControlServiceImpl::GetState(
         grpc::ServerContext* /*ctx*/,
         const imujoco::InstanceRequest* req,
         imujoco::PhysicsState* resp) {
+    impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
     auto* rt = getRuntime(req->instance_id());
     if (!rt) {
         return grpc::Status(grpc::FAILED_PRECONDITION, "No runtime for instance");
@@ -404,6 +416,10 @@ void MJGrpcServer::unregisterRuntime(int32_t instanceId) {
         impl_->runtimes[idx] = nullptr;
         impl_->modelNames[idx].clear();
     }
+}
+
+uint64_t MJGrpcServer::rpcCount() const {
+    return impl_->rpcCount.load(std::memory_order_relaxed);
 }
 
 void MJGrpcServer::setLoadCallback(MJGrpcLoadModelCallback callback, void* context) {

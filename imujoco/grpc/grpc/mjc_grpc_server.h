@@ -80,6 +80,9 @@ public:
     /// Shutdown the gRPC server
     void stop();
 
+    /// Number of RPCs processed since server start (monotonically increasing).
+    uint64_t rpcCount() const;
+
     // MARK: - Runtime Registration
 
     /// Register a C++ physics runtime for direct gRPC access.

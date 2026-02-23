@@ -85,7 +85,7 @@ struct SimulationGridView: View {
             menuBar
 
             if showStatsBar {
-                PerformanceStatsBar(instances: gridManager.instances)
+                PerformanceStatsBar(instances: gridManager.instances, grpcRpcCount: { gridManager.grpcRpcCount })
             }
 
             // Grid of simulations

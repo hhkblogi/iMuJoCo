@@ -628,6 +628,11 @@ final class SimulationGridManager: @unchecked Sendable {
     private(set) var fullscreenInstanceId: Int? = nil
     @ObservationIgnored private var grpcServer: MJGrpcServer?
 
+    /// Monotonically increasing count of gRPC RPCs processed.
+    var grpcRpcCount: UInt64 {
+        grpcServer?.rpcCount() ?? 0
+    }
+
     var bundledModels: [BundledModel] {
         [
             BundledModel(name: "Car", source: .mujoco, resource: "car", subdirectory: "model/car",
