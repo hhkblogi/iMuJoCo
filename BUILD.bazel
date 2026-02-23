@@ -5,8 +5,12 @@ xcodeproj(
     project_name = "imujoco",
     top_level_targets = [
         top_level_target(
-            "//imujoco/app:app",
+            "//imujoco/app:app_ios",
             target_environments = ["device", "simulator"],
+        ),
+        top_level_target(
+            "//imujoco/app:app_macos",
+            target_environments = ["device"],
         ),
     ],
 )

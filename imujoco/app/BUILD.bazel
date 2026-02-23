@@ -96,7 +96,7 @@ apple_resource_group(
 # ============================================================================
 
 ios_application(
-    name = "app",
+    name = "app_ios",
     app_icons = glob(["app/AppIcon.icon/**"]),
     bundle_id = "com.hhkblogi.imujoco.app",
     entitlements = "app_ios.entitlements",
@@ -121,7 +121,7 @@ ios_application(
 # ============================================================================
 
 ios_application(
-    name = "app_appstore",
+    name = "app_ios_appstore",
     app_icons = glob(["app/AppIcon.icon/**"]),
     bundle_id = "com.hhkblogi.imujoco.app",
     entitlements = "app_ios.entitlements",
@@ -151,12 +151,13 @@ macos_application(
     bundle_id = "com.hhkblogi.imujoco.app",
     entitlements = "app.entitlements",
     infoplists = ["Info.plist"],
-    minimum_os_version = "26.0",
+    minimum_os_version = "15.0",
     resources = glob(["app/Assets.xcassets/**"]) + [
         "app/PrivacyInfo.xcprivacy",
         "//models",
         "//imujoco/render:mujoco_metallib",
     ],
+    visibility = ["//visibility:public"],
     deps = [":app_lib"],
 )
 

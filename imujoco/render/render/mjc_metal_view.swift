@@ -278,7 +278,8 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         #endif
 
         #if os(macOS)
-        // No special touch types needed; pan uses Option+scroll instead of 3-finger touches
+        self.allowedTouchTypes = [.indirect]
+        self.wantsRestingTouches = false
         #endif
 
         // Set delegate last, after everything is fully initialized
@@ -433,9 +434,13 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
     private var last_mouse_location: CGPoint = .zero
     private var is_rotating = false
 
+    /// Number of fingers currently touching the trackpad (for scroll gesture differentiation).
+    private var trackpad_touch_count = 0
+
     public override var acceptsFirstResponder: Bool { true }
 
     public override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
         last_mouse_location = event.locationInWindow
         is_rotating = true
     }
@@ -467,19 +472,46 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         dataSource.cameraDistance = max(newDistance, min_camera_distance)
     }
 
+    // MARK: - Trackpad Touch Tracking
+
+    public override func touchesBegan(with event: NSEvent) {
+        trackpad_touch_count = event.touches(matching: .touching, in: self).count
+        super.touchesBegan(with: event)
+    }
+
+    public override func touchesMoved(with event: NSEvent) {
+        trackpad_touch_count = event.touches(matching: .touching, in: self).count
+        super.touchesMoved(with: event)
+    }
+
+    public override func touchesEnded(with event: NSEvent) {
+        trackpad_touch_count = event.touches(matching: .touching, in: self).count
+        super.touchesEnded(with: event)
+    }
+
+    public override func touchesCancelled(with event: NSEvent) {
+        trackpad_touch_count = event.touches(matching: .touching, in: self).count
+        super.touchesCancelled(with: event)
+    }
+
+    // MARK: - Scroll / Pinch / Key
+
     public override func scrollWheel(with event: NSEvent) {
         guard let dataSource = dataSource else { return }
 
-        if event.modifierFlags.contains(.option) {
-            // Option + two-finger scroll → pan (translate camera lookat)
+        // Pan: Ctrl+scroll (primary), or three-finger/Option+scroll as fallback
+        let wantsPan = event.modifierFlags.contains(.control)
+            || trackpad_touch_count >= 3
+            || event.modifierFlags.contains(.option)
+
+        if wantsPan {
             let deltaX = Double(event.scrollingDeltaX)
-            let deltaY = Double(event.scrollingDeltaY)
+            let deltaY = -Double(event.scrollingDeltaY)
             translate_camera(dataSource: dataSource, deltaX: deltaX, deltaY: deltaY)
         } else {
-            // Two-finger scroll → zoom
-            let deltaY = event.scrollingDeltaY
-            let newDistance = dataSource.cameraDistance * (1.0 - Double(deltaY) * zoom_sensitivity)
-            dataSource.cameraDistance = max(newDistance, min_camera_distance)
+            // Two-finger scroll → camera rotation
+            dataSource.cameraAzimuth += Double(event.scrollingDeltaX) * camera_rotation_sensitivity
+            dataSource.cameraElevation += Double(event.scrollingDeltaY) * camera_rotation_sensitivity
         }
     }
 
@@ -495,6 +527,8 @@ public class MuJoCoMTKView: MTKView, MTKViewDelegate {
         // 'R' key to reset camera
         if event.charactersIgnoringModifiers == "r" {
             dataSource?.resetCamera()
+        } else {
+            super.keyDown(with: event)
         }
     }
     #endif

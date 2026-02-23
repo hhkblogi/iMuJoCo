@@ -35,7 +35,7 @@ build:ios_sim --cpu=ios_sim_arm64
 
 # macOS (arm64)
 build:macos --apple_platform_type=macos
-build:macos --macos_minimum_os=26.0
+build:macos --macos_minimum_os=15.0
 build:macos --cpu=darwin_arm64
 
 # tvOS device (arm64)
@@ -59,7 +59,7 @@ build:release --copt=-march=armv8-a
 build:release --copt=-flto=thin --linkopt=-flto=thin
 
 # ============================================================================
-# App Store submission (use: bazel build //imujoco/app:app_appstore --config=appstore)
+# App Store submission (use: bazel build //imujoco/app:app_ios_appstore --config=appstore)
 # ============================================================================
 
 build:appstore --config=ios_device

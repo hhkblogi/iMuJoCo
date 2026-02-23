@@ -64,10 +64,15 @@ struct SimulationGridView: View {
     @State private var ipExpanded = false
     @State private var showingSettings = false
     @AppStorage("defaultView") private var defaultView: Int = 0
+    #if os(iOS)
     @AppStorage("caffeineMode") private var caffeineMode: Int = 1
+    #endif
     @AppStorage("defaultLocked") private var defaultLocked: Bool = true
     @AppStorage("showStatsBar") private var showStatsBar: Bool = true
     @AppStorage("videoTransport") private var videoTransport: Int = 0
+    #if os(macOS)
+    @Environment(\.openSettings) private var openSettings
+    #endif
 
     let columns = [
         GridItem(.flexible(), spacing: 8),
@@ -113,7 +118,7 @@ struct SimulationGridView: View {
         // videoTransport is persisted via @AppStorage; new instances
         // read it in start(). Changing it does NOT restart running streamers
         // — use the per-instance MJPEG/HEVC toggle for that.
-        #if os(iOS)
+        #if !os(tvOS)
         .sheet(isPresented: $showingModelPicker) {
             ModelPickerView(
                 modelGroups: gridManager.bundledModelsBySource,
@@ -125,24 +130,10 @@ struct SimulationGridView: View {
                 }
             )
         }
-        #endif
-        #if os(tvOS)
+        #else
         .fullScreenCover(isPresented: $showingModelPicker) {
             TVModelPickerView(
                 modelNames: gridManager.bundledModelNames,
-                onSelectModel: { modelName in
-                    loadModel(name: modelName)
-                },
-                onDismiss: {
-                    showingModelPicker = false
-                }
-            )
-        }
-        #endif
-        #if os(macOS)
-        .sheet(isPresented: $showingModelPicker) {
-            ModelPickerView(
-                modelGroups: gridManager.bundledModelsBySource,
                 onSelectModel: { modelName in
                     loadModel(name: modelName)
                 },
@@ -157,9 +148,11 @@ struct SimulationGridView: View {
         } message: {
             Text(errorMessage)
         }
+        #if !os(macOS)
         .sheet(isPresented: $showingSettings) {
             SettingsView(defaultView: $defaultView, defaultLocked: $defaultLocked, onDismiss: { showingSettings = false })
         }
+        #endif
     }
 
     // MARK: - Model Loading
@@ -187,7 +180,13 @@ struct SimulationGridView: View {
     private var menuBar: some View {
         HStack {
             // Settings button
-            Button(action: { showingSettings = true }) {
+            Button(action: {
+                #if os(macOS)
+                openSettings()
+                #else
+                showingSettings = true
+                #endif
+            }) {
                 Image(systemName: "slider.horizontal.3")
                     .font(.system(size: 18, weight: .medium))
                     .foregroundColor(.white)
