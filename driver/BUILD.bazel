@@ -151,3 +151,21 @@ macos_application(
     minimum_os_version = "26.0",
     deps = [":quic_receiver_lib"],
 )
+
+# ============================================================================
+# HEVC/RTP Video Receiver (macOS SwiftUI app)
+# ============================================================================
+
+swift_library(
+    name = "hevc_receiver_lib",
+    srcs = glob(["hevc/*.swift"]),
+    module_name = "HevcReceiver",
+)
+
+macos_application(
+    name = "hevc_receiver",
+    bundle_id = "com.imujoco.hevc-receiver",
+    infoplists = ["hevc/Info.plist"],
+    minimum_os_version = "26.0",
+    deps = [":hevc_receiver_lib"],
+)
