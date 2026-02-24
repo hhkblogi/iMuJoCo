@@ -469,6 +469,14 @@ public:
         return true;
     }
 
+    bool ResetToKeyframeByIndex(int32_t index) {
+        if (!model_ || !data_) return false;
+        if (index < 0 || index >= model_->nkey) return false;
+        const char* name = mj_id2name(model_, mjOBJ_KEY, index);
+        if (!name) return false;
+        return ResetToKeyframe(name);
+    }
+
     void Step() {
         if (model_ && data_ && state_ != MJRuntimeState::Running) {
             mj_step(model_, data_);
@@ -1303,6 +1311,7 @@ void MJSimulationRuntime::start() { impl_->Start(); }
 void MJSimulationRuntime::pause() { impl_->Pause(); }
 void MJSimulationRuntime::reset() { impl_->Reset(); }
 bool MJSimulationRuntime::resetToKeyframe(const char* name) { return impl_->ResetToKeyframe(name); }
+bool MJSimulationRuntime::resetToKeyframeByIndex(int32_t index) { return impl_->ResetToKeyframeByIndex(index); }
 void MJSimulationRuntime::step() { impl_->Step(); }
 
 MJRuntimeState MJSimulationRuntime::getState() const { return impl_->GetState(); }

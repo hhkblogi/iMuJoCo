@@ -613,6 +613,66 @@ private func grpcUnloadHandler(_ instanceId: Int32, _ context: UnsafeMutableRawP
     return true
 }
 
+private func grpcOperationHandler(_ instanceId: Int32, _ op: Int32, _ param: Int32, _ context: UnsafeMutableRawPointer?) -> Bool {
+    guard let context = context else { return false }
+    let manager = Unmanaged<SimulationGridManager>.fromOpaque(context).takeUnretainedValue()
+    let arrayIndex = Int(instanceId) - 1
+
+    var success = false
+    let semaphore = DispatchSemaphore(value: 0)
+    Task { @MainActor in
+        guard let instance = manager.instance(at: arrayIndex), instance.runtime != nil else {
+            semaphore.signal()
+            return
+        }
+        switch op {
+        case MJ_GRPC_OP_START.rawValue:
+            instance.start()
+            success = true
+        case MJ_GRPC_OP_PAUSE.rawValue:
+            instance.pause()
+            success = true
+        case MJ_GRPC_OP_RESET.rawValue:
+            instance.reset()
+            success = true
+        case MJ_GRPC_OP_STEP.rawValue:
+            instance.step()
+            success = true
+        case MJ_GRPC_OP_RESET_TO_KEYFRAME.rawValue:
+            let wasRunning = instance.state == .running
+            if wasRunning { instance.pause() }
+            success = instance.runtime?.resetToKeyframe(index: param) ?? false
+            if wasRunning { instance.start() }
+        default:
+            logger.error("grpcOperationHandler: unknown op \(op)")
+        }
+        semaphore.signal()
+    }
+    semaphore.wait()
+    return success
+}
+
+private func grpcGetStateHandler(_ instanceId: Int32, _ outState: UnsafeMutablePointer<MJGrpcPhysicsState>?, _ context: UnsafeMutableRawPointer?) -> Bool {
+    guard let context = context, let outState = outState else { return false }
+    let manager = Unmanaged<SimulationGridManager>.fromOpaque(context).takeUnretainedValue()
+    let arrayIndex = Int(instanceId) - 1
+
+    var success = false
+    let semaphore = DispatchSemaphore(value: 0)
+    Task { @MainActor in
+        guard let instance = manager.instance(at: arrayIndex),
+              let cppRuntime = instance.runtime?.cppRuntime else {
+            semaphore.signal()
+            return
+        }
+        MJGrpcFillPhysicsState(outState, cppRuntime)
+        success = outState.pointee.valid
+        semaphore.signal()
+    }
+    semaphore.wait()
+    return success
+}
+
 // MARK: - Grid Manager
 
 /// Manages 2x2 grid of simulation instances.
@@ -687,6 +747,8 @@ final class SimulationGridManager: @unchecked Sendable {
         let ctx = Unmanaged.passUnretained(self).toOpaque()
         server.setLoadCallback(grpcLoadModelHandler, ctx)
         server.setUnloadCallback(grpcUnloadHandler, ctx)
+        server.setOperationCallback(grpcOperationHandler, ctx)
+        server.setGetStateCallback(grpcGetStateHandler, ctx)
         server.start()
         grpcServer = server
         logger.info("gRPC server started on port 8999")

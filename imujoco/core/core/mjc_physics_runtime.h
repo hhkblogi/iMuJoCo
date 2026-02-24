@@ -430,6 +430,11 @@ public:
     /// @note Also sets the active keyframe used by reset()
     bool resetToKeyframe(const char* name);
 
+    /// Reset simulation to a keyframe by index
+    /// @param index 0-based keyframe index in the model
+    /// @return true if keyframe was found and applied
+    bool resetToKeyframeByIndex(int32_t index);
+
     /// Step the simulation manually (when paused)
     void step();
 

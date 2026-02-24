@@ -174,6 +174,14 @@ public final class MJRuntime {
         return runtime.resetToKeyframe(name)
     }
 
+    /// Reset simulation to a keyframe by index
+    /// - Parameter index: 0-based keyframe index in the model
+    /// - Returns: true if keyframe was found and applied
+    @discardableResult
+    public func resetToKeyframe(index: Int32) -> Bool {
+        return runtime.resetToKeyframeByIndex(index)
+    }
+
     /// Step the simulation manually (when paused)
     public func step() {
         runtime.step()

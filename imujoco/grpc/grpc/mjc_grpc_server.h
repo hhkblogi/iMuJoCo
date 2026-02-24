@@ -20,6 +20,40 @@
 // Forward declarations (no #include of physics header)
 class MJSimulationRuntime;
 
+// MARK: - gRPC Operation Enum
+
+/// Operations dispatched via the operation callback.
+enum MJGrpcOp : int32_t {
+    MJ_GRPC_OP_START = 0,
+    MJ_GRPC_OP_PAUSE = 1,
+    MJ_GRPC_OP_RESET = 2,
+    MJ_GRPC_OP_STEP = 3,
+    MJ_GRPC_OP_RESET_TO_KEYFRAME = 4,
+};
+
+// MARK: - Physics State Struct (for GetState callback)
+
+static constexpr int32_t kMJGrpcMaxDof = 500;
+static constexpr int32_t kMJGrpcMaxSensor = 2048;
+
+/// Fixed-size struct filled by the GetState callback on MainActor.
+/// Allocated on stack by the gRPC handler, filled by the callback.
+struct MJGrpcPhysicsState {
+    bool valid = false;
+    double time = 0.0;
+    int32_t nq = 0, nv = 0, nu = 0, nsensordata = 0;
+    double qpos[kMJGrpcMaxDof] = {};
+    double qvel[kMJGrpcMaxDof] = {};
+    double ctrl[kMJGrpcMaxDof] = {};
+    double sensordata[kMJGrpcMaxSensor] = {};
+    double energyPotential = 0.0;
+    double energyKinetic = 0.0;
+};
+
+/// Fill a MJGrpcPhysicsState from the runtime's current mjModel/mjData.
+/// Must be called while the runtime is safe to access (e.g. on MainActor).
+void MJGrpcFillPhysicsState(MJGrpcPhysicsState* outState, MJSimulationRuntime* runtime);
+
 // MARK: - Configuration
 
 struct MJGrpcServerConfig {
@@ -42,6 +76,21 @@ typedef bool (*MJGrpcLoadModelCallback)(int32_t instanceId, const char* modelNam
 /// @return true on success
 typedef bool (*MJGrpcUnloadCallback)(int32_t instanceId, void* context);
 
+/// Called for Start/Pause/Reset/Step/ResetToKeyframe RPCs.
+/// @param instanceId 1-based instance ID
+/// @param op MJGrpcOp enum value
+/// @param param Extra parameter (keyframe index for RESET_TO_KEYFRAME, 0 otherwise)
+/// @param context Opaque pointer passed to setOperationCallback
+/// @return true on success
+typedef bool (*MJGrpcOperationCallback)(int32_t instanceId, int32_t op, int32_t param, void* context);
+
+/// Called for GetState RPCs. Fills outState on the MainActor thread.
+/// @param instanceId 1-based instance ID
+/// @param outState Caller-allocated struct to fill with physics state
+/// @param context Opaque pointer passed to setGetStateCallback
+/// @return true on success
+typedef bool (*MJGrpcGetStateCallback)(int32_t instanceId, MJGrpcPhysicsState* outState, void* context);
+
 // MARK: - Forward Declarations
 
 struct MJGrpcServerImpl;
@@ -51,11 +100,13 @@ struct MJGrpcServerImpl;
 /// gRPC server for low-frequency simulation control.
 /// High-frequency control/state streaming remains on FlatBuffers over UDP.
 ///
-/// Direct C++ calls are used for: Start, Pause, Reset, ResetToKeyframe, Step,
-/// GetState, ListInstances, GetInstanceInfo.
+/// All mutating RPCs are routed through callbacks that execute on MainActor
+/// to avoid races with UI-initiated mutations on the same simulation instance.
 ///
-/// Callbacks to Swift are used for: LoadModel (needs Bundle path resolution),
-/// Unload (needs Swift-level cleanup of streamers/UI).
+/// Callbacks to Swift (via MainActor): LoadModel, Unload, Start, Pause, Reset,
+/// ResetToKeyframe, Step, GetState.
+///
+/// Direct access (safe under gRPC mutex): ListInstances, GetInstanceInfo.
 class SWIFT_IMMORTAL_REFERENCE MJGrpcServer {
 public:
     /// Create a new gRPC server
@@ -102,6 +153,12 @@ public:
 
     /// Set the callback for gRPC Unload requests.
     void setUnloadCallback(MJGrpcUnloadCallback callback, void* context);
+
+    /// Set the callback for gRPC operation requests (Start/Pause/Reset/Step/ResetToKeyframe).
+    void setOperationCallback(MJGrpcOperationCallback callback, void* context);
+
+    /// Set the callback for gRPC GetState requests.
+    void setGetStateCallback(MJGrpcGetStateCallback callback, void* context);
 
 private:
     explicit MJGrpcServer(std::unique_ptr<MJGrpcServerImpl> impl);

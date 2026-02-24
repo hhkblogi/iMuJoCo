@@ -38,6 +38,32 @@ static void fillInstanceStats(imujoco::InstanceStats* s, const MJRuntimeStats& s
     s->set_has_client(stats.hasClient);
 }
 
+// MARK: - MJGrpcFillPhysicsState
+
+void MJGrpcFillPhysicsState(MJGrpcPhysicsState* outState, MJSimulationRuntime* runtime) {
+    if (!outState || !runtime) return;
+
+    const mjModel* m = runtime->getModel();
+    const mjData* d = runtime->getData();
+    if (!m || !d) return;
+
+    outState->valid = true;
+    outState->time = d->time;
+
+    outState->nq = std::min(m->nq, kMJGrpcMaxDof);
+    outState->nv = std::min(m->nv, kMJGrpcMaxDof);
+    outState->nu = std::min(m->nu, kMJGrpcMaxDof);
+    outState->nsensordata = std::min(m->nsensordata, kMJGrpcMaxSensor);
+
+    std::memcpy(outState->qpos, d->qpos, outState->nq * sizeof(double));
+    std::memcpy(outState->qvel, d->qvel, outState->nv * sizeof(double));
+    std::memcpy(outState->ctrl, d->ctrl, outState->nu * sizeof(double));
+    std::memcpy(outState->sensordata, d->sensordata, outState->nsensordata * sizeof(double));
+
+    outState->energyPotential = d->energy[0];
+    outState->energyKinetic = d->energy[1];
+}
+
 // MARK: - SimulationControlServiceImpl
 
 class SimulationControlServiceImpl final : public imujoco::SimulationControl::Service {
@@ -85,7 +111,6 @@ public:
                           imujoco::PhysicsState* resp) override;
 
 private:
-    MJSimulationRuntime* getRuntime(int32_t instanceId);
     MJGrpcServerImpl* impl_;
 };
 
@@ -105,19 +130,16 @@ struct MJGrpcServerImpl {
     void* loadContext = nullptr;
     MJGrpcUnloadCallback unloadCallback = nullptr;
     void* unloadContext = nullptr;
+    MJGrpcOperationCallback operationCallback = nullptr;
+    void* operationContext = nullptr;
+    MJGrpcGetStateCallback getStateCallback = nullptr;
+    void* getStateContext = nullptr;
 
     std::unique_ptr<SimulationControlServiceImpl> service;
     std::unique_ptr<grpc::Server> server;
 };
 
 // MARK: - SimulationControlServiceImpl — RPC Implementations
-
-MJSimulationRuntime* SimulationControlServiceImpl::getRuntime(int32_t instanceId) {
-    int idx = instanceId - 1;
-    std::lock_guard<std::mutex> lock(impl_->mutex);
-    if (idx < 0 || idx >= impl_->config.numInstances) return nullptr;
-    return impl_->runtimes[idx];
-}
 
 grpc::Status SimulationControlServiceImpl::ListInstances(
         grpc::ServerContext* /*ctx*/,
@@ -230,14 +252,21 @@ grpc::Status SimulationControlServiceImpl::Start(
         const imujoco::InstanceRequest* req,
         imujoco::ControlResponse* resp) {
     impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
-    auto* rt = getRuntime(req->instance_id());
-    if (!rt) {
+    MJGrpcOperationCallback cb;
+    void* cbCtx;
+    {
+        std::lock_guard<std::mutex> lock(impl_->mutex);
+        cb = impl_->operationCallback;
+        cbCtx = impl_->operationContext;
+    }
+    if (!cb) {
         resp->set_success(false);
-        resp->set_error("No runtime for instance");
+        resp->set_error("No operation callback registered");
         return grpc::Status::OK;
     }
-    rt->start();
-    resp->set_success(true);
+    bool ok = cb(req->instance_id(), MJ_GRPC_OP_START, 0, cbCtx);
+    resp->set_success(ok);
+    if (!ok) resp->set_error("Start failed");
     return grpc::Status::OK;
 }
 
@@ -246,14 +275,21 @@ grpc::Status SimulationControlServiceImpl::Pause(
         const imujoco::InstanceRequest* req,
         imujoco::ControlResponse* resp) {
     impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
-    auto* rt = getRuntime(req->instance_id());
-    if (!rt) {
+    MJGrpcOperationCallback cb;
+    void* cbCtx;
+    {
+        std::lock_guard<std::mutex> lock(impl_->mutex);
+        cb = impl_->operationCallback;
+        cbCtx = impl_->operationContext;
+    }
+    if (!cb) {
         resp->set_success(false);
-        resp->set_error("No runtime for instance");
+        resp->set_error("No operation callback registered");
         return grpc::Status::OK;
     }
-    rt->pause();
-    resp->set_success(true);
+    bool ok = cb(req->instance_id(), MJ_GRPC_OP_PAUSE, 0, cbCtx);
+    resp->set_success(ok);
+    if (!ok) resp->set_error("Pause failed");
     return grpc::Status::OK;
 }
 
@@ -262,17 +298,21 @@ grpc::Status SimulationControlServiceImpl::Reset(
         const imujoco::InstanceRequest* req,
         imujoco::ControlResponse* resp) {
     impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
-    auto* rt = getRuntime(req->instance_id());
-    if (!rt) {
+    MJGrpcOperationCallback cb;
+    void* cbCtx;
+    {
+        std::lock_guard<std::mutex> lock(impl_->mutex);
+        cb = impl_->operationCallback;
+        cbCtx = impl_->operationContext;
+    }
+    if (!cb) {
         resp->set_success(false);
-        resp->set_error("No runtime for instance");
+        resp->set_error("No operation callback registered");
         return grpc::Status::OK;
     }
-    bool wasRunning = (rt->getState() == MJRuntimeState::Running);
-    if (wasRunning) rt->pause();
-    rt->reset();
-    if (wasRunning) rt->start();
-    resp->set_success(true);
+    bool ok = cb(req->instance_id(), MJ_GRPC_OP_RESET, 0, cbCtx);
+    resp->set_success(ok);
+    if (!ok) resp->set_error("Reset failed");
     return grpc::Status::OK;
 }
 
@@ -281,37 +321,21 @@ grpc::Status SimulationControlServiceImpl::ResetToKeyframe(
         const imujoco::ResetToKeyframeRequest* req,
         imujoco::ControlResponse* resp) {
     impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
-    auto* rt = getRuntime(req->instance_id());
-    if (!rt) {
+    MJGrpcOperationCallback cb;
+    void* cbCtx;
+    {
+        std::lock_guard<std::mutex> lock(impl_->mutex);
+        cb = impl_->operationCallback;
+        cbCtx = impl_->operationContext;
+    }
+    if (!cb) {
         resp->set_success(false);
-        resp->set_error("No runtime for instance");
+        resp->set_error("No operation callback registered");
         return grpc::Status::OK;
     }
-
-    const mjModel* m = rt->getModel();
-    if (!m) {
-        resp->set_success(false);
-        resp->set_error("No model loaded");
-        return grpc::Status::OK;
-    }
-
-    int kfIndex = req->keyframe_index();
-    const char* name = mj_id2name(m, mjOBJ_KEY, kfIndex);
-    if (!name) {
-        resp->set_success(false);
-        resp->set_error("Invalid keyframe index");
-        return grpc::Status::OK;
-    }
-
-    bool wasRunning = (rt->getState() == MJRuntimeState::Running);
-    if (wasRunning) rt->pause();
-    bool ok = rt->resetToKeyframe(name);
-    if (wasRunning) rt->start();
-
+    bool ok = cb(req->instance_id(), MJ_GRPC_OP_RESET_TO_KEYFRAME, req->keyframe_index(), cbCtx);
     resp->set_success(ok);
-    if (!ok) {
-        resp->set_error("resetToKeyframe failed");
-    }
+    if (!ok) resp->set_error("ResetToKeyframe failed");
     return grpc::Status::OK;
 }
 
@@ -320,14 +344,21 @@ grpc::Status SimulationControlServiceImpl::Step(
         const imujoco::InstanceRequest* req,
         imujoco::ControlResponse* resp) {
     impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
-    auto* rt = getRuntime(req->instance_id());
-    if (!rt) {
+    MJGrpcOperationCallback cb;
+    void* cbCtx;
+    {
+        std::lock_guard<std::mutex> lock(impl_->mutex);
+        cb = impl_->operationCallback;
+        cbCtx = impl_->operationContext;
+    }
+    if (!cb) {
         resp->set_success(false);
-        resp->set_error("No runtime for instance");
+        resp->set_error("No operation callback registered");
         return grpc::Status::OK;
     }
-    rt->step();
-    resp->set_success(true);
+    bool ok = cb(req->instance_id(), MJ_GRPC_OP_STEP, 0, cbCtx);
+    resp->set_success(ok);
+    if (!ok) resp->set_error("Step failed");
     return grpc::Status::OK;
 }
 
@@ -336,24 +367,30 @@ grpc::Status SimulationControlServiceImpl::GetState(
         const imujoco::InstanceRequest* req,
         imujoco::PhysicsState* resp) {
     impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
-    auto* rt = getRuntime(req->instance_id());
-    if (!rt) {
-        return grpc::Status(grpc::FAILED_PRECONDITION, "No runtime for instance");
+    MJGrpcGetStateCallback cb;
+    void* cbCtx;
+    {
+        std::lock_guard<std::mutex> lock(impl_->mutex);
+        cb = impl_->getStateCallback;
+        cbCtx = impl_->getStateContext;
+    }
+    if (!cb) {
+        return grpc::Status(grpc::FAILED_PRECONDITION, "No getState callback registered");
     }
 
-    const mjModel* m = rt->getModel();
-    const mjData* d = rt->getData();
-    if (!m || !d) {
-        return grpc::Status(grpc::FAILED_PRECONDITION, "No model loaded");
+    MJGrpcPhysicsState state{};
+    bool ok = cb(req->instance_id(), &state, cbCtx);
+    if (!ok || !state.valid) {
+        return grpc::Status(grpc::FAILED_PRECONDITION, "No runtime or model for instance");
     }
 
-    resp->set_time(d->time);
-    for (int i = 0; i < m->nq; i++) resp->add_qpos(d->qpos[i]);
-    for (int i = 0; i < m->nv; i++) resp->add_qvel(d->qvel[i]);
-    for (int i = 0; i < m->nu; i++) resp->add_ctrl(d->ctrl[i]);
-    for (int i = 0; i < m->nsensordata; i++) resp->add_sensordata(d->sensordata[i]);
-    resp->set_energy_potential(d->energy[0]);
-    resp->set_energy_kinetic(d->energy[1]);
+    resp->set_time(state.time);
+    for (int i = 0; i < state.nq; i++) resp->add_qpos(state.qpos[i]);
+    for (int i = 0; i < state.nv; i++) resp->add_qvel(state.qvel[i]);
+    for (int i = 0; i < state.nu; i++) resp->add_ctrl(state.ctrl[i]);
+    for (int i = 0; i < state.nsensordata; i++) resp->add_sensordata(state.sensordata[i]);
+    resp->set_energy_potential(state.energyPotential);
+    resp->set_energy_kinetic(state.energyKinetic);
 
     return grpc::Status::OK;
 }
@@ -432,4 +469,16 @@ void MJGrpcServer::setUnloadCallback(MJGrpcUnloadCallback callback, void* contex
     std::lock_guard<std::mutex> lock(impl_->mutex);
     impl_->unloadCallback = callback;
     impl_->unloadContext = context;
+}
+
+void MJGrpcServer::setOperationCallback(MJGrpcOperationCallback callback, void* context) {
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    impl_->operationCallback = callback;
+    impl_->operationContext = context;
+}
+
+void MJGrpcServer::setGetStateCallback(MJGrpcGetStateCallback callback, void* context) {
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    impl_->getStateCallback = callback;
+    impl_->getStateContext = context;
 }
