@@ -19,6 +19,7 @@
 //   step          Step --instance one tick
 //   state         Get physics state for --instance
 //   smoke         Run full lifecycle smoke test (default)
+//   race          Race test: ListInstances vs Load/Unload (crash regression)
 
 #include <iostream>
 #include <iomanip>
@@ -26,6 +27,8 @@
 #include <string>
 #include <chrono>
 #include <thread>
+#include <atomic>
+#include <vector>
 #include <cstdlib>
 
 #include <grpcpp/grpcpp.h>
@@ -157,7 +160,8 @@ class Tester {
 public:
     explicit Tester(std::shared_ptr<Channel> channel, int timeout_ms,
                     int load_timeout_ms)
-        : stub_(SimulationControl::NewStub(channel)),
+        : channel_(channel),
+          stub_(SimulationControl::NewStub(channel)),
           timeout_ms_(timeout_ms),
           load_timeout_ms_(load_timeout_ms) {}
 
@@ -352,6 +356,106 @@ public:
         return fail == 0;
     }
 
+    // --- Race test: ListInstances/GetInstanceInfo vs Load/Unload ---
+    // Reproduces the crash fixed in feat/grpc-mainactor-serialization where
+    // ListInstances accessed a freed C++ runtime pointer on the gRPC thread
+    // while Unload freed it on MainActor. After the fix, all RPCs are routed
+    // through MainActor callbacks, so this test should pass without crashes.
+
+    bool RunRaceTest(int id, const std::string& model, int cycles) {
+        std::cout << "\n=== Race test: instance " << id
+                  << ", model \"" << model << "\""
+                  << ", " << cycles << " load/unload cycles ===\n\n";
+
+        std::atomic<bool> stop{false};
+        std::atomic<int> listOk{0}, listFail{0};
+        std::atomic<int> infoOk{0}, infoFail{0};
+
+        // Background thread: hammer ListInstances continuously
+        std::thread listThread([&]() {
+            // Each thread needs its own stub (ClientContext is not thread-safe)
+            auto threadStub = SimulationControl::NewStub(channel_);
+            while (!stop.load(std::memory_order_relaxed)) {
+                ListInstancesRequest req;
+                ListInstancesResponse resp;
+                ClientContext ctx;
+                ctx.set_deadline(std::chrono::system_clock::now() +
+                                 std::chrono::milliseconds(timeout_ms_));
+                Status status = threadStub->ListInstances(&ctx, req, &resp);
+                if (status.ok()) {
+                    listOk.fetch_add(1, std::memory_order_relaxed);
+                } else {
+                    listFail.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+        });
+
+        // Background thread: hammer GetInstanceInfo continuously
+        std::thread infoThread([&]() {
+            auto threadStub = SimulationControl::NewStub(channel_);
+            while (!stop.load(std::memory_order_relaxed)) {
+                GetInstanceInfoRequest req;
+                req.set_instance_id(id);
+                InstanceInfo resp;
+                ClientContext ctx;
+                ctx.set_deadline(std::chrono::system_clock::now() +
+                                 std::chrono::milliseconds(timeout_ms_));
+                Status status = threadStub->GetInstanceInfo(&ctx, req, &resp);
+                if (status.ok()) {
+                    infoOk.fetch_add(1, std::memory_order_relaxed);
+                } else {
+                    infoFail.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+        });
+
+        // Main thread: Load/Unload cycles
+        int loadFail = 0;
+        for (int i = 0; i < cycles; i++) {
+            std::cout << "  Cycle " << (i + 1) << "/" << cycles << ": ";
+
+            std::cout << "load... ";
+            if (!LoadModel(id, model)) {
+                std::cout << "LOAD FAILED\n";
+                loadFail++;
+                continue;
+            }
+
+            // Let background threads race against a loaded instance
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+            std::cout << "unload... ";
+            if (!Unload(id)) {
+                std::cout << "UNLOAD FAILED\n";
+                loadFail++;
+                continue;
+            }
+
+            std::cout << "done\n";
+        }
+
+        // Stop background threads
+        stop.store(true, std::memory_order_relaxed);
+        listThread.join();
+        infoThread.join();
+
+        int totalList = listOk.load() + listFail.load();
+        int totalInfo = infoOk.load() + infoFail.load();
+
+        std::cout << "\n=== Race test results ===\n"
+                  << "  Load/Unload cycles: " << cycles
+                  << " (" << loadFail << " failed)\n"
+                  << "  ListInstances:      " << totalList << " calls ("
+                  << listOk.load() << " ok, " << listFail.load() << " fail)\n"
+                  << "  GetInstanceInfo:    " << totalInfo << " calls ("
+                  << infoOk.load() << " ok, " << infoFail.load() << " fail)\n";
+
+        bool ok = (loadFail == 0 && listFail.load() == 0 && infoFail.load() == 0);
+        std::cout << "  Overall: " << (ok ? "PASS" : "FAIL")
+                  << " (no crashes = fix verified)\n";
+        return ok;
+    }
+
 private:
     void SetDeadline(ClientContext& ctx) {
         ctx.set_deadline(std::chrono::system_clock::now() +
@@ -363,6 +467,7 @@ private:
                          std::chrono::milliseconds(load_timeout_ms_));
     }
 
+    std::shared_ptr<Channel> channel_;
     std::unique_ptr<SimulationControl::Stub> stub_;
     int timeout_ms_;
     int load_timeout_ms_;
@@ -387,7 +492,8 @@ int main(int argc, char* argv[]) {
                   << "  --keyframe  Keyframe index for reset_kf (default: 0)\n"
                   << "  --timeout      RPC deadline in ms (default: 5000)\n"
                   << "  --load_timeout Deadline for LoadModel/Unload in ms (default: 120000)\n"
-                  << "  --smoke     Shorthand for --command smoke\n";
+                  << "  --smoke     Shorthand for --command smoke\n"
+                  << "  --cycles    Number of load/unload cycles for race test (default: 5)\n";
         return 0;
     }
 
@@ -399,6 +505,7 @@ int main(int argc, char* argv[]) {
     int timeout_ms = args.get_int("timeout", 5000);
 
     int load_timeout_ms = args.get_int("load_timeout", 120000);
+    int cycles = args.get_int("cycles", 5);
 
     if (args.has("smoke")) {
         command = "smoke";
@@ -437,6 +544,8 @@ int main(int argc, char* argv[]) {
         ok = tester.GetState(instance);
     } else if (command == "smoke") {
         ok = tester.RunSmokeTest(instance, model);
+    } else if (command == "race") {
+        ok = tester.RunRaceTest(instance, model, cycles);
     } else {
         std::cerr << "Unknown command: " << command << "\n";
         return 1;

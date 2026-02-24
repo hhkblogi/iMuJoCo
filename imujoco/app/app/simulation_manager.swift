@@ -673,6 +673,36 @@ private func grpcGetStateHandler(_ instanceId: Int32, _ outState: UnsafeMutableP
     return success
 }
 
+private func grpcGetInstanceInfoHandler(_ instanceId: Int32, _ outInfo: UnsafeMutablePointer<MJGrpcInstanceInfo>?, _ context: UnsafeMutableRawPointer?) -> Bool {
+    guard let context = context, let outInfo = outInfo else { return false }
+    let manager = Unmanaged<SimulationGridManager>.fromOpaque(context).takeUnretainedValue()
+    let arrayIndex = Int(instanceId) - 1
+
+    var success = false
+    let semaphore = DispatchSemaphore(value: 0)
+    Task { @MainActor in
+        guard let instance = manager.instance(at: arrayIndex),
+              let runtime = instance.runtime else {
+            semaphore.signal()
+            return
+        }
+        outInfo.pointee.valid = true
+        outInfo.pointee.state = runtime.state.rawValue
+        let stats = runtime.stats
+        outInfo.pointee.stepsPerSecond = stats.stepsPerSecond
+        outInfo.pointee.txRate = stats.txRate
+        outInfo.pointee.rxRate = stats.rxRate
+        outInfo.pointee.packetsSent = stats.packetsSent
+        outInfo.pointee.packetsReceived = stats.packetsReceived
+        outInfo.pointee.udpPort = stats.udpPort
+        outInfo.pointee.hasClient = stats.hasClient
+        success = true
+        semaphore.signal()
+    }
+    semaphore.wait()
+    return success
+}
+
 // MARK: - Grid Manager
 
 /// Manages 2x2 grid of simulation instances.
@@ -749,6 +779,7 @@ final class SimulationGridManager: @unchecked Sendable {
         server.setUnloadCallback(grpcUnloadHandler, ctx)
         server.setOperationCallback(grpcOperationHandler, ctx)
         server.setGetStateCallback(grpcGetStateHandler, ctx)
+        server.setGetInstanceInfoCallback(grpcGetInstanceInfoHandler, ctx)
         server.start()
         grpcServer = server
         logger.info("gRPC server started on port 8999")

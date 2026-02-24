@@ -91,6 +91,26 @@ typedef bool (*MJGrpcOperationCallback)(int32_t instanceId, int32_t op, int32_t 
 /// @return true on success
 typedef bool (*MJGrpcGetStateCallback)(int32_t instanceId, MJGrpcPhysicsState* outState, void* context);
 
+/// Instance info snapshot returned by the getInstanceInfo callback.
+struct MJGrpcInstanceInfo {
+    bool valid = false;              ///< true if this instance has a loaded runtime
+    int32_t state = 0;              ///< MJRuntimeState raw value (0=Inactive..3=Paused)
+    int32_t stepsPerSecond = 0;
+    float txRate = 0.0f;
+    float rxRate = 0.0f;
+    uint32_t packetsSent = 0;
+    uint32_t packetsReceived = 0;
+    uint16_t udpPort = 0;
+    bool hasClient = false;
+};
+
+/// Called for ListInstances/GetInstanceInfo RPCs. Fills outInfo on MainActor.
+/// @param instanceId 1-based instance ID
+/// @param outInfo Caller-allocated struct to fill
+/// @param context Opaque pointer passed to setGetInstanceInfoCallback
+/// @return true if instance has a loaded runtime
+typedef bool (*MJGrpcGetInstanceInfoCallback)(int32_t instanceId, MJGrpcInstanceInfo* outInfo, void* context);
+
 // MARK: - Forward Declarations
 
 struct MJGrpcServerImpl;
@@ -100,13 +120,8 @@ struct MJGrpcServerImpl;
 /// gRPC server for low-frequency simulation control.
 /// High-frequency control/state streaming remains on FlatBuffers over UDP.
 ///
-/// All mutating RPCs are routed through callbacks that execute on MainActor
+/// ALL RPCs are routed through callbacks that execute on MainActor
 /// to avoid races with UI-initiated mutations on the same simulation instance.
-///
-/// Callbacks to Swift (via MainActor): LoadModel, Unload, Start, Pause, Reset,
-/// ResetToKeyframe, Step, GetState.
-///
-/// Direct access (safe under gRPC mutex): ListInstances, GetInstanceInfo.
 class SWIFT_IMMORTAL_REFERENCE MJGrpcServer {
 public:
     /// Create a new gRPC server
@@ -159,6 +174,9 @@ public:
 
     /// Set the callback for gRPC GetState requests.
     void setGetStateCallback(MJGrpcGetStateCallback callback, void* context);
+
+    /// Set the callback for gRPC ListInstances/GetInstanceInfo requests.
+    void setGetInstanceInfoCallback(MJGrpcGetInstanceInfoCallback callback, void* context);
 
 private:
     explicit MJGrpcServer(std::unique_ptr<MJGrpcServerImpl> impl);

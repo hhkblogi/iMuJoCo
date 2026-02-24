@@ -27,17 +27,6 @@ static imujoco::SimulationState toProtoState(MJRuntimeState s) {
     return imujoco::SIMULATION_STATE_UNSPECIFIED;
 }
 
-// MARK: - Helper: fill InstanceStats proto from MJRuntimeStats
-
-static void fillInstanceStats(imujoco::InstanceStats* s, const MJRuntimeStats& stats) {
-    s->set_steps_per_second(stats.stepsPerSecond);
-    s->set_tx_rate(stats.txRate);
-    s->set_rx_rate(stats.rxRate);
-    s->set_packets_sent(stats.packetsSent);
-    s->set_packets_received(stats.packetsReceived);
-    s->set_has_client(stats.hasClient);
-}
-
 // MARK: - MJGrpcFillPhysicsState
 
 void MJGrpcFillPhysicsState(MJGrpcPhysicsState* outState, MJSimulationRuntime* runtime) {
@@ -134,6 +123,8 @@ struct MJGrpcServerImpl {
     void* operationContext = nullptr;
     MJGrpcGetStateCallback getStateCallback = nullptr;
     void* getStateContext = nullptr;
+    MJGrpcGetInstanceInfoCallback getInstanceInfoCallback = nullptr;
+    void* getInstanceInfoContext = nullptr;
 
     std::unique_ptr<SimulationControlServiceImpl> service;
     std::unique_ptr<grpc::Server> server;
@@ -146,19 +137,37 @@ grpc::Status SimulationControlServiceImpl::ListInstances(
         const imujoco::ListInstancesRequest* /*req*/,
         imujoco::ListInstancesResponse* resp) {
     impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
-    std::lock_guard<std::mutex> lock(impl_->mutex);
-    for (int i = 0; i < impl_->config.numInstances; i++) {
+    MJGrpcGetInstanceInfoCallback cb;
+    void* cbCtx;
+    int numInstances;
+    {
+        std::lock_guard<std::mutex> lock(impl_->mutex);
+        cb = impl_->getInstanceInfoCallback;
+        cbCtx = impl_->getInstanceInfoContext;
+        numInstances = impl_->config.numInstances;
+    }
+
+    for (int i = 0; i < numInstances; i++) {
         auto* info = resp->add_instances();
         int instanceId = i + 1;
         info->set_instance_id(instanceId);
 
-        auto* rt = impl_->runtimes[i];
-        if (rt) {
-            info->set_state(toProtoState(rt->getState()));
-            info->set_model_name(impl_->modelNames[i]);
-            auto stats = rt->getStats();
-            info->set_udp_port(stats.udpPort);
-            fillInstanceStats(info->mutable_stats(), stats);
+        MJGrpcInstanceInfo snapshot{};
+        if (cb && cb(instanceId, &snapshot, cbCtx) && snapshot.valid) {
+            info->set_state(toProtoState(static_cast<MJRuntimeState>(snapshot.state)));
+            // Model name from gRPC-side storage (set by register/unregister under mutex)
+            {
+                std::lock_guard<std::mutex> lock(impl_->mutex);
+                info->set_model_name(impl_->modelNames[i]);
+            }
+            info->set_udp_port(snapshot.udpPort);
+            auto* s = info->mutable_stats();
+            s->set_steps_per_second(snapshot.stepsPerSecond);
+            s->set_tx_rate(snapshot.txRate);
+            s->set_rx_rate(snapshot.rxRate);
+            s->set_packets_sent(snapshot.packetsSent);
+            s->set_packets_received(snapshot.packetsReceived);
+            s->set_has_client(snapshot.hasClient);
         } else {
             info->set_state(imujoco::SIMULATION_STATE_INACTIVE);
         }
@@ -177,16 +186,31 @@ grpc::Status SimulationControlServiceImpl::GetInstanceInfo(
         return grpc::Status(grpc::INVALID_ARGUMENT, "Invalid instance ID");
     }
 
-    std::lock_guard<std::mutex> lock(impl_->mutex);
+    MJGrpcGetInstanceInfoCallback cb;
+    void* cbCtx;
+    {
+        std::lock_guard<std::mutex> lock(impl_->mutex);
+        cb = impl_->getInstanceInfoCallback;
+        cbCtx = impl_->getInstanceInfoContext;
+    }
+
     resp->set_instance_id(id);
 
-    auto* rt = impl_->runtimes[idx];
-    if (rt) {
-        resp->set_state(toProtoState(rt->getState()));
-        resp->set_model_name(impl_->modelNames[idx]);
-        auto stats = rt->getStats();
-        resp->set_udp_port(stats.udpPort);
-        fillInstanceStats(resp->mutable_stats(), stats);
+    MJGrpcInstanceInfo snapshot{};
+    if (cb && cb(id, &snapshot, cbCtx) && snapshot.valid) {
+        resp->set_state(toProtoState(static_cast<MJRuntimeState>(snapshot.state)));
+        {
+            std::lock_guard<std::mutex> lock(impl_->mutex);
+            resp->set_model_name(impl_->modelNames[idx]);
+        }
+        resp->set_udp_port(snapshot.udpPort);
+        auto* s = resp->mutable_stats();
+        s->set_steps_per_second(snapshot.stepsPerSecond);
+        s->set_tx_rate(snapshot.txRate);
+        s->set_rx_rate(snapshot.rxRate);
+        s->set_packets_sent(snapshot.packetsSent);
+        s->set_packets_received(snapshot.packetsReceived);
+        s->set_has_client(snapshot.hasClient);
     } else {
         resp->set_state(imujoco::SIMULATION_STATE_INACTIVE);
     }
@@ -481,4 +505,10 @@ void MJGrpcServer::setGetStateCallback(MJGrpcGetStateCallback callback, void* co
     std::lock_guard<std::mutex> lock(impl_->mutex);
     impl_->getStateCallback = callback;
     impl_->getStateContext = context;
+}
+
+void MJGrpcServer::setGetInstanceInfoCallback(MJGrpcGetInstanceInfoCallback callback, void* context) {
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    impl_->getInstanceInfoCallback = callback;
+    impl_->getInstanceInfoContext = context;
 }
