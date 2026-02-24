@@ -6,9 +6,12 @@ import SwiftUI
 
 struct PerformanceStatsBar: View {
     let instances: [SimulationInstance]
+    var grpcRpcCount: () -> UInt64
     @State private var memoryMB: Double = 0
     @State private var cpuUsage: Double = 0
     @State private var gpuMemoryMB: Double = 0
+    @State private var lastGrpcRpcCount: UInt64 = 0
+    @State private var grpcActive: Bool = false
 
     private static let metalDevice = MTLCreateSystemDefaultDevice()
 
@@ -39,6 +42,15 @@ struct PerformanceStatsBar: View {
             )
 
             memCapsule
+
+            Spacer()
+
+            statCapsule(
+                value: ":8999",
+                unit: "",
+                label: "gRPC",
+                color: grpcActive ? .green : .white
+            )
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 2)
@@ -48,10 +60,13 @@ struct PerformanceStatsBar: View {
                 let mem = processMemoryMB()
                 let cpu = processCPUUsage()
                 let gpuMem = Double(Self.metalDevice?.currentAllocatedSize ?? 0) / (1024 * 1024)
+                let currentRpc = grpcRpcCount()
                 await MainActor.run {
                     memoryMB = mem
                     cpuUsage = cpu
                     gpuMemoryMB = gpuMem
+                    grpcActive = currentRpc != lastGrpcRpcCount
+                    lastGrpcRpcCount = currentRpc
                 }
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }

@@ -8,6 +8,7 @@ import core
 import render
 import video
 import MJCPhysicsRuntime
+import MJCGrpcServer
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -575,6 +576,159 @@ struct BundledModel {
     let cameraDistance: Double?   // Override initial camera distance (nil = use default)
 }
 
+// MARK: - gRPC Callbacks (file-level @convention(c)-compatible functions)
+
+/// Semaphore timeout for gRPC → MainActor callbacks (seconds).
+/// LoadModel/Unload may take longer (model parsing, mesh extraction).
+private let grpcCallbackTimeout: DispatchTimeInterval = .seconds(10)
+private let grpcLoadCallbackTimeout: DispatchTimeInterval = .seconds(120)
+
+private func grpcLoadModelHandler(_ instanceId: Int32, _ modelName: UnsafePointer<CChar>?, _ context: UnsafeMutableRawPointer?) -> Bool {
+    guard let context = context, let modelName = modelName else { return false }
+    let manager = Unmanaged<SimulationGridManager>.fromOpaque(context).takeUnretainedValue()
+    let name = String(cString: modelName)
+    let arrayIndex = Int(instanceId) - 1
+
+    var success = false
+    let semaphore = DispatchSemaphore(value: 0)
+    Task { @MainActor in
+        do {
+            try await manager.loadBundledModel(at: arrayIndex, name: name)
+            success = true
+        } catch {
+            logger.error("gRPC LoadModel failed: \(error.localizedDescription)")
+        }
+        semaphore.signal()
+    }
+    if semaphore.wait(timeout: .now() + grpcLoadCallbackTimeout) == .timedOut {
+        logger.error("gRPC LoadModel callback timed out for instance \(instanceId)")
+        return false
+    }
+    return success
+}
+
+private func grpcUnloadHandler(_ instanceId: Int32, _ context: UnsafeMutableRawPointer?) -> Bool {
+    guard let context = context else { return false }
+    let manager = Unmanaged<SimulationGridManager>.fromOpaque(context).takeUnretainedValue()
+    let arrayIndex = Int(instanceId) - 1
+
+    var success = false
+    let semaphore = DispatchSemaphore(value: 0)
+    Task { @MainActor in
+        guard let instance = manager.instance(at: arrayIndex), instance.runtime != nil else {
+            semaphore.signal()
+            return
+        }
+        manager.unload(at: arrayIndex)
+        success = true
+        semaphore.signal()
+    }
+    if semaphore.wait(timeout: .now() + grpcLoadCallbackTimeout) == .timedOut {
+        logger.error("gRPC Unload callback timed out for instance \(instanceId)")
+        return false
+    }
+    return success
+}
+
+private func grpcOperationHandler(_ instanceId: Int32, _ op: Int32, _ param: Int32, _ context: UnsafeMutableRawPointer?) -> Bool {
+    guard let context = context else { return false }
+    let manager = Unmanaged<SimulationGridManager>.fromOpaque(context).takeUnretainedValue()
+    let arrayIndex = Int(instanceId) - 1
+
+    var success = false
+    let semaphore = DispatchSemaphore(value: 0)
+    Task { @MainActor in
+        guard let instance = manager.instance(at: arrayIndex), instance.runtime != nil else {
+            semaphore.signal()
+            return
+        }
+        switch op {
+        case MJ_GRPC_OP_START.rawValue:
+            instance.start()
+            success = true
+        case MJ_GRPC_OP_PAUSE.rawValue:
+            instance.pause()
+            success = true
+        case MJ_GRPC_OP_RESET.rawValue:
+            instance.reset()
+            success = true
+        case MJ_GRPC_OP_STEP.rawValue:
+            instance.step()
+            success = true
+        case MJ_GRPC_OP_RESET_TO_KEYFRAME.rawValue:
+            let wasRunning = instance.state == .running
+            if wasRunning { instance.pause() }
+            success = instance.runtime?.resetToKeyframe(index: param) ?? false
+            if wasRunning { instance.start() }
+        default:
+            logger.error("grpcOperationHandler: unknown op \(op)")
+        }
+        semaphore.signal()
+    }
+    if semaphore.wait(timeout: .now() + grpcCallbackTimeout) == .timedOut {
+        logger.error("gRPC operation callback timed out for instance \(instanceId)")
+        return false
+    }
+    return success
+}
+
+private func grpcGetStateHandler(_ instanceId: Int32, _ outState: UnsafeMutablePointer<MJGrpcPhysicsState>?, _ context: UnsafeMutableRawPointer?) -> Bool {
+    guard let context = context, let outState = outState else { return false }
+    let manager = Unmanaged<SimulationGridManager>.fromOpaque(context).takeUnretainedValue()
+    let arrayIndex = Int(instanceId) - 1
+
+    var success = false
+    let semaphore = DispatchSemaphore(value: 0)
+    Task { @MainActor in
+        guard let instance = manager.instance(at: arrayIndex),
+              let cppRuntime = instance.runtime?.cppRuntime else {
+            semaphore.signal()
+            return
+        }
+        MJGrpcFillPhysicsState(outState, cppRuntime)
+        success = outState.pointee.valid
+        semaphore.signal()
+    }
+    if semaphore.wait(timeout: .now() + grpcCallbackTimeout) == .timedOut {
+        logger.error("gRPC GetState callback timed out for instance \(instanceId)")
+        return false
+    }
+    return success
+}
+
+private func grpcGetInstanceInfoHandler(_ instanceId: Int32, _ outInfo: UnsafeMutablePointer<MJGrpcInstanceInfo>?, _ context: UnsafeMutableRawPointer?) -> Bool {
+    guard let context = context, let outInfo = outInfo else { return false }
+    let manager = Unmanaged<SimulationGridManager>.fromOpaque(context).takeUnretainedValue()
+    let arrayIndex = Int(instanceId) - 1
+
+    var success = false
+    let semaphore = DispatchSemaphore(value: 0)
+    Task { @MainActor in
+        guard let instance = manager.instance(at: arrayIndex),
+              let runtime = instance.runtime else {
+            semaphore.signal()
+            return
+        }
+        outInfo.pointee.valid = true
+        outInfo.pointee.state = runtime.state.rawValue
+        let stats = runtime.stats
+        outInfo.pointee.stepsPerSecond = stats.stepsPerSecond
+        outInfo.pointee.txRate = stats.txRate
+        outInfo.pointee.rxRate = stats.rxRate
+        outInfo.pointee.packetsSent = stats.packetsSent
+        outInfo.pointee.packetsReceived = stats.packetsReceived
+        outInfo.pointee.udpPort = stats.udpPort
+        outInfo.pointee.hasClient = stats.hasClient
+        success = true
+        semaphore.signal()
+    }
+    if semaphore.wait(timeout: .now() + grpcCallbackTimeout) == .timedOut {
+        logger.error("gRPC GetInstanceInfo callback timed out for instance \(instanceId)")
+        return false
+    }
+    return success
+}
+
 // MARK: - Grid Manager
 
 /// Manages 2x2 grid of simulation instances.
@@ -588,6 +742,12 @@ final class SimulationGridManager: @unchecked Sendable {
 
     private(set) var instances: [SimulationInstance]
     private(set) var fullscreenInstanceId: Int? = nil
+    @ObservationIgnored private var grpcServer: MJGrpcServer?
+
+    /// Monotonically increasing count of gRPC RPCs processed.
+    var grpcRpcCount: UInt64 {
+        grpcServer?.rpcCount() ?? 0
+    }
 
     var bundledModels: [BundledModel] {
         [
@@ -625,6 +785,30 @@ final class SimulationGridManager: @unchecked Sendable {
         instances = (1...Self.gridSize).map { index in
             SimulationInstance(id: index, basePort: Self.basePort)
         }
+        startGrpcServer()
+    }
+
+    // MARK: - gRPC Server
+
+    private func startGrpcServer() {
+        var config = MJGrpcServerConfig()
+        config.port = 8999
+        config.numInstances = Int32(Self.gridSize)
+
+        guard let server = MJGrpcServer.create(config) else {
+            logger.error("Failed to create gRPC server")
+            return
+        }
+
+        let ctx = Unmanaged.passUnretained(self).toOpaque()
+        server.setLoadCallback(grpcLoadModelHandler, ctx)
+        server.setUnloadCallback(grpcUnloadHandler, ctx)
+        server.setOperationCallback(grpcOperationHandler, ctx)
+        server.setGetStateCallback(grpcGetStateHandler, ctx)
+        server.setGetInstanceInfoCallback(grpcGetInstanceInfoHandler, ctx)
+        server.start()
+        grpcServer = server
+        logger.info("gRPC server started on port 8999")
     }
 
     // MARK: - Instance Access
@@ -647,12 +831,16 @@ final class SimulationGridManager: @unchecked Sendable {
     @MainActor
     func loadModel(at index: Int, fromFile path: String) async throws {
         guard let instance = instance(at: index) else { return }
+        grpcServer?.unregisterRuntime(Int32(instance.id))
         instance.loadingModelName = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
         instance.isLoading = true
         do {
             try await instance.loadModel(fromFile: path)
             instance.isLocked = UserDefaults.standard.object(forKey: "defaultLocked") as? Bool ?? true
             instance.start()
+            if let rt = instance.runtime {
+                grpcServer?.registerRuntime(Int32(instance.id), rt.cppRuntime, instance.modelName)
+            }
             instance.isLoading = false
         } catch {
             instance.isLoading = false
@@ -667,6 +855,7 @@ final class SimulationGridManager: @unchecked Sendable {
             throw MuJoCoError.loadFailed("Unknown model '\(name)'")
         }
 
+        grpcServer?.unregisterRuntime(Int32(instance.id))
         instance.loadingModelName = name
         instance.isLoading = true
 
@@ -716,6 +905,9 @@ final class SimulationGridManager: @unchecked Sendable {
             instance.modelName = name
             instance.isLocked = UserDefaults.standard.object(forKey: "defaultLocked") as? Bool ?? true
             instance.start()
+            if let rt = instance.runtime {
+                grpcServer?.registerRuntime(Int32(instance.id), rt.cppRuntime, name)
+            }
             instance.isLoading = false
         } catch {
             instance.isLoading = false
@@ -725,7 +917,9 @@ final class SimulationGridManager: @unchecked Sendable {
 
     @MainActor
     func unload(at index: Int) {
-        instance(at: index)?.unload()
+        guard let inst = instance(at: index) else { return }
+        grpcServer?.unregisterRuntime(Int32(inst.id))
+        inst.unload()
     }
 
     // MARK: - Fullscreen

@@ -1,0 +1,118 @@
+// simulation_control.proto
+// gRPC service for low-frequency simulation instance management and lifecycle control.
+// High-frequency control/state streaming remains on FlatBuffers over UDP.
+
+syntax = "proto3";
+
+package imujoco;
+
+// ============================================================================
+// Service
+// ============================================================================
+
+service SimulationControl {
+  // Instance discovery
+  rpc ListInstances(ListInstancesRequest) returns (ListInstancesResponse);
+  rpc GetInstanceInfo(GetInstanceInfoRequest) returns (InstanceInfo);
+
+  // Simulation lifecycle
+  rpc LoadModel(LoadModelRequest) returns (ControlResponse);
+  rpc Unload(InstanceRequest) returns (ControlResponse);
+  rpc Start(InstanceRequest) returns (ControlResponse);
+  rpc Pause(InstanceRequest) returns (ControlResponse);
+  rpc Reset(InstanceRequest) returns (ControlResponse);
+  rpc ResetToKeyframe(ResetToKeyframeRequest) returns (ControlResponse);
+  rpc Step(InstanceRequest) returns (ControlResponse);
+
+  // State query
+  rpc GetState(InstanceRequest) returns (PhysicsState);
+}
+
+// ============================================================================
+// Enums
+// ============================================================================
+
+enum SimulationState {
+  SIMULATION_STATE_UNSPECIFIED = 0;
+  SIMULATION_STATE_INACTIVE = 1;
+  SIMULATION_STATE_LOADED = 2;
+  SIMULATION_STATE_RUNNING = 3;
+  SIMULATION_STATE_PAUSED = 4;
+}
+
+// ============================================================================
+// Common messages
+// ============================================================================
+
+// Identifies a single simulation instance.
+message InstanceRequest {
+  int32 instance_id = 1;
+}
+
+// Generic response for lifecycle commands.
+message ControlResponse {
+  bool success = 1;
+  string error = 2;  // Empty on success.
+}
+
+// ============================================================================
+// Instance discovery
+// ============================================================================
+
+message ListInstancesRequest {}
+
+message ListInstancesResponse {
+  repeated InstanceInfo instances = 1;
+}
+
+message GetInstanceInfoRequest {
+  int32 instance_id = 1;
+}
+
+// Per-instance runtime statistics.
+message InstanceStats {
+  int32 steps_per_second = 1;
+  float tx_rate = 2;        // State packets/sec to driver.
+  float rx_rate = 3;        // Control packets/sec from driver.
+  uint32 packets_sent = 4;
+  uint32 packets_received = 5;
+  bool has_client = 6;      // UDP driver connected.
+}
+
+message InstanceInfo {
+  int32 instance_id = 1;
+  SimulationState state = 2;
+  string model_name = 3;
+  uint32 udp_port = 4;
+  InstanceStats stats = 5;
+}
+
+// ============================================================================
+// Lifecycle requests
+// ============================================================================
+
+message LoadModelRequest {
+  int32 instance_id = 1;
+  string model_name = 2;  // Model name as known to the asset catalogue.
+}
+
+message ResetToKeyframeRequest {
+  int32 instance_id = 1;
+  int32 keyframe_index = 2;
+}
+
+// ============================================================================
+// State query
+// ============================================================================
+
+// Full physics snapshot — mirrors the FlatBuffers StatePacket for one-shot
+// queries (not intended for streaming).
+message PhysicsState {
+  double time = 1;
+  repeated double qpos = 2;
+  repeated double qvel = 3;
+  repeated double ctrl = 4;
+  repeated double sensordata = 5;
+  double energy_potential = 6;
+  double energy_kinetic = 7;
+}

@@ -117,6 +117,11 @@ public final class MJRuntime {
         MJSimulationRuntime.destroy(runtime)
     }
 
+    // MARK: - C++ Runtime Access
+
+    /// Direct access to the underlying C++ runtime pointer (for gRPC server registration)
+    public var cppRuntime: MJSimulationRuntime { runtime }
+
     // MARK: - Model Loading
 
     /// Load a model from an XML file path
@@ -167,6 +172,14 @@ public final class MJRuntime {
     @discardableResult
     public func resetToKeyframe(_ name: String) -> Bool {
         return runtime.resetToKeyframe(name)
+    }
+
+    /// Reset simulation to a keyframe by index
+    /// - Parameter index: 0-based keyframe index in the model
+    /// - Returns: true if keyframe was found and applied
+    @discardableResult
+    public func resetToKeyframe(index: Int32) -> Bool {
+        return runtime.resetToKeyframeByIndex(index)
     }
 
     /// Step the simulation manually (when paused)
