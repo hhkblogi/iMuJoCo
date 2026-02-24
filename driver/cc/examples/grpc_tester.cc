@@ -201,8 +201,9 @@ public:
 
     // --- Lifecycle ---
     // LoadModel and Unload block server-side until the operation completes
-    // (Swift MainActor work + model parsing/mesh extraction). No client-side
-    // deadline — we wait for the server response which IS the completion signal.
+    // (Swift MainActor work + model parsing/mesh extraction). A client-side
+    // deadline is applied via --load_timeout; the server response is the
+    // completion signal for these operations.
 
     bool LoadModel(int id, const std::string& model) {
         LoadModelRequest req;

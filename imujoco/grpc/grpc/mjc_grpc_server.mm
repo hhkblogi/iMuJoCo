@@ -3,7 +3,9 @@
 
 #import "mjc_grpc_server.h"
 
+#include <algorithm>
 #include <atomic>
+#include <cstring>
 #include <mutex>
 #include <string>
 #include <memory>
@@ -130,6 +132,21 @@ struct MJGrpcServerImpl {
     std::unique_ptr<grpc::Server> server;
 };
 
+// MARK: - Instance ID Validation
+
+/// Returns true if instanceId is valid (1-based, within numInstances).
+static bool validateInstanceId(int32_t instanceId, int32_t numInstances,
+                               imujoco::ControlResponse* resp) {
+    if (instanceId < 1 || instanceId > numInstances) {
+        if (resp) {
+            resp->set_success(false);
+            resp->set_error("Invalid instance_id: " + std::to_string(instanceId));
+        }
+        return false;
+    }
+    return true;
+}
+
 // MARK: - SimulationControlServiceImpl — RPC Implementations
 
 grpc::Status SimulationControlServiceImpl::ListInstances(
@@ -222,6 +239,8 @@ grpc::Status SimulationControlServiceImpl::LoadModel(
         const imujoco::LoadModelRequest* req,
         imujoco::ControlResponse* resp) {
     impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
+    if (!validateInstanceId(req->instance_id(), impl_->config.numInstances, resp))
+        return grpc::Status::OK;
     MJGrpcLoadModelCallback cb;
     void* cbCtx;
     {
@@ -249,6 +268,8 @@ grpc::Status SimulationControlServiceImpl::Unload(
         const imujoco::InstanceRequest* req,
         imujoco::ControlResponse* resp) {
     impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
+    if (!validateInstanceId(req->instance_id(), impl_->config.numInstances, resp))
+        return grpc::Status::OK;
     MJGrpcUnloadCallback cb;
     void* cbCtx;
     {
@@ -276,6 +297,8 @@ grpc::Status SimulationControlServiceImpl::Start(
         const imujoco::InstanceRequest* req,
         imujoco::ControlResponse* resp) {
     impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
+    if (!validateInstanceId(req->instance_id(), impl_->config.numInstances, resp))
+        return grpc::Status::OK;
     MJGrpcOperationCallback cb;
     void* cbCtx;
     {
@@ -299,6 +322,8 @@ grpc::Status SimulationControlServiceImpl::Pause(
         const imujoco::InstanceRequest* req,
         imujoco::ControlResponse* resp) {
     impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
+    if (!validateInstanceId(req->instance_id(), impl_->config.numInstances, resp))
+        return grpc::Status::OK;
     MJGrpcOperationCallback cb;
     void* cbCtx;
     {
@@ -322,6 +347,8 @@ grpc::Status SimulationControlServiceImpl::Reset(
         const imujoco::InstanceRequest* req,
         imujoco::ControlResponse* resp) {
     impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
+    if (!validateInstanceId(req->instance_id(), impl_->config.numInstances, resp))
+        return grpc::Status::OK;
     MJGrpcOperationCallback cb;
     void* cbCtx;
     {
@@ -345,6 +372,8 @@ grpc::Status SimulationControlServiceImpl::ResetToKeyframe(
         const imujoco::ResetToKeyframeRequest* req,
         imujoco::ControlResponse* resp) {
     impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
+    if (!validateInstanceId(req->instance_id(), impl_->config.numInstances, resp))
+        return grpc::Status::OK;
     MJGrpcOperationCallback cb;
     void* cbCtx;
     {
@@ -368,6 +397,8 @@ grpc::Status SimulationControlServiceImpl::Step(
         const imujoco::InstanceRequest* req,
         imujoco::ControlResponse* resp) {
     impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
+    if (!validateInstanceId(req->instance_id(), impl_->config.numInstances, resp))
+        return grpc::Status::OK;
     MJGrpcOperationCallback cb;
     void* cbCtx;
     {
@@ -391,6 +422,11 @@ grpc::Status SimulationControlServiceImpl::GetState(
         const imujoco::InstanceRequest* req,
         imujoco::PhysicsState* resp) {
     impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
+    int32_t id = req->instance_id();
+    if (id < 1 || id > impl_->config.numInstances) {
+        return grpc::Status(grpc::INVALID_ARGUMENT,
+                            "Invalid instance_id: " + std::to_string(id));
+    }
     MJGrpcGetStateCallback cb;
     void* cbCtx;
     {

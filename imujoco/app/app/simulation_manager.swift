@@ -578,6 +578,11 @@ struct BundledModel {
 
 // MARK: - gRPC Callbacks (file-level @convention(c)-compatible functions)
 
+/// Semaphore timeout for gRPC → MainActor callbacks (seconds).
+/// LoadModel/Unload may take longer (model parsing, mesh extraction).
+private let grpcCallbackTimeout: DispatchTimeInterval = .seconds(10)
+private let grpcLoadCallbackTimeout: DispatchTimeInterval = .seconds(120)
+
 private func grpcLoadModelHandler(_ instanceId: Int32, _ modelName: UnsafePointer<CChar>?, _ context: UnsafeMutableRawPointer?) -> Bool {
     guard let context = context, let modelName = modelName else { return false }
     let manager = Unmanaged<SimulationGridManager>.fromOpaque(context).takeUnretainedValue()
@@ -595,7 +600,10 @@ private func grpcLoadModelHandler(_ instanceId: Int32, _ modelName: UnsafePointe
         }
         semaphore.signal()
     }
-    semaphore.wait()
+    if semaphore.wait(timeout: .now() + grpcLoadCallbackTimeout) == .timedOut {
+        logger.error("gRPC LoadModel callback timed out for instance \(instanceId)")
+        return false
+    }
     return success
 }
 
@@ -604,13 +612,22 @@ private func grpcUnloadHandler(_ instanceId: Int32, _ context: UnsafeMutableRawP
     let manager = Unmanaged<SimulationGridManager>.fromOpaque(context).takeUnretainedValue()
     let arrayIndex = Int(instanceId) - 1
 
+    var success = false
     let semaphore = DispatchSemaphore(value: 0)
     Task { @MainActor in
+        guard let instance = manager.instance(at: arrayIndex), instance.runtime != nil else {
+            semaphore.signal()
+            return
+        }
         manager.unload(at: arrayIndex)
+        success = true
         semaphore.signal()
     }
-    semaphore.wait()
-    return true
+    if semaphore.wait(timeout: .now() + grpcLoadCallbackTimeout) == .timedOut {
+        logger.error("gRPC Unload callback timed out for instance \(instanceId)")
+        return false
+    }
+    return success
 }
 
 private func grpcOperationHandler(_ instanceId: Int32, _ op: Int32, _ param: Int32, _ context: UnsafeMutableRawPointer?) -> Bool {
@@ -648,7 +665,10 @@ private func grpcOperationHandler(_ instanceId: Int32, _ op: Int32, _ param: Int
         }
         semaphore.signal()
     }
-    semaphore.wait()
+    if semaphore.wait(timeout: .now() + grpcCallbackTimeout) == .timedOut {
+        logger.error("gRPC operation callback timed out for instance \(instanceId)")
+        return false
+    }
     return success
 }
 
@@ -669,7 +689,10 @@ private func grpcGetStateHandler(_ instanceId: Int32, _ outState: UnsafeMutableP
         success = outState.pointee.valid
         semaphore.signal()
     }
-    semaphore.wait()
+    if semaphore.wait(timeout: .now() + grpcCallbackTimeout) == .timedOut {
+        logger.error("gRPC GetState callback timed out for instance \(instanceId)")
+        return false
+    }
     return success
 }
 
@@ -699,7 +722,10 @@ private func grpcGetInstanceInfoHandler(_ instanceId: Int32, _ outInfo: UnsafeMu
         success = true
         semaphore.signal()
     }
-    semaphore.wait()
+    if semaphore.wait(timeout: .now() + grpcCallbackTimeout) == .timedOut {
+        logger.error("gRPC GetInstanceInfo callback timed out for instance \(instanceId)")
+        return false
+    }
     return success
 }
 
