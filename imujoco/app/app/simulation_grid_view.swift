@@ -504,6 +504,7 @@ struct SettingsView: View {
     @State private var showVideoTransportInfo = false
     @State private var showPortWarning = false
     @State private var portWarningMessage = ""
+    @FocusState private var portFieldFocused: Bool
 
     // tag 0 = grid, 1-4 = fullscreen instance (highlightedCell 0-3)
     private let viewOptions: [(highlightedCell: Int?, tag: Int)] = [
@@ -816,71 +817,53 @@ struct SettingsView: View {
     /// Valid port range: 1024–65535 (avoid privileged ports and UInt16 overflow).
     private static let validPortRange = 1024...65535
 
-    @State private var portText: [String: String] = [:]
-
     private func portRow(label: String, value: Binding<Int>, defaultValue: Int) -> some View {
-        let key = "\(label)_\(defaultValue)"
-        let textBinding = Binding<String>(
-            get: {
-                portText[key] ?? String(value.wrappedValue)
-            },
-            set: { newText in
-                // Strip non-digit characters immediately
-                let digits = newText.filter(\.isWholeNumber)
-                portText[key] = digits
-            }
-        )
-        return HStack {
+        HStack {
             Text(label)
                 .font(.subheadline)
             Spacer()
-            TextField("\(defaultValue)", text: textBinding)
+            TextField("\(defaultValue)", value: value, format: .number.grouping(.never))
                 .font(.system(size: 13, design: .monospaced))
                 .multilineTextAlignment(.trailing)
+                .focused($portFieldFocused)
                 #if os(iOS)
                 .keyboardType(.numberPad)
-                #endif
-                .frame(width: 70)
-                .onSubmit {
-                    commitPort(key: key, value: value, defaultValue: defaultValue)
-                }
-                .onChange(of: portText[key]) {
-                    // Keep only digits as user types
-                    if let current = portText[key] {
-                        let digits = current.filter(\.isWholeNumber)
-                        if digits != current {
-                            portText[key] = digits
+                .toolbar {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button("Done") {
+                            portFieldFocused = false
+                            validateAllPorts()
                         }
                     }
                 }
-        }
-        .onAppear {
-            portText[key] = String(value.wrappedValue)
+                #endif
+                .frame(width: 70)
         }
     }
 
-    private func commitPort(key: String, value: Binding<Int>, defaultValue: Int) {
-        let text = portText[key] ?? ""
-        guard let newValue = Int(text) else {
+    private func validateAllPorts() {
+        validatePort($grpcPort, defaultValue: 8999)
+        validatePort($inst1UdpPort, defaultValue: 9001)
+        validatePort($inst2UdpPort, defaultValue: 9002)
+        validatePort($inst3UdpPort, defaultValue: 9003)
+        validatePort($inst4UdpPort, defaultValue: 9004)
+        validatePort($inst1CamPort, defaultValue: 9100)
+        validatePort($inst2CamPort, defaultValue: 9200)
+        validatePort($inst3CamPort, defaultValue: 9300)
+        validatePort($inst4CamPort, defaultValue: 9400)
+    }
+
+    private func validatePort(_ value: Binding<Int>, defaultValue: Int) {
+        let v = value.wrappedValue
+        if !Self.validPortRange.contains(v) {
             value.wrappedValue = defaultValue
-            portText[key] = String(defaultValue)
-            portWarningMessage = "Invalid port number. Reset to \(defaultValue)."
+            portWarningMessage = "Port \(v) is out of range (1024–65535). Reset to \(defaultValue)."
             showPortWarning = true
-            return
-        }
-        if !Self.validPortRange.contains(newValue) {
+        } else if !isPortAvailable(UInt16(v)) {
             value.wrappedValue = defaultValue
-            portText[key] = String(defaultValue)
-            portWarningMessage = "Port must be between 1024 and 65535. Reset to \(defaultValue)."
+            portWarningMessage = "Port \(v) is already in use. Reset to \(defaultValue)."
             showPortWarning = true
-        } else if !isPortAvailable(UInt16(newValue)) {
-            value.wrappedValue = defaultValue
-            portText[key] = String(defaultValue)
-            portWarningMessage = "Port \(newValue) is already in use. Reset to \(defaultValue)."
-            showPortWarning = true
-        } else {
-            value.wrappedValue = newValue
-            portText[key] = String(newValue)
         }
     }
 
