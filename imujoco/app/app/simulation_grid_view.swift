@@ -908,13 +908,13 @@ struct PortNumPadView: View {
             // Title
             Text(label)
                 .font(.headline)
-                .padding(.top, 20)
+                .padding(.top, 32)
 
             // Digit display — red when out of range
-            Text(digits.isEmpty ? "0" : digits)
-                .font(.system(size: 36, weight: .medium, design: .monospaced))
+            Text(digits.isEmpty ? "" : digits)
+                .font(.system(size: 34, weight: .medium, design: .monospaced))
                 .foregroundColor(digits.isEmpty || isValidPort ? nil : .red)
-                .frame(height: 44)
+                .frame(height: 40)
 
             // Number pad grid
             LazyVGrid(columns: columns, spacing: 10) {
@@ -944,7 +944,7 @@ struct PortNumPadView: View {
             .disabled(!isValidPort)
             .padding(.horizontal, 36)
             .padding(.top, 6)  // 6 + VStack spacing 4 = 10, same as grid row spacing
-            .padding(.bottom, 24)
+            .padding(.bottom, 32)
         }
         .interactiveDismissDisabled()
         #if os(iOS)
@@ -959,11 +959,7 @@ struct PortNumPadView: View {
     private func numButton(_ digit: String) -> some View {
         Button {
             if digits.count < 5 {
-                if digits == "0" {
-                    digits = digit
-                } else {
-                    digits.append(digit)
-                }
+                digits.append(digit)
             }
         } label: {
             Text(digit)
