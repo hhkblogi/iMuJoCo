@@ -816,7 +816,7 @@ struct SettingsView: View {
             }
         }
         #if os(iOS)
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.medium, .large], selection: .constant(.large))
         .presentationDragIndicator(.visible)
         #endif
         #if os(macOS)
@@ -922,7 +922,7 @@ struct PortNumPadView: View {
             }
             .padding(.horizontal, 36)
 
-            // Enter button
+            // Enter button — spacing matches grid row gap (10pt)
             Button {
                 commitValue()
             } label: {
@@ -936,6 +936,7 @@ struct PortNumPadView: View {
             .buttonStyle(.plain)
             .disabled(digits.isEmpty)
             .padding(.horizontal, 36)
+            .padding(.top, 6)  // 6 + VStack spacing 4 = 10, same as grid row spacing
             .padding(.bottom, 16)
         }
         .interactiveDismissDisabled()
