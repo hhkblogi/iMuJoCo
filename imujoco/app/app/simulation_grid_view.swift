@@ -919,7 +919,8 @@ struct PortNumPadView: View {
     }
 
     private var portStatus: String? {
-        guard let port = Int(digits), !digits.isEmpty else { return nil }
+        if digits.isEmpty { return "Enter a port number" }
+        guard let port = Int(digits) else { return "Enter a port number" }
         if !Self.validPortRange.contains(port) { return "Out of range (1024–65535)" }
         if port != currentValue && registeredPorts.contains(port) { return "Conflicts with another port" }
         return nil
