@@ -908,7 +908,7 @@ struct PortNumPadView: View {
             // Title
             Text(label)
                 .font(.headline)
-                .padding(.top, 32)
+                .padding(.top, 48)
 
             // Digit display — red when out of range
             Text(digits.isEmpty ? "" : digits)
@@ -944,7 +944,7 @@ struct PortNumPadView: View {
             .disabled(!isValidPort)
             .padding(.horizontal, 36)
             .padding(.top, 6)  // 6 + VStack spacing 4 = 10, same as grid row spacing
-            .padding(.bottom, 32)
+            .padding(.bottom, 48)
         }
         .interactiveDismissDisabled()
         #if os(iOS)
