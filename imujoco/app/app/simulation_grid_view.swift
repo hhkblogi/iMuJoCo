@@ -969,10 +969,10 @@ struct PortNumPadView: View {
             .padding(.top, 6)  // 6 + VStack spacing 4 = 10, same as grid row spacing
             .padding(.bottom, 48)
         }
-        .interactiveDismissDisabled()
         #if os(iOS)
         .presentationDetents([.medium])
         .presentationDragIndicator(.hidden)
+        .presentationBackgroundInteraction(.disabled)
         #endif
         #if os(macOS)
         .frame(width: 300, height: 420)
