@@ -996,6 +996,7 @@ struct PortNumPadView: View {
 
     private func commitValue() {
         guard let port = Int(digits), !digits.isEmpty else { return }
+        if port == currentValue { dismiss(); return }
         if !Self.validPortRange.contains(port) {
             dismiss()
             onWarning("Port \(port) is out of range (1024–65535).")
