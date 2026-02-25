@@ -835,7 +835,7 @@ struct SettingsView: View {
                     .font(.subheadline)
                     .foregroundStyle(.primary)
                 Spacer()
-                Text("\(value.wrappedValue)")
+                Text(String(value.wrappedValue))
                     .font(.system(size: 13, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
