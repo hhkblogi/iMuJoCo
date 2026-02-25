@@ -811,7 +811,7 @@ struct SettingsView: View {
             Text(label)
                 .font(.subheadline)
             Spacer()
-            TextField("\(defaultValue)", value: value, format: .number)
+            TextField("\(defaultValue)", value: value, format: .number.grouping(.never))
                 .font(.system(size: 13, design: .monospaced))
                 .multilineTextAlignment(.trailing)
                 #if os(iOS)
