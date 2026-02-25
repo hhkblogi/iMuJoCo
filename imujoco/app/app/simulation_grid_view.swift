@@ -898,6 +898,11 @@ struct PortNumPadView: View {
         self._digits = State(initialValue: String(currentValue))
     }
 
+    private var isValidPort: Bool {
+        guard let port = Int(digits), !digits.isEmpty else { return false }
+        return Self.validPortRange.contains(port)
+    }
+
     var body: some View {
         VStack(spacing: 4) {
             // Title
@@ -905,9 +910,10 @@ struct PortNumPadView: View {
                 .font(.headline)
                 .padding(.top, 20)
 
-            // Digit display
+            // Digit display — red when out of range
             Text(digits.isEmpty ? "0" : digits)
                 .font(.system(size: 36, weight: .medium, design: .monospaced))
+                .foregroundColor(digits.isEmpty || isValidPort ? nil : .red)
                 .frame(height: 44)
 
             // Number pad grid
@@ -922,7 +928,7 @@ struct PortNumPadView: View {
             }
             .padding(.horizontal, 36)
 
-            // Enter button — spacing matches grid row gap (10pt)
+            // Enter button — disabled when port is out of range
             Button {
                 commitValue()
             } label: {
@@ -930,14 +936,15 @@ struct PortNumPadView: View {
                     .font(.title3.weight(.semibold))
                     .frame(maxWidth: .infinity)
                     .frame(height: 48)
-                    .background(.tint, in: RoundedRectangle(cornerRadius: 10))
-                    .foregroundStyle(.white)
+                    .background(isValidPort ? AnyShapeStyle(.tint) : AnyShapeStyle(.fill.tertiary),
+                                in: RoundedRectangle(cornerRadius: 10))
+                    .foregroundStyle(isValidPort ? .white : .secondary)
             }
             .buttonStyle(.plain)
-            .disabled(digits.isEmpty)
+            .disabled(!isValidPort)
             .padding(.horizontal, 36)
             .padding(.top, 6)  // 6 + VStack spacing 4 = 10, same as grid row spacing
-            .padding(.bottom, 16)
+            .padding(.bottom, 24)
         }
         .interactiveDismissDisabled()
         #if os(iOS)
