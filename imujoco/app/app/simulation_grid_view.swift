@@ -504,7 +504,7 @@ struct SettingsView: View {
     @State private var showVideoTransportInfo = false
     @State private var showPortWarning = false
     @State private var portWarningMessage = ""
-    @FocusState private var portFieldFocused: Bool
+    @State private var editingPort: PortEditTarget?
 
     // tag 0 = grid, 1-4 = fullscreen instance (highlightedCell 0-3)
     private let viewOptions: [(highlightedCell: Int?, tag: Int)] = [
@@ -802,6 +802,18 @@ struct SettingsView: View {
             } message: {
                 Text(portWarningMessage)
             }
+            .sheet(item: $editingPort) { target in
+                PortNumPadView(
+                    label: target.label,
+                    currentValue: target.value.wrappedValue,
+                    defaultValue: target.defaultValue
+                ) { newValue in
+                    target.value.wrappedValue = newValue
+                } onWarning: { msg in
+                    portWarningMessage = msg
+                    showPortWarning = true
+                }
+            }
         }
         #if os(iOS)
         .presentationDetents([.medium, .large])
@@ -814,89 +826,20 @@ struct SettingsView: View {
 
     // MARK: - Port Helpers
 
-    /// Valid port range: 1024–65535 (avoid privileged ports and UInt16 overflow).
-    private static let validPortRange = 1024...65535
-
     private func portRow(label: String, value: Binding<Int>, defaultValue: Int) -> some View {
-        let text = Binding<String>(
-            get: { String(value.wrappedValue) },
-            set: { s in
-                let digits = s.filter(\.isWholeNumber)
-                if let v = Int(digits) {
-                    value.wrappedValue = v
-                }
-            }
-        )
-        return HStack {
-            Text(label)
-                .font(.subheadline)
-            Spacer()
-            TextField("\(defaultValue)", text: text)
-                .font(.system(size: 13, design: .monospaced))
-                .multilineTextAlignment(.trailing)
-                .focused($portFieldFocused)
-                #if os(iOS)
-                .keyboardType(.numberPad)
-                .toolbar {
-                    ToolbarItemGroup(placement: .keyboard) {
-                        Spacer()
-                        Button("Done") {
-                            portFieldFocused = false
-                            validateAllPorts()
-                        }
-                    }
-                }
-                #endif
-                .frame(width: 70)
-        }
-    }
-
-    private func validateAllPorts() {
-        validatePort($grpcPort, defaultValue: 8999)
-        validatePort($inst1UdpPort, defaultValue: 9001)
-        validatePort($inst2UdpPort, defaultValue: 9002)
-        validatePort($inst3UdpPort, defaultValue: 9003)
-        validatePort($inst4UdpPort, defaultValue: 9004)
-        validatePort($inst1CamPort, defaultValue: 9100)
-        validatePort($inst2CamPort, defaultValue: 9200)
-        validatePort($inst3CamPort, defaultValue: 9300)
-        validatePort($inst4CamPort, defaultValue: 9400)
-    }
-
-    private func validatePort(_ value: Binding<Int>, defaultValue: Int) {
-        let v = value.wrappedValue
-        if !Self.validPortRange.contains(v) {
-            value.wrappedValue = defaultValue
-            portWarningMessage = "Port \(v) is out of range (1024–65535). Reset to \(defaultValue)."
-            showPortWarning = true
-        } else if !isPortAvailable(UInt16(v)) {
-            value.wrappedValue = defaultValue
-            portWarningMessage = "Port \(v) is already in use. Reset to \(defaultValue)."
-            showPortWarning = true
-        }
-    }
-
-    /// Try to bind a TCP socket to the port to check if it's available.
-    private func isPortAvailable(_ port: UInt16) -> Bool {
-        let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
-        guard fd >= 0 else { return true }  // can't check — assume available
-        defer { close(fd) }
-
-        var opt: Int32 = 1
-        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, socklen_t(MemoryLayout<Int32>.size))
-
-        var addr = sockaddr_in()
-        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = port.bigEndian
-        addr.sin_addr.s_addr = INADDR_LOOPBACK.bigEndian
-
-        let result = withUnsafePointer(to: &addr) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+        Button {
+            editingPort = PortEditTarget(label: label, value: value, defaultValue: defaultValue)
+        } label: {
+            HStack {
+                Text(label)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                Spacer()
+                Text("\(value.wrappedValue)")
+                    .font(.system(size: 13, design: .monospaced))
+                    .foregroundStyle(.secondary)
             }
         }
-        return result == 0
     }
 
     private func udpPortBinding(for inst: Int) -> Binding<Int> {
@@ -917,6 +860,151 @@ struct SettingsView: View {
         case 4: return $inst4CamPort
         default: return .constant(0)
         }
+    }
+}
+
+// MARK: - Port Number Pad
+
+/// Identifies which port field is being edited.
+struct PortEditTarget: Identifiable {
+    let id = UUID()
+    let label: String
+    let value: Binding<Int>
+    let defaultValue: Int
+}
+
+/// Passcode-style number pad for entering a port number.
+struct PortNumPadView: View {
+    let label: String
+    let currentValue: Int
+    let defaultValue: Int
+    let onSave: (Int) -> Void
+    let onWarning: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var digits: String = ""
+
+    private static let validPortRange = 1024...65535
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+
+    var body: some View {
+        VStack(spacing: 20) {
+            // Title
+            Text(label)
+                .font(.headline)
+                .padding(.top, 24)
+
+            // Digit display
+            Text(digits.isEmpty ? "\(currentValue)" : digits)
+                .font(.system(size: 32, weight: .medium, design: .monospaced))
+                .foregroundStyle(digits.isEmpty ? .secondary : .primary)
+                .frame(height: 44)
+                .padding(.horizontal)
+
+            Spacer()
+
+            // Number pad grid
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(1...9, id: \.self) { n in
+                    numButton(String(n))
+                }
+                // Bottom row: empty, 0, delete
+                Color.clear.frame(height: 54)
+                numButton("0")
+                deleteButton()
+            }
+            .padding(.horizontal, 40)
+
+            // Action buttons
+            HStack(spacing: 40) {
+                Button("Cancel") {
+                    dismiss()
+                }
+                .foregroundStyle(.secondary)
+
+                Button("Enter") {
+                    commitValue()
+                }
+                .fontWeight(.semibold)
+                .disabled(digits.isEmpty)
+            }
+            .font(.title3)
+            .padding(.bottom, 32)
+        }
+        .interactiveDismissDisabled()
+        #if os(iOS)
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.hidden)
+        #endif
+        #if os(macOS)
+        .frame(width: 300, height: 420)
+        #endif
+    }
+
+    private func numButton(_ digit: String) -> some View {
+        Button {
+            if digits.count < 5 { // max 65535
+                digits.append(digit)
+            }
+        } label: {
+            Text(digit)
+                .font(.title)
+                .frame(maxWidth: .infinity)
+                .frame(height: 54)
+                .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func deleteButton() -> some View {
+        Button {
+            if !digits.isEmpty {
+                digits.removeLast()
+            }
+        } label: {
+            Image(systemName: "delete.backward")
+                .font(.title2)
+                .frame(maxWidth: .infinity)
+                .frame(height: 54)
+        }
+        .buttonStyle(.plain)
+        .disabled(digits.isEmpty)
+    }
+
+    private func commitValue() {
+        guard let port = Int(digits) else { return }
+        if !Self.validPortRange.contains(port) {
+            dismiss()
+            onWarning("Port \(port) is out of range (1024–65535).")
+            return
+        }
+        if !Self.isPortAvailable(UInt16(port)) {
+            dismiss()
+            onWarning("Port \(port) is already in use.")
+            return
+        }
+        onSave(port)
+        dismiss()
+    }
+
+    private static func isPortAvailable(_ port: UInt16) -> Bool {
+        let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return true }
+        defer { close(fd) }
+        var opt: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, socklen_t(MemoryLayout<Int32>.size))
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = port.bigEndian
+        addr.sin_addr.s_addr = INADDR_LOOPBACK.bigEndian
+        let result = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        return result == 0
     }
 }
 
