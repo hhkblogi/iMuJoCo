@@ -938,13 +938,6 @@ struct PortNumPadView: View {
                 .foregroundColor(digits.isEmpty || isValidPort ? nil : .red)
                 .frame(height: 40)
 
-            // Status hint
-            if let status = portStatus {
-                Text(status)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            }
-
             // Number pad grid
             LazyVGrid(columns: columns, spacing: 10) {
                 ForEach(1...9, id: \.self) { n in
@@ -957,17 +950,17 @@ struct PortNumPadView: View {
             }
             .padding(.horizontal, 36)
 
-            // Enter button — disabled when port is out of range
+            // Enter button — shows error status when port is invalid
             Button {
                 commitValue()
             } label: {
-                Text("Enter")
+                Text(portStatus ?? "Enter")
                     .font(.title3.weight(.semibold))
                     .frame(maxWidth: .infinity)
                     .frame(height: 48)
                     .background(isValidPort ? AnyShapeStyle(.tint) : AnyShapeStyle(.fill.tertiary),
                                 in: RoundedRectangle(cornerRadius: 10))
-                    .foregroundStyle(isValidPort ? .white : .secondary)
+                    .foregroundColor(isValidPort ? .white : .red)
             }
             .buttonStyle(.plain)
             .disabled(!isValidPort)
