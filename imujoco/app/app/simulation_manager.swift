@@ -782,9 +782,13 @@ final class SimulationGridManager: @unchecked Sendable {
         }
     }
 
-    init() {
-        let defaults = UserDefaults.standard
+    /// Read a port from UserDefaults, returning `fallback` if missing, zero, or out of UInt16 range.
+    private static func readPort(_ key: String, fallback: UInt16) -> UInt16 {
+        let val = UserDefaults.standard.integer(forKey: key)
+        return (val > 0 && val <= Int(UInt16.max)) ? UInt16(val) : fallback
+    }
 
+    init() {
         // Read per-instance ports from UserDefaults (0 or missing = use default)
         let defaultUdpPorts: [UInt16] = [9001, 9002, 9003, 9004]
         let defaultCamPorts: [UInt16] = [9100, 9200, 9300, 9400]
@@ -792,18 +796,12 @@ final class SimulationGridManager: @unchecked Sendable {
         var insts: [SimulationInstance] = []
         for i in 0..<Self.gridSize {
             let instNum = i + 1
-            let udpKey = "inst\(instNum)_udpPort"
-            let camKey = "inst\(instNum)_camPort"
-            let udpVal = defaults.integer(forKey: udpKey)
-            let camVal = defaults.integer(forKey: camKey)
-            let udpPort = udpVal > 0 ? UInt16(udpVal) : defaultUdpPorts[i]
-            let camPort = camVal > 0 ? UInt16(camVal) : defaultCamPorts[i]
+            let udpPort = Self.readPort("inst\(instNum)_udpPort", fallback: defaultUdpPorts[i])
+            let camPort = Self.readPort("inst\(instNum)_camPort", fallback: defaultCamPorts[i])
             insts.append(SimulationInstance(id: instNum, udpPort: udpPort, cameraPort: camPort))
         }
         instances = insts
-
-        let grpcVal = defaults.integer(forKey: "grpcPort")
-        grpcPort = grpcVal > 0 ? UInt16(grpcVal) : 8999
+        grpcPort = Self.readPort("grpcPort", fallback: 8999)
 
         startGrpcServer()
     }
