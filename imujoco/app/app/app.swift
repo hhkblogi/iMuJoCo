@@ -2,6 +2,9 @@ import SwiftUI
 #if canImport(UIKit)
 import UIKit
 #endif
+#if canImport(BackgroundTasks)
+import BackgroundTasks
+#endif
 
 // MARK: - Focused Value (macOS menu bar → grid manager)
 
@@ -27,6 +30,12 @@ struct MuJoCoApp: App {
     #if os(iOS)
     @AppStorage("caffeineMode") private var caffeineMode: Int = 1  // 0=off, 1=half, 2=full
     #endif
+
+    init() {
+        #if os(iOS)
+        SimulationGridManager.registerBackgroundTask()
+        #endif
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -69,6 +78,11 @@ struct MuJoCoApp: App {
                     }
                 }
                 #if os(iOS)
+                .onReceive(NotificationCenter.default.publisher(for: .caffeineBackgroundTaskLaunched)) { notification in
+                    if let task = notification.object as? BGProcessingTask {
+                        gridManager.handleCaffeineTask(task)
+                    }
+                }
                 .onChange(of: caffeineMode) { _, level in
                     UIApplication.shared.isIdleTimerDisabled = level >= 1
                     if level < 2 {

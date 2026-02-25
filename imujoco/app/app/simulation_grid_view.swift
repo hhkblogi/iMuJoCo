@@ -605,7 +605,7 @@ struct SettingsView: View {
                             .popover(isPresented: $showCaffeineInfo) {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("**Half** — Screen stays on. Simulations pause when you leave the app.")
-                                    Text("**Full** — Screen stays on. Simulations keep running even when you lock the screen.")
+                                    Text("**Full** — Screen stays on. Requests background time so simulations may continue when you leave the app.")
                                 }
                                 .fixedSize(horizontal: false, vertical: true)
                                 .font(.caption)
