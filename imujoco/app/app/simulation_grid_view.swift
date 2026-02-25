@@ -806,7 +806,8 @@ struct SettingsView: View {
                 PortNumPadView(
                     label: target.label,
                     currentValue: target.value.wrappedValue,
-                    defaultValue: target.defaultValue
+                    defaultValue: target.defaultValue,
+                    registeredPorts: allRegisteredPorts
                 ) { newValue in
                     target.value.wrappedValue = newValue
                 } onWarning: { msg in
@@ -825,6 +826,12 @@ struct SettingsView: View {
     }
 
     // MARK: - Port Helpers
+
+    private var allRegisteredPorts: Set<Int> {
+        [grpcPort,
+         inst1UdpPort, inst2UdpPort, inst3UdpPort, inst4UdpPort,
+         inst1CamPort, inst2CamPort, inst3CamPort, inst4CamPort]
+    }
 
     private func portRow(label: String, value: Binding<Int>, defaultValue: Int) -> some View {
         Button {
@@ -878,6 +885,7 @@ struct PortNumPadView: View {
     let label: String
     let currentValue: Int
     let defaultValue: Int
+    let registeredPorts: Set<Int>
     let onSave: (Int) -> Void
     let onWarning: (String) -> Void
 
@@ -889,10 +897,12 @@ struct PortNumPadView: View {
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 3)
 
     init(label: String, currentValue: Int, defaultValue: Int,
+         registeredPorts: Set<Int>,
          onSave: @escaping (Int) -> Void, onWarning: @escaping (String) -> Void) {
         self.label = label
         self.currentValue = currentValue
         self.defaultValue = defaultValue
+        self.registeredPorts = registeredPorts
         self.onSave = onSave
         self.onWarning = onWarning
         self._digits = State(initialValue: String(currentValue))
@@ -900,7 +910,19 @@ struct PortNumPadView: View {
 
     private var isValidPort: Bool {
         guard let port = Int(digits), !digits.isEmpty else { return false }
-        return Self.validPortRange.contains(port)
+        if !Self.validPortRange.contains(port) { return false }
+        // Same as current value is always valid
+        if port == currentValue { return true }
+        // Conflict with another registered port
+        if registeredPorts.contains(port) { return false }
+        return true
+    }
+
+    private var portStatus: String? {
+        guard let port = Int(digits), !digits.isEmpty else { return nil }
+        if !Self.validPortRange.contains(port) { return "Out of range (1024–65535)" }
+        if port != currentValue && registeredPorts.contains(port) { return "Conflicts with another port" }
+        return nil
     }
 
     var body: some View {
@@ -910,11 +932,18 @@ struct PortNumPadView: View {
                 .font(.headline)
                 .padding(.top, 48)
 
-            // Digit display — red when out of range
+            // Digit display — red when invalid
             Text(digits.isEmpty ? "" : digits)
                 .font(.system(size: 34, weight: .medium, design: .monospaced))
                 .foregroundColor(digits.isEmpty || isValidPort ? nil : .red)
                 .frame(height: 40)
+
+            // Status hint
+            if let status = portStatus {
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
 
             // Number pad grid
             LazyVGrid(columns: columns, spacing: 10) {
@@ -999,16 +1028,11 @@ struct PortNumPadView: View {
     }
 
     private func commitValue() {
-        guard let port = Int(digits), !digits.isEmpty else { return }
+        guard let port = Int(digits), !digits.isEmpty, isValidPort else { return }
         if port == currentValue { dismiss(); return }
-        if !Self.validPortRange.contains(port) {
-            dismiss()
-            onWarning("Port \(port) is out of range (1024–65535).")
-            return
-        }
         if !Self.isPortAvailable(UInt16(port)) {
             dismiss()
-            onWarning("Port \(port) is already in use.")
+            onWarning("Port \(port) is already in use by another process.")
             return
         }
         onSave(port)
