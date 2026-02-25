@@ -14,6 +14,7 @@
 //   ...
 
 #include "mjc_video_mjpeg_server.h"
+#include "imujoco/core/core/mjc_net_interface.h"
 
 #include <arpa/inet.h>
 #include <cstring>
@@ -54,14 +55,15 @@ bool MJVideoMJPEGServer::Start(uint16_t port) {
   int reuse = 1;
   setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 
+  auto bind_ip = imujoco::GetLocalBindAddress();
   struct sockaddr_in addr {};
   addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = INADDR_ANY;
+  inet_pton(AF_INET, bind_ip.c_str(), &addr.sin_addr);
   addr.sin_port = htons(port);
 
   if (bind(listen_fd_, reinterpret_cast<struct sockaddr *>(&addr),
            sizeof(addr)) < 0) {
-    os_log_error(OS_LOG_DEFAULT, "MJPEG: Failed to bind port %u", port);
+    os_log_error(OS_LOG_DEFAULT, "MJPEG: Failed to bind %{public}s:%u", bind_ip.c_str(), port);
     close(listen_fd_);
     listen_fd_ = -1;
     return false;
@@ -78,7 +80,7 @@ bool MJVideoMJPEGServer::Start(uint16_t port) {
   active_.store(true, std::memory_order_release);
   accept_thread_ = std::thread([this] { AcceptLoop(); });
 
-  os_log_info(OS_LOG_DEFAULT, "MJPEG: Server started on port %u", port);
+  os_log_info(OS_LOG_DEFAULT, "MJPEG: Server started on %{public}s:%u", bind_ip.c_str(), port);
   return true;
 }
 

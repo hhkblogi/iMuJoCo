@@ -6,12 +6,13 @@ import SwiftUI
 
 // MARK: - Device IP Helper
 
-func getDeviceIPAddress() -> String? {
-    var address: String?
+/// Returns all IPv4 addresses on en* (WiFi/Ethernet) interfaces.
+func getAllLocalAddresses() -> [String] {
+    var addresses: [String] = []
     var ifaddr: UnsafeMutablePointer<ifaddrs>?
 
     guard getifaddrs(&ifaddr) == 0, let firstAddr = ifaddr else {
-        return nil
+        return addresses
     }
 
     defer { freeifaddrs(ifaddr) }
@@ -19,37 +20,32 @@ func getDeviceIPAddress() -> String? {
     for ptr in sequence(first: firstAddr, next: { $0.pointee.ifa_next }) {
         let interface = ptr.pointee
 
-        // Skip interfaces with nil address
         guard let ifaAddr = interface.ifa_addr else { continue }
         let addrFamily = ifaAddr.pointee.sa_family
 
-        // Check for IPv4 (AF_INET)
         if addrFamily == UInt8(AF_INET) {
             let name = String(cString: interface.ifa_name)
+            guard name.hasPrefix("en") else { continue }
 
-            // Look for WiFi (en0) or cellular (pdp_ip0)
-            if name == "en0" || name.hasPrefix("pdp_ip") {
-                var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                if getnameinfo(
-                    ifaAddr,
-                    socklen_t(ifaAddr.pointee.sa_len),
-                    &hostname,
-                    socklen_t(hostname.count),
-                    nil,
-                    0,
-                    NI_NUMERICHOST
-                ) == 0 {
-                    // Find null terminator and create string
-                    if let nullIndex = hostname.firstIndex(of: 0) {
-                        address = String(decoding: hostname[..<nullIndex].map { UInt8(bitPattern: $0) }, as: UTF8.self)
-                    }
-                    if name == "en0" { break }  // Prefer WiFi
+            var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            if getnameinfo(
+                ifaAddr,
+                socklen_t(ifaAddr.pointee.sa_len),
+                &hostname,
+                socklen_t(hostname.count),
+                nil,
+                0,
+                NI_NUMERICHOST
+            ) == 0 {
+                if let nullIndex = hostname.firstIndex(of: 0) {
+                    let ip = String(decoding: hostname[..<nullIndex].map { UInt8(bitPattern: $0) }, as: UTF8.self)
+                    addresses.append(ip)
                 }
             }
         }
     }
 
-    return address
+    return addresses
 }
 
 // MARK: - Grid View
@@ -59,11 +55,12 @@ struct SimulationGridView: View {
     @State private var showingModelPicker = false
     @State private var selectedCellIndex: Int = 0
     @State private var deviceIP: String = "..."
+    @State private var availableIPs: [String] = []
     @State private var showingErrorAlert = false
     @State private var errorMessage: String = ""
-    @State private var ipExpanded = false
     @State private var showingSettings = false
     @AppStorage("defaultView") private var defaultView: Int = 0
+    @AppStorage("bindAddress") private var bindAddress: String = ""
     #if os(iOS)
     @AppStorage("caffeineMode") private var caffeineMode: Int = 1
     #endif
@@ -205,26 +202,38 @@ struct SimulationGridView: View {
             }
             #endif
 
-            // Collapsible IP address capsule
-            HStack(spacing: ipExpanded ? 8 : 0) {
-                Image(systemName: "network")
-                    .foregroundColor(ipIconColor)
-
-                if ipExpanded {
+            // IP address picker capsule (tap opens dropdown)
+            Menu {
+                ForEach(availableIPs, id: \.self) { ip in
+                    Button {
+                        bindAddress = ip
+                        deviceIP = ip
+                    } label: {
+                        if ip == deviceIP {
+                            Label(ip, systemImage: "checkmark")
+                        } else {
+                            Text(ip)
+                        }
+                    }
+                }
+                if !availableIPs.isEmpty { Divider() }
+                Button {
+                    refreshIPs()
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "network")
+                        .foregroundColor(ipIconColor)
                     Text(deviceIP)
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundColor(.white)
-                        .transition(.opacity.combined(with: .move(edge: .trailing)))
                 }
-            }
-            .padding(.horizontal, ipExpanded ? 12 : 8)
-            .padding(.vertical, 6)
-            .background(Color.white.opacity(0.1))
-            .clipShape(Capsule())
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    ipExpanded.toggle()
-                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.white.opacity(0.1))
+                .clipShape(Capsule())
             }
         }
         .padding(.horizontal, 16)
@@ -235,11 +244,23 @@ struct SimulationGridView: View {
 
     private func updateDeviceIP() {
         Task.detached {
-            let ip = getDeviceIPAddress() ?? "No Network"
+            let ips = getAllLocalAddresses()
             await MainActor.run {
-                deviceIP = ip
+                availableIPs = ips
+                if !bindAddress.isEmpty, ips.contains(bindAddress) {
+                    deviceIP = bindAddress
+                } else if let first = ips.first {
+                    deviceIP = first
+                    bindAddress = first
+                } else {
+                    deviceIP = "No Network"
+                }
             }
         }
+    }
+
+    private func refreshIPs() {
+        updateDeviceIP()
     }
 
 }
@@ -469,6 +490,16 @@ struct SettingsView: View {
     @AppStorage("tripleClickAction") private var tripleClickAction: Int = 0  // 0=grid/fullscreen, 1=lock/unlock
     @AppStorage("showStatsBar") private var showStatsBar: Bool = true
     @AppStorage("videoTransport") private var videoTransport: Int = 0  // 0=MJPEG/HTTP, 1=RTP/RTSP, 2=HEVC/QUIC
+    @AppStorage("bindAddress") private var bindAddress: String = ""
+    @AppStorage("grpcPort") private var grpcPort: Int = 8999
+    @AppStorage("inst1_udpPort") private var inst1UdpPort: Int = 9001
+    @AppStorage("inst2_udpPort") private var inst2UdpPort: Int = 9002
+    @AppStorage("inst3_udpPort") private var inst3UdpPort: Int = 9003
+    @AppStorage("inst4_udpPort") private var inst4UdpPort: Int = 9004
+    @AppStorage("inst1_camPort") private var inst1CamPort: Int = 9100
+    @AppStorage("inst2_camPort") private var inst2CamPort: Int = 9200
+    @AppStorage("inst3_camPort") private var inst3CamPort: Int = 9300
+    @AppStorage("inst4_camPort") private var inst4CamPort: Int = 9400
     @State private var showCaffeineInfo = false
     @State private var showVideoTransportInfo = false
 
@@ -708,6 +739,42 @@ struct SettingsView: View {
                     }
                 }
 
+                #if !os(tvOS)
+                Section("Network") {
+                    HStack {
+                        Text("Bind Address")
+                            .font(.subheadline)
+                        Spacer()
+                        Text(bindAddress.isEmpty ? "Auto" : bindAddress)
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    portRow(label: "gRPC Port", value: $grpcPort, defaultValue: 8999)
+
+                    ForEach(1...4, id: \.self) { inst in
+                        DisclosureGroup("Instance \(inst)") {
+                            portRow(label: "UDP Port", value: udpPortBinding(for: inst), defaultValue: 9000 + inst)
+                            portRow(label: "Camera Port", value: camPortBinding(for: inst), defaultValue: 9000 + inst * 100)
+                        }
+                        .font(.subheadline)
+                    }
+
+                    Text("Restart app to apply port changes")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Button("Reset to Defaults") {
+                        grpcPort = 8999
+                        inst1UdpPort = 9001; inst2UdpPort = 9002
+                        inst3UdpPort = 9003; inst4UdpPort = 9004
+                        inst1CamPort = 9100; inst2CamPort = 9200
+                        inst3CamPort = 9300; inst4CamPort = 9400
+                    }
+                    .font(.subheadline)
+                }
+                #endif
+
                 Section {
                     Toggle("Performance Stats Bar", isOn: $showStatsBar)
                         .font(.subheadline)
@@ -734,6 +801,43 @@ struct SettingsView: View {
         #if os(macOS)
         .frame(minWidth: 450, minHeight: 200)
         #endif
+    }
+
+    // MARK: - Port Helpers
+
+    private func portRow(label: String, value: Binding<Int>, defaultValue: Int) -> some View {
+        HStack {
+            Text(label)
+                .font(.subheadline)
+            Spacer()
+            TextField("\(defaultValue)", value: value, format: .number)
+                .font(.system(size: 13, design: .monospaced))
+                .multilineTextAlignment(.trailing)
+                #if os(iOS)
+                .keyboardType(.numberPad)
+                #endif
+                .frame(width: 70)
+        }
+    }
+
+    private func udpPortBinding(for inst: Int) -> Binding<Int> {
+        switch inst {
+        case 1: return $inst1UdpPort
+        case 2: return $inst2UdpPort
+        case 3: return $inst3UdpPort
+        case 4: return $inst4UdpPort
+        default: return .constant(0)
+        }
+    }
+
+    private func camPortBinding(for inst: Int) -> Binding<Int> {
+        switch inst {
+        case 1: return $inst1CamPort
+        case 2: return $inst2CamPort
+        case 3: return $inst3CamPort
+        case 4: return $inst4CamPort
+        default: return .constant(0)
+        }
     }
 }
 

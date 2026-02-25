@@ -82,6 +82,8 @@ public final class MJVideoQUICTransport {
         }
 
         let params = NWParameters(quic: quicOptions)
+        // Restrict to WiFi/Ethernet only — no cellular or other interfaces
+        params.prohibitedInterfaceTypes = [.cellular, .other]
 
         do {
             listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)

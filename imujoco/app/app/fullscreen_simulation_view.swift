@@ -267,7 +267,7 @@ struct FullscreenSimulationView: View {
                                     .font(.system(size: 9))
                                     .onTapGesture { showCamInfo = true }
                                     .popover(isPresented: $showCamInfo) {
-                                        let ip = getDeviceIPAddress() ?? "<ip>"
+                                        let ip = getAllLocalAddresses().first ?? "<ip>"
                                         VStack(alignment: .leading, spacing: 4) {
                                             Text("Cam0 = Default Free Camera")
                                                 .font(.system(size: 13, weight: .semibold))
@@ -536,7 +536,7 @@ struct ControlButton: View {
 #if DEBUG
 #Preview {
     FullscreenSimulationView(
-        instance: SimulationInstance(id: 0),
+        instance: SimulationInstance(id: 0, udpPort: 9001, cameraPort: 9100),
         instanceIndex: 0,
         onExit: {},
         onSwitchInstance: { _ in },

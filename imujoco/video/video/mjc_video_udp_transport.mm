@@ -4,6 +4,7 @@
 
 #include "mjc_video_udp_transport.h"
 #include "imujoco/core/core/mjc_fragment.h"
+#include "imujoco/core/core/mjc_net_interface.h"
 
 #include <cstring>
 #include <memory>
@@ -70,11 +71,12 @@ bool MJVideoUDPTransport::Start(uint16_t port) {
     struct sockaddr_in addr;
     std::memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;
+    auto bind_ip = imujoco::GetLocalBindAddress();
+    inet_pton(AF_INET, bind_ip.c_str(), &addr.sin_addr);
     addr.sin_port = htons(port);
 
     if (bind(socket_fd_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
-        os_log_error(OS_LOG_DEFAULT, "VideoUDP: failed to bind to port %u", port);
+        os_log_error(OS_LOG_DEFAULT, "VideoUDP: failed to bind to %{public}s:%u", bind_ip.c_str(), port);
         close(socket_fd_);
         socket_fd_ = -1;
         return false;
@@ -82,7 +84,7 @@ bool MJVideoUDPTransport::Start(uint16_t port) {
 
     port_ = port;
     active_.store(true, std::memory_order_release);
-    os_log_info(OS_LOG_DEFAULT, "VideoUDP: listening on port %u", port);
+    os_log_info(OS_LOG_DEFAULT, "VideoUDP: listening on %{public}s:%u", bind_ip.c_str(), port);
     return true;
 }
 

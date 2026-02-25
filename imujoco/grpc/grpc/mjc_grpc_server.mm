@@ -2,6 +2,7 @@
 // gRPC server implementation for SimulationControl service.
 
 #import "mjc_grpc_server.h"
+#include "imujoco/core/core/mjc_net_interface.h"
 
 #include <algorithm>
 #include <atomic>
@@ -481,9 +482,18 @@ void MJGrpcServer::destroy(MJGrpcServer* server) {
 void MJGrpcServer::start() {
     if (impl_->server) return;  // Already started
 
-    std::string address = "0.0.0.0:" + std::to_string(impl_->config.port);
+    auto bind_ip = imujoco::GetLocalBindAddress();
+    std::string port_str = std::to_string(impl_->config.port);
+
     grpc::ServerBuilder builder;
-    builder.AddListeningPort(address, grpc::InsecureServerCredentials());
+    builder.AddListeningPort(bind_ip + ":" + port_str, grpc::InsecureServerCredentials());
+
+    // Also listen on localhost if the LAN address is different,
+    // so local clients can always reach the server.
+    if (bind_ip != "127.0.0.1") {
+        builder.AddListeningPort("127.0.0.1:" + port_str, grpc::InsecureServerCredentials());
+    }
+
     builder.RegisterService(impl_->service.get());
     impl_->server = builder.BuildAndStart();
 }

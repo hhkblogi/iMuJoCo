@@ -108,6 +108,7 @@ enum MuJoCoError: Error, LocalizedError {
 final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataSource, @unchecked Sendable {
     let id: Int
     let port: UInt16
+    let cameraBasePort: UInt16
 
     // C++ physics runtime (owns model, data, scene, camera, option)
     private(set) var runtime: MJRuntime?
@@ -150,9 +151,10 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     // State polling timer
     private var stateUpdateTask: Task<Void, Never>?
 
-    init(id: Int, basePort: UInt16 = 9000) {
+    init(id: Int, udpPort: UInt16, cameraPort: UInt16) {
         self.id = id
-        self.port = basePort + UInt16(id)
+        self.port = udpPort
+        self.cameraBasePort = cameraPort
     }
 
     deinit {
@@ -211,10 +213,9 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         runtime.start()
 
         // Start video streaming
-        // Camera port scheme: 9000 + instance_id * 100 + camera_id
-        // Instance IDs are 1-indexed, so ports start at 9100 (instance 1, camera 0)
+        // Camera port from per-instance config (default: 9000 + id * 100)
         // Cam0 = default free camera
-        let cameraPort = UInt16(9000 + id * 100 + 0)
+        let cameraPort = cameraBasePort
 
         // Raw UDP streamer for Python driver (port + 1 to leave cameraPort for QUIC)
         if videoStreamer == nil {
@@ -402,10 +403,10 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     var frameTime: Double { displayFrameTime }
     var geomCount: Int32 { displayGeomCount }
 
-    /// Camera port for this instance (9000 + id * 100 + camera_id).
+    /// Camera port for this instance (configured via UserDefaults, default: 9000 + id * 100).
     /// Cam0 = default free camera.
     var cameraPort: UInt16 {
-        UInt16(9000 + id * 100 + 0)
+        cameraBasePort
     }
 
     /// Whether video streaming is active (streamers are running).
@@ -738,11 +739,11 @@ private func grpcGetInstanceInfoHandler(_ instanceId: Int32, _ outInfo: UnsafeMu
 @Observable
 final class SimulationGridManager: @unchecked Sendable {
     static let gridSize = 4  // 2x2 grid
-    static let basePort: UInt16 = 9000
 
     private(set) var instances: [SimulationInstance]
     private(set) var fullscreenInstanceId: Int? = nil
     @ObservationIgnored private var grpcServer: MJGrpcServer?
+    @ObservationIgnored private let grpcPort: UInt16
 
     /// Monotonically increasing count of gRPC RPCs processed.
     var grpcRpcCount: UInt64 {
@@ -782,9 +783,28 @@ final class SimulationGridManager: @unchecked Sendable {
     }
 
     init() {
-        instances = (1...Self.gridSize).map { index in
-            SimulationInstance(id: index, basePort: Self.basePort)
+        let defaults = UserDefaults.standard
+
+        // Read per-instance ports from UserDefaults (0 or missing = use default)
+        let defaultUdpPorts: [UInt16] = [9001, 9002, 9003, 9004]
+        let defaultCamPorts: [UInt16] = [9100, 9200, 9300, 9400]
+
+        var insts: [SimulationInstance] = []
+        for i in 0..<Self.gridSize {
+            let instNum = i + 1
+            let udpKey = "inst\(instNum)_udpPort"
+            let camKey = "inst\(instNum)_camPort"
+            let udpVal = defaults.integer(forKey: udpKey)
+            let camVal = defaults.integer(forKey: camKey)
+            let udpPort = udpVal > 0 ? UInt16(udpVal) : defaultUdpPorts[i]
+            let camPort = camVal > 0 ? UInt16(camVal) : defaultCamPorts[i]
+            insts.append(SimulationInstance(id: instNum, udpPort: udpPort, cameraPort: camPort))
         }
+        instances = insts
+
+        let grpcVal = defaults.integer(forKey: "grpcPort")
+        grpcPort = grpcVal > 0 ? UInt16(grpcVal) : 8999
+
         startGrpcServer()
     }
 
@@ -792,7 +812,7 @@ final class SimulationGridManager: @unchecked Sendable {
 
     private func startGrpcServer() {
         var config = MJGrpcServerConfig()
-        config.port = 8999
+        config.port = grpcPort
         config.numInstances = Int32(Self.gridSize)
 
         guard let server = MJGrpcServer.create(config) else {
@@ -808,7 +828,7 @@ final class SimulationGridManager: @unchecked Sendable {
         server.setGetInstanceInfoCallback(grpcGetInstanceInfoHandler, ctx)
         server.start()
         grpcServer = server
-        logger.info("gRPC server started on port 8999")
+        logger.info("gRPC server started on port \(self.grpcPort)")
     }
 
     // MARK: - Instance Access

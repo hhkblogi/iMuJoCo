@@ -409,7 +409,7 @@ struct SimulationCellView: View {
                                     .font(.system(size: 7))
                                     .onTapGesture { showCamInfo = true }
                                     .popover(isPresented: $showCamInfo) {
-                                        let ip = getDeviceIPAddress() ?? "<ip>"
+                                        let ip = getAllLocalAddresses().first ?? "<ip>"
                                         VStack(alignment: .leading, spacing: 4) {
                                             Text("Cam0 = Default Free Camera")
                                                 .font(.system(size: 11, weight: .semibold))
@@ -701,7 +701,7 @@ struct TVCellButtonStyle: ButtonStyle {
 #if DEBUG
 #Preview {
     SimulationCellView(
-        instance: SimulationInstance(id: 0),
+        instance: SimulationInstance(id: 0, udpPort: 9001, cameraPort: 9100),
         instanceIndex: 0,
         onTapFullscreen: {},
         onLoadModel: {}

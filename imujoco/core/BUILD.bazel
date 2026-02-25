@@ -19,10 +19,12 @@ objc_library(
     name = "core_cpp",
     srcs = [
         "core/mjc_fragment.mm",
+        "core/mjc_net_interface.mm",
         "core/mjc_physics_runtime.mm",
     ],
     hdrs = [
         "core/mjc_fragment.h",
+        "core/mjc_net_interface.h",
         "core/mjc_physics_runtime.h",
         "core/spmc_queue.h",
     ],

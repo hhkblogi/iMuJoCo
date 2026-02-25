@@ -35,6 +35,9 @@
 // Fragment support
 #include "mjc_fragment.h"
 
+// Network interface detection (bind restriction)
+#include "mjc_net_interface.h"
+
 // SPMC queue for mutex-free frame passing (producer is wait-free; consumers may block)
 #include "spmc_queue.h"
 
@@ -86,18 +89,19 @@ public:
         struct sockaddr_in addr;
         memset(&addr, 0, sizeof(addr));
         addr.sin_family = AF_INET;
-        addr.sin_addr.s_addr = INADDR_ANY;
+        auto bind_ip = imujoco::GetLocalBindAddress();
+        inet_pton(AF_INET, bind_ip.c_str(), &addr.sin_addr);
         addr.sin_port = htons(port);
 
         if (bind(socket_fd_, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-            os_log_error(OS_LOG_DEFAULT, "Failed to bind to port %u", port);
+            os_log_error(OS_LOG_DEFAULT, "Failed to bind to %{public}s:%u", bind_ip.c_str(), port);
             close(socket_fd_);
             socket_fd_ = -1;
             return false;
         }
 
         port_ = port;
-        os_log_info(OS_LOG_DEFAULT, "Listening on port %u", port);
+        os_log_info(OS_LOG_DEFAULT, "Listening on %{public}s:%u", bind_ip.c_str(), port);
         return true;
     }
 
