@@ -816,34 +816,71 @@ struct SettingsView: View {
     /// Valid port range: 1024–65535 (avoid privileged ports and UInt16 overflow).
     private static let validPortRange = 1024...65535
 
+    @State private var portText: [String: String] = [:]
+
     private func portRow(label: String, value: Binding<Int>, defaultValue: Int) -> some View {
-        let validatedValue = Binding<Int>(
-            get: { value.wrappedValue },
-            set: { newValue in
-                if !Self.validPortRange.contains(newValue) {
-                    value.wrappedValue = defaultValue
-                    portWarningMessage = "Port must be between 1024 and 65535. Reset to \(defaultValue)."
-                    showPortWarning = true
-                } else if !isPortAvailable(UInt16(newValue)) {
-                    value.wrappedValue = defaultValue
-                    portWarningMessage = "Port \(newValue) is already in use. Reset to \(defaultValue)."
-                    showPortWarning = true
-                } else {
-                    value.wrappedValue = newValue
-                }
+        let key = "\(label)_\(defaultValue)"
+        let textBinding = Binding<String>(
+            get: {
+                portText[key] ?? String(value.wrappedValue)
+            },
+            set: { newText in
+                // Strip non-digit characters immediately
+                let digits = newText.filter(\.isWholeNumber)
+                portText[key] = digits
             }
         )
         return HStack {
             Text(label)
                 .font(.subheadline)
             Spacer()
-            TextField("\(defaultValue)", value: validatedValue, format: .number.grouping(.never))
+            TextField("\(defaultValue)", text: textBinding)
                 .font(.system(size: 13, design: .monospaced))
                 .multilineTextAlignment(.trailing)
                 #if os(iOS)
                 .keyboardType(.numberPad)
                 #endif
                 .frame(width: 70)
+                .onSubmit {
+                    commitPort(key: key, value: value, defaultValue: defaultValue)
+                }
+                .onChange(of: portText[key]) {
+                    // Keep only digits as user types
+                    if let current = portText[key] {
+                        let digits = current.filter(\.isWholeNumber)
+                        if digits != current {
+                            portText[key] = digits
+                        }
+                    }
+                }
+        }
+        .onAppear {
+            portText[key] = String(value.wrappedValue)
+        }
+    }
+
+    private func commitPort(key: String, value: Binding<Int>, defaultValue: Int) {
+        let text = portText[key] ?? ""
+        guard let newValue = Int(text) else {
+            value.wrappedValue = defaultValue
+            portText[key] = String(defaultValue)
+            portWarningMessage = "Invalid port number. Reset to \(defaultValue)."
+            showPortWarning = true
+            return
+        }
+        if !Self.validPortRange.contains(newValue) {
+            value.wrappedValue = defaultValue
+            portText[key] = String(defaultValue)
+            portWarningMessage = "Port must be between 1024 and 65535. Reset to \(defaultValue)."
+            showPortWarning = true
+        } else if !isPortAvailable(UInt16(newValue)) {
+            value.wrappedValue = defaultValue
+            portText[key] = String(defaultValue)
+            portWarningMessage = "Port \(newValue) is already in use. Reset to \(defaultValue)."
+            showPortWarning = true
+        } else {
+            value.wrappedValue = newValue
+            portText[key] = String(newValue)
         }
     }
 
