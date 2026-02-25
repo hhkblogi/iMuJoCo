@@ -882,55 +882,61 @@ struct PortNumPadView: View {
     let onWarning: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var digits: String = ""
+    @State private var digits: String
 
     private static let validPortRange = 1024...65535
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 3)
+
+    init(label: String, currentValue: Int, defaultValue: Int,
+         onSave: @escaping (Int) -> Void, onWarning: @escaping (String) -> Void) {
+        self.label = label
+        self.currentValue = currentValue
+        self.defaultValue = defaultValue
+        self.onSave = onSave
+        self.onWarning = onWarning
+        self._digits = State(initialValue: String(currentValue))
+    }
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 12) {
             // Title
             Text(label)
                 .font(.headline)
-                .padding(.top, 24)
+                .padding(.top, 20)
 
             // Digit display
-            Text(digits.isEmpty ? "\(currentValue)" : digits)
-                .font(.system(size: 32, weight: .medium, design: .monospaced))
-                .foregroundStyle(digits.isEmpty ? .secondary : .primary)
+            Text(digits.isEmpty ? "0" : digits)
+                .font(.system(size: 36, weight: .medium, design: .monospaced))
                 .frame(height: 44)
-                .padding(.horizontal)
-
-            Spacer()
 
             // Number pad grid
-            LazyVGrid(columns: columns, spacing: 12) {
+            LazyVGrid(columns: columns, spacing: 10) {
                 ForEach(1...9, id: \.self) { n in
                     numButton(String(n))
                 }
-                // Bottom row: empty, 0, delete
-                Color.clear.frame(height: 54)
+                // Bottom row: Cancel, 0, Delete
+                cancelButton()
                 numButton("0")
                 deleteButton()
             }
-            .padding(.horizontal, 40)
+            .padding(.horizontal, 36)
 
-            // Action buttons
-            HStack(spacing: 40) {
-                Button("Cancel") {
-                    dismiss()
-                }
-                .foregroundStyle(.secondary)
-
-                Button("Enter") {
-                    commitValue()
-                }
-                .fontWeight(.semibold)
-                .disabled(digits.isEmpty)
+            // Enter button
+            Button {
+                commitValue()
+            } label: {
+                Text("Enter")
+                    .font(.title3.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .background(.tint, in: RoundedRectangle(cornerRadius: 10))
+                    .foregroundStyle(.white)
             }
-            .font(.title3)
-            .padding(.bottom, 32)
+            .buttonStyle(.plain)
+            .disabled(digits.isEmpty)
+            .padding(.horizontal, 36)
+            .padding(.bottom, 16)
         }
         .interactiveDismissDisabled()
         #if os(iOS)
@@ -944,14 +950,18 @@ struct PortNumPadView: View {
 
     private func numButton(_ digit: String) -> some View {
         Button {
-            if digits.count < 5 { // max 65535
-                digits.append(digit)
+            if digits.count < 5 {
+                if digits == "0" {
+                    digits = digit
+                } else {
+                    digits.append(digit)
+                }
             }
         } label: {
             Text(digit)
-                .font(.title)
+                .font(.title2)
                 .frame(maxWidth: .infinity)
-                .frame(height: 54)
+                .frame(height: 48)
                 .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
@@ -964,16 +974,28 @@ struct PortNumPadView: View {
             }
         } label: {
             Image(systemName: "delete.backward")
-                .font(.title2)
+                .font(.title3)
                 .frame(maxWidth: .infinity)
-                .frame(height: 54)
+                .frame(height: 48)
         }
         .buttonStyle(.plain)
         .disabled(digits.isEmpty)
     }
 
+    private func cancelButton() -> some View {
+        Button {
+            dismiss()
+        } label: {
+            Text("Cancel")
+                .font(.subheadline)
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
+        }
+        .buttonStyle(.plain)
+    }
+
     private func commitValue() {
-        guard let port = Int(digits) else { return }
+        guard let port = Int(digits), !digits.isEmpty else { return }
         if !Self.validPortRange.contains(port) {
             dismiss()
             onWarning("Port \(port) is out of range (1024–65535).")
