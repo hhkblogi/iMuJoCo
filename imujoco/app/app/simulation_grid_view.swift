@@ -806,13 +806,24 @@ struct SettingsView: View {
 
     // MARK: - Port Helpers
 
+    /// Valid port range: 1024–65535 (avoid privileged ports and UInt16 overflow).
+    private static let validPortRange = 1024...65535
+
     private func portRow(label: String, value: Binding<Int>, defaultValue: Int) -> some View {
-        HStack {
+        let isValid = Self.validPortRange.contains(value.wrappedValue)
+        let clampedValue = Binding<Int>(
+            get: { value.wrappedValue },
+            set: { newValue in
+                value.wrappedValue = min(max(newValue, 0), 65535)
+            }
+        )
+        return HStack {
             Text(label)
                 .font(.subheadline)
             Spacer()
-            TextField("\(defaultValue)", value: value, format: .number.grouping(.never))
+            TextField("\(defaultValue)", value: clampedValue, format: .number.grouping(.never))
                 .font(.system(size: 13, design: .monospaced))
+                .foregroundColor(isValid ? nil : .red)
                 .multilineTextAlignment(.trailing)
                 #if os(iOS)
                 .keyboardType(.numberPad)

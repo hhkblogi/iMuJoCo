@@ -782,10 +782,10 @@ final class SimulationGridManager: @unchecked Sendable {
         }
     }
 
-    /// Read a port from UserDefaults, returning `fallback` if missing, zero, or out of UInt16 range.
+    /// Read a port from UserDefaults, returning `fallback` if missing or out of valid range (1024–65535).
     private static func readPort(_ key: String, fallback: UInt16) -> UInt16 {
         let val = UserDefaults.standard.integer(forKey: key)
-        return (val > 0 && val <= Int(UInt16.max)) ? UInt16(val) : fallback
+        return (val >= 1024 && val <= 65535) ? UInt16(val) : fallback
     }
 
     init() {
