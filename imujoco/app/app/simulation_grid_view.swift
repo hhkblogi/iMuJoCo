@@ -818,11 +818,20 @@ struct SettingsView: View {
     private static let validPortRange = 1024...65535
 
     private func portRow(label: String, value: Binding<Int>, defaultValue: Int) -> some View {
-        HStack {
+        let text = Binding<String>(
+            get: { String(value.wrappedValue) },
+            set: { s in
+                let digits = s.filter(\.isWholeNumber)
+                if let v = Int(digits) {
+                    value.wrappedValue = v
+                }
+            }
+        )
+        return HStack {
             Text(label)
                 .font(.subheadline)
             Spacer()
-            TextField("\(defaultValue)", value: value, format: .number.grouping(.never))
+            TextField("\(defaultValue)", text: text)
                 .font(.system(size: 13, design: .monospaced))
                 .multilineTextAlignment(.trailing)
                 .focused($portFieldFocused)
