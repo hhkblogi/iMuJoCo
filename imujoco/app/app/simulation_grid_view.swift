@@ -502,6 +502,8 @@ struct SettingsView: View {
     @AppStorage("inst4_camPort") private var inst4CamPort: Int = 9400
     @State private var showCaffeineInfo = false
     @State private var showVideoTransportInfo = false
+    @State private var showPortWarning = false
+    @State private var portWarningMessage = ""
 
     // tag 0 = grid, 1-4 = fullscreen instance (highlightedCell 0-3)
     private let viewOptions: [(highlightedCell: Int?, tag: Int)] = [
@@ -794,6 +796,11 @@ struct SettingsView: View {
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
+            .alert("Invalid Port", isPresented: $showPortWarning) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(portWarningMessage)
+            }
         }
         #if os(iOS)
         .presentationDetents([.medium, .large])
@@ -810,26 +817,57 @@ struct SettingsView: View {
     private static let validPortRange = 1024...65535
 
     private func portRow(label: String, value: Binding<Int>, defaultValue: Int) -> some View {
-        let isValid = Self.validPortRange.contains(value.wrappedValue)
-        let clampedValue = Binding<Int>(
+        let validatedValue = Binding<Int>(
             get: { value.wrappedValue },
             set: { newValue in
-                value.wrappedValue = min(max(newValue, 0), 65535)
+                if !Self.validPortRange.contains(newValue) {
+                    value.wrappedValue = defaultValue
+                    portWarningMessage = "Port must be between 1024 and 65535. Reset to \(defaultValue)."
+                    showPortWarning = true
+                } else if !isPortAvailable(UInt16(newValue)) {
+                    value.wrappedValue = defaultValue
+                    portWarningMessage = "Port \(newValue) is already in use. Reset to \(defaultValue)."
+                    showPortWarning = true
+                } else {
+                    value.wrappedValue = newValue
+                }
             }
         )
         return HStack {
             Text(label)
                 .font(.subheadline)
             Spacer()
-            TextField("\(defaultValue)", value: clampedValue, format: .number.grouping(.never))
+            TextField("\(defaultValue)", value: validatedValue, format: .number.grouping(.never))
                 .font(.system(size: 13, design: .monospaced))
-                .foregroundColor(isValid ? nil : .red)
                 .multilineTextAlignment(.trailing)
                 #if os(iOS)
                 .keyboardType(.numberPad)
                 #endif
                 .frame(width: 70)
         }
+    }
+
+    /// Try to bind a TCP socket to the port to check if it's available.
+    private func isPortAvailable(_ port: UInt16) -> Bool {
+        let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return true }  // can't check — assume available
+        defer { close(fd) }
+
+        var opt: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, socklen_t(MemoryLayout<Int32>.size))
+
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = port.bigEndian
+        addr.sin_addr.s_addr = INADDR_LOOPBACK.bigEndian
+
+        let result = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        return result == 0
     }
 
     private func udpPortBinding(for inst: Int) -> Binding<Int> {
