@@ -796,7 +796,8 @@ struct SettingsView: View {
             #endif
         }
         #if os(iOS)
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
         #endif
         #if os(macOS)
         .frame(minWidth: 450, minHeight: 200)
