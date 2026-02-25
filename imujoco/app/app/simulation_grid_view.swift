@@ -899,7 +899,7 @@ struct PortNumPadView: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 4) {
             // Title
             Text(label)
                 .font(.headline)
