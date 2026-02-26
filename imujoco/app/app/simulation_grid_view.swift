@@ -757,24 +757,18 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    HStack {
-                        portRow(label: "gRPC Port", value: $grpcPort, defaultValue: 8999)
-                        portInfoButton(isPresented: $showGrpcPortInfo,
-                                       text: "Remote simulation control channel. Changing this port stops the server and restarts it on the new port. All active simulations are re-registered automatically.")
-                    }
+                    portRow(label: "gRPC Port", value: $grpcPort, defaultValue: 8999,
+                            infoPresented: $showGrpcPortInfo,
+                            infoText: "Remote simulation control channel. Changing this port stops the server and restarts it on the new port. All active simulations are re-registered automatically.")
 
                     ForEach(1...4, id: \.self) { inst in
                         DisclosureGroup("Instance \(inst)") {
-                            HStack {
-                                portRow(label: "UDP Port", value: udpPortBinding(for: inst), defaultValue: 9000 + inst)
-                                portInfoButton(isPresented: $showUdpPortInfo,
-                                               text: "Physics control channel for the Python driver. Changing this port pauses the simulation, recreates the runtime on the new port, and reloads the model automatically.")
-                            }
-                            HStack {
-                                portRow(label: "Camera Port", value: camPortBinding(for: inst), defaultValue: 9000 + inst * 100)
-                                portInfoButton(isPresented: $showCamPortInfo,
-                                               text: "Video streaming port (MJPEG, RTP/RTSP, or HEVC/QUIC). Changing this port restarts the video streamers — physics keeps running uninterrupted.")
-                            }
+                            portRow(label: "UDP Port", value: udpPortBinding(for: inst), defaultValue: 9000 + inst,
+                                    infoPresented: $showUdpPortInfo,
+                                    infoText: "Physics control channel for the Python driver. Changing this port pauses the simulation, recreates the runtime on the new port, and reloads the model automatically.")
+                            portRow(label: "Camera Port", value: camPortBinding(for: inst), defaultValue: 9000 + inst * 100,
+                                    infoPresented: $showCamPortInfo,
+                                    infoText: "Video streaming port (MJPEG, RTP/RTSP, or HEVC/QUIC). Changing this port restarts the video streamers — physics keeps running uninterrupted.")
                         }
                         .font(.subheadline)
                     }
@@ -845,34 +839,41 @@ struct SettingsView: View {
          inst1CamPort, inst2CamPort, inst3CamPort, inst4CamPort]
     }
 
-    #if !os(tvOS)
-    private func portInfoButton(isPresented: Binding<Bool>, text: String) -> some View {
-        Button {
-            isPresented.wrappedValue.toggle()
-        } label: {
-            Image(systemName: "info.circle")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-        .buttonStyle(.plain)
-        .popover(isPresented: isPresented) {
-            Text(text)
-                .font(.caption)
-                .padding()
-                .frame(maxWidth: 280)
-        }
-    }
-    #endif
-
-    private func portRow(label: String, value: Binding<Int>, defaultValue: Int) -> some View {
-        Button {
-            editingPort = PortEditTarget(label: label, value: value, defaultValue: defaultValue)
-        } label: {
-            HStack {
+    private func portRow(label: String, value: Binding<Int>, defaultValue: Int,
+                         infoPresented: Binding<Bool>? = nil, infoText: String? = nil) -> some View {
+        HStack {
+            Button {
+                editingPort = PortEditTarget(label: label, value: value, defaultValue: defaultValue)
+            } label: {
                 Text(label)
                     .font(.subheadline)
                     .foregroundStyle(.primary)
-                Spacer()
+            }
+            #if !os(tvOS)
+            if let infoPresented, let infoText {
+                Button {
+                    infoPresented.wrappedValue.toggle()
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .popover(isPresented: infoPresented) {
+                    ScrollView {
+                        Text(infoText)
+                            .font(.caption)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding()
+                    }
+                    .frame(width: 260, height: 120)
+                }
+            }
+            #endif
+            Spacer()
+            Button {
+                editingPort = PortEditTarget(label: label, value: value, defaultValue: defaultValue)
+            } label: {
                 Text(String(value.wrappedValue))
                     .font(.system(size: 13, design: .monospaced))
                     .foregroundStyle(.secondary)
