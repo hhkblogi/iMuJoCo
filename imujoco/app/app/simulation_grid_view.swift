@@ -851,6 +851,7 @@ struct SettingsView: View {
                     .font(.subheadline)
                     .foregroundStyle(.primary)
             }
+            .buttonStyle(.borderless)
             #if !os(tvOS)
             if let infoPresented, let infoText {
                 Button {
@@ -859,8 +860,10 @@ struct SettingsView: View {
                     Image(systemName: "info.circle")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
                 .popover(isPresented: infoPresented) {
                     ScrollView {
                         Text(infoText)
@@ -880,6 +883,7 @@ struct SettingsView: View {
                     .font(.system(size: 13, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
+            .buttonStyle(.borderless)
         }
     }
 
