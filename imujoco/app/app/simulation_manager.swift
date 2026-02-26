@@ -149,8 +149,8 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     private(set) var vlcTransportMode: MJCVideoTransportMode = .mjpegHTTP
     /// Whether the user has explicitly toggled the transport mode on this instance.
     @ObservationIgnored private var vlcTransportModeExplicit = false
-    /// Guard against overlapping VLC streamer restarts.
-    @ObservationIgnored private var isRestartingVLC = false
+    /// Guard against overlapping VLC streamer restarts (observable for UI disable).
+    private(set) var isRestartingVLC = false
 
     // State polling timer
     private var stateUpdateTask: Task<Void, Never>?
@@ -990,6 +990,11 @@ final class SimulationGridManager: @unchecked Sendable {
 
     var activeCount: Int {
         activeInstances.count
+    }
+
+    /// True if any instance is mid-video-transport switch (UI should disable transport buttons).
+    var isRestartingVideoTransport: Bool {
+        instances.contains { $0.isRestartingVLC }
     }
 
     // MARK: - Model Loading

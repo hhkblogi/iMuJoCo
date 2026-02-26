@@ -713,32 +713,37 @@ struct SettingsView: View {
                             }
                             #endif
                         }
-                        HStack {
+                        HStack(spacing: 8) {
                             ForEach(
                                 [(0, "MJPEG/HTTP", "photo.on.rectangle"), (1, "HEVC/RTSP", "video.fill"), (2, "HEVC/QUIC", "bolt.fill")],
                                 id: \.0
                             ) { tag, label, icon in
+                                let isSwitching = gridManager?.isRestartingVideoTransport ?? false
+                                let isSelected = videoTransport == tag
                                 Button(action: { videoTransport = tag }) {
                                     VStack(spacing: 4) {
                                         Image(systemName: icon)
-                                            .font(.system(size: 18))
+                                            .font(.system(size: 20))
                                         Text(label)
                                             .font(.caption2)
                                     }
                                     .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 8)
+                                    .padding(.vertical, 12)
                                     .background(
                                         RoundedRectangle(cornerRadius: 8)
-                                            .fill(videoTransport == tag ? Color.blue.opacity(0.2) : Color.clear)
+                                            .fill(isSelected ? Color.blue.opacity(0.2) : Color.clear)
                                     )
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 8)
-                                            .stroke(videoTransport == tag ? Color.blue : Color.gray.opacity(0.3), lineWidth: videoTransport == tag ? 1.5 : 1)
+                                            .stroke(isSelected ? Color.blue : Color.gray.opacity(0.3), lineWidth: isSelected ? 1.5 : 1)
                                     )
-                                    .foregroundColor(videoTransport == tag ? .blue : .gray)
+                                    .foregroundColor(isSelected ? .blue : .gray)
+                                    .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
-                                .accessibilityLabel("\(label), \(videoTransport == tag ? "selected" : "not selected")")
+                                .disabled(isSelected || isSwitching)
+                                .opacity(isSwitching && !isSelected ? 0.4 : 1.0)
+                                .accessibilityLabel("\(label), \(isSelected ? "selected" : "not selected")")
                             }
                         }
                     }
