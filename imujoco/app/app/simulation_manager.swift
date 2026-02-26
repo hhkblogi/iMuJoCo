@@ -160,6 +160,15 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         self.id = id
         self.port = udpPort
         self.cameraBasePort = cameraPort
+
+        // Sync initial badge state with persisted transport setting
+        let setting = UserDefaults.standard.integer(forKey: "videoTransport")
+        switch setting {
+        case 1: vlcTransportMode = .rtpRTSP; vlcOff = false
+        case 2: vlcTransportMode = .hevcQUIC; vlcOff = false
+        case 3: vlcOff = true
+        default: vlcTransportMode = .mjpegHTTP; vlcOff = false
+        }
     }
 
     deinit {
