@@ -770,10 +770,7 @@ struct SettingsView: View {
                                     infoPresented: $showCamPortInfo,
                                     infoText: "Video streaming port (MJPEG, RTP/RTSP, or HEVC/QUIC). Changing this port restarts the video streamers — physics keeps running uninterrupted.")
                         } label: {
-                            HStack(spacing: 8) {
-                                LayoutIcon(highlightedCell: inst - 1, isSelected: true, size: 20)
-                                Text("Instance \(inst)")
-                            }
+                            LayoutIcon(highlightedCell: inst - 1, isSelected: true, size: 20)
                         }
                         .font(.subheadline)
                     }
