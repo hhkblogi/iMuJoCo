@@ -858,6 +858,7 @@ struct SettingsView: View {
          inst1CamPort, inst2CamPort, inst3CamPort, inst4CamPort]
     }
 
+    #if !os(tvOS)
     private func portInfoButton(isPresented: Binding<Bool>, text: String) -> some View {
         Button {
             isPresented.wrappedValue.toggle()
@@ -874,6 +875,7 @@ struct SettingsView: View {
                 .frame(maxWidth: 280)
         }
     }
+    #endif
 
     private func portRow(label: String, value: Binding<Int>, defaultValue: Int) -> some View {
         Button {
