@@ -857,7 +857,7 @@ struct SettingsView: View {
                 } label: {
                     Image(systemName: "info.circle")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.primary)
                         .padding(.horizontal, 4)
                         .contentShape(Rectangle())
                 }
