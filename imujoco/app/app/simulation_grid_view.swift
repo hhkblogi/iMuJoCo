@@ -788,13 +788,13 @@ struct SettingsView: View {
                             ScrollView {
                                 VStack(alignment: .leading, spacing: 12) {
                                     Text("**gRPC Port** — Remote simulation control channel. Changing this port stops the server and restarts on the new port. All active simulations are re-registered automatically.")
-                                    Text("**UDP Port** — Control (input to MuJoCo) and state (output from MuJoCo) channel for the external iMuJoCo driver. Changing this port pauses the simulation, recreates the runtime on the new port, and reloads the model automatically.")
-                                    Text("**Camera Port** — Video streaming port (MJPEG, RTP/RTSP, or HEVC/QUIC). Changing this port restarts the video streamers — physics keeps running uninterrupted.")
+                                    Text("**UDP Port (C/S)** — Bidirectional UDP port for control input (to MuJoCo) and state output (from MuJoCo) for the external iMuJoCo driver. Changing this port pauses the simulation, recreates the runtime on the new port, and reloads the model automatically.")
+                                    Text("**Camera Port (Cam0)** — Video streaming port for offscreen camera capture. Supports MJPEG/HTTP, HEVC/RTSP, and HEVC/QUIC transports. Changing this port restarts the video streamers — physics keeps running uninterrupted. Tap the transport badge on each instance to cycle modes.")
                                 }
                                 .font(.caption)
                                 .padding()
                             }
-                            .frame(width: 300, height: 260)
+                            .frame(width: 300, height: 300)
                         }
                     }
                 }

@@ -248,8 +248,6 @@ struct SimulationCellView: View {
     @AppStorage("tripleClickAction") private var tripleClickAction: Int = 0
     @State private var resetProgress: CGFloat = 0
     @State private var stopProgress: CGFloat = 0
-    @State private var showPortInfo = false
-    @State private var showCamInfo = false
 
     #if os(tvOS)
     @FocusState private var isFocused: Bool
@@ -371,21 +369,6 @@ struct SimulationCellView: View {
                         HStack(spacing: 2) {
                             Text(verbatim: "C/S")
                                 .font(.system(size: 9, weight: .medium))
-                            #if !os(tvOS)
-                            Image(systemName: "info.circle")
-                                .font(.system(size: 7))
-                                .onTapGesture { showPortInfo = true }
-                                .popover(isPresented: $showPortInfo) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("C/S = Control / State")
-                                            .font(.system(size: 11, weight: .semibold))
-                                        Text("Bidirectional UDP port for\ncontrol input and state output")
-                                            .font(.system(size: 10))
-                                            .foregroundColor(.secondary)
-                                    }
-                                    .padding(8)
-                                }
-                            #endif
                             Text(verbatim: ":\(instance.port)")
                                 .font(.system(size: 9, weight: .medium))
                         }
@@ -405,24 +388,6 @@ struct SimulationCellView: View {
                                     )
                                     .onTapGesture { instance.toggleVLCTransport() }
                                     .accessibilityLabel("Video transport: \(transportFullLabel(instance.vlcTransportMode)), tap to cycle")
-                                Image(systemName: "info.circle")
-                                    .font(.system(size: 7))
-                                    .onTapGesture { showCamInfo = true }
-                                    .popover(isPresented: $showCamInfo) {
-                                        let ip = getAllLocalAddresses().first ?? "<ip>"
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text("Cam0 = Default Free Camera")
-                                                .font(.system(size: 11, weight: .semibold))
-                                            Text("Video stream port for\noffscreen camera capture")
-                                                .font(.system(size: 10))
-                                                .foregroundColor(.secondary)
-                                            Text(verbatim: transportURL(instance.vlcTransportMode, ip: ip, port: instance.cameraPort))
-                                                .font(.system(size: 10, design: .monospaced))
-                                                .foregroundColor(.accentColor)
-                                                .textSelection(.enabled)
-                                        }
-                                        .padding(8)
-                                    }
                                 #endif
                                 Text(verbatim: ":\(instance.cameraPort)")
                                     .font(.system(size: 9, weight: .medium))
