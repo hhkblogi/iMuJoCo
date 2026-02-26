@@ -506,9 +506,7 @@ struct SettingsView: View {
     @State private var showPortWarning = false
     @State private var portWarningMessage = ""
     @State private var editingPort: PortEditTarget?
-    @State private var showGrpcPortInfo = false
-    @State private var showUdpPortInfo = false
-    @State private var showCamPortInfo = false
+    @State private var showNetworkInfo = false
 
     // tag 0 = grid, 1-4 = fullscreen instance (highlightedCell 0-3)
     private let viewOptions: [(highlightedCell: Int?, tag: Int)] = [
@@ -747,7 +745,7 @@ struct SettingsView: View {
                 }
 
                 #if !os(tvOS)
-                Section("Network") {
+                Section {
                     HStack {
                         Text("Bind Address")
                             .font(.subheadline)
@@ -757,24 +755,41 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    portRow(label: "gRPC Port", value: $grpcPort, defaultValue: 8999,
-                            infoPresented: $showGrpcPortInfo,
-                            infoText: "Remote simulation control channel. Changing this port stops the server and restarts it on the new port. All active simulations are re-registered automatically.")
+                    portRow(label: "gRPC Port", value: $grpcPort, defaultValue: 8999)
 
                     ForEach(1...4, id: \.self) { inst in
                         DisclosureGroup {
-                            portRow(label: "UDP Port", value: udpPortBinding(for: inst), defaultValue: 9000 + inst,
-                                    infoPresented: $showUdpPortInfo,
-                                    infoText: "Control (input to MuJoCo) and state (output from MuJoCo) channel for the external iMuJoCo driver. Changing this port pauses the simulation, recreates the runtime on the new port, and reloads the model automatically.")
-                            portRow(label: "Camera Port", value: camPortBinding(for: inst), defaultValue: 9000 + inst * 100,
-                                    infoPresented: $showCamPortInfo,
-                                    infoText: "Video streaming port (MJPEG, RTP/RTSP, or HEVC/QUIC). Changing this port restarts the video streamers — physics keeps running uninterrupted.")
+                            portRow(label: "UDP Port", value: udpPortBinding(for: inst), defaultValue: 9000 + inst)
+                            portRow(label: "Camera Port", value: camPortBinding(for: inst), defaultValue: 9000 + inst * 100)
                         } label: {
                             LayoutIcon(highlightedCell: inst - 1, isSelected: true, size: 20)
                         }
                         .font(.subheadline)
                     }
 
+                } header: {
+                    HStack {
+                        Text("Network")
+                        Button {
+                            showNetworkInfo.toggle()
+                        } label: {
+                            Image(systemName: "info.circle")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                        .popover(isPresented: $showNetworkInfo) {
+                            ScrollView {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text("**gRPC Port** — Remote simulation control channel. Changing this port stops the server and restarts on the new port. All active simulations are re-registered automatically.")
+                                    Text("**UDP Port** — Control (input to MuJoCo) and state (output from MuJoCo) channel for the external iMuJoCo driver. Changing this port pauses the simulation, recreates the runtime on the new port, and reloads the model automatically.")
+                                    Text("**Camera Port** — Video streaming port (MJPEG, RTP/RTSP, or HEVC/QUIC). Changing this port restarts the video streamers — physics keeps running uninterrupted.")
+                                }
+                                .font(.caption)
+                                .padding()
+                            }
+                            .frame(width: 300, height: 260)
+                        }
+                    }
                 }
                 #endif
 
@@ -841,43 +856,19 @@ struct SettingsView: View {
          inst1CamPort, inst2CamPort, inst3CamPort, inst4CamPort]
     }
 
-    private func portRow(label: String, value: Binding<Int>, defaultValue: Int,
-                         infoPresented: Binding<Bool>? = nil, infoText: String? = nil) -> some View {
+    private func portRow(label: String, value: Binding<Int>, defaultValue: Int) -> some View {
         HStack {
             Text(label)
                 .font(.subheadline)
                 .foregroundStyle(.primary)
-                .onTapGesture {
-                    editingPort = PortEditTarget(label: label, value: value, defaultValue: defaultValue)
-                }
-            #if !os(tvOS)
-            if let infoPresented, let infoText {
-                Image(systemName: "info.circle")
-                    .font(.caption)
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 4)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        infoPresented.wrappedValue.toggle()
-                    }
-                    .popover(isPresented: infoPresented) {
-                        ScrollView {
-                            Text(infoText)
-                                .font(.caption)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding()
-                        }
-                        .frame(width: 260, height: 120)
-                    }
-            }
-            #endif
             Spacer()
             Text(String(value.wrappedValue))
                 .font(.system(size: 13, design: .monospaced))
                 .foregroundStyle(.secondary)
-                .onTapGesture {
-                    editingPort = PortEditTarget(label: label, value: value, defaultValue: defaultValue)
-                }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            editingPort = PortEditTarget(label: label, value: value, defaultValue: defaultValue)
         }
     }
 
