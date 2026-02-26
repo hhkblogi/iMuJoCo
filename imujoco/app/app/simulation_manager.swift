@@ -226,10 +226,14 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         // Cam0 = default free camera
         let cameraPort = cameraBasePort
 
-        // Raw UDP streamer for Python driver (port + 1 to leave cameraPort for QUIC)
-        if videoStreamer == nil {
+        // Raw UDP streamer for Python driver (port + 1 to leave cameraPort for VLC)
+        // Skip if cameraPort + 1 collides with the C/S UDP port.
+        let rawUDPPort = cameraPort + 1
+        if rawUDPPort == port {
+            logger.warning("Skipping raw UDP video streamer: port \(rawUDPPort) collides with C/S UDP port")
+        } else if videoStreamer == nil {
             var config = MJCVideoStreamerConfig()
-            config.port = cameraPort + 1
+            config.port = rawUDPPort
             config.transportMode = .rawUDP
             videoStreamer = MJCVideoStreamer(config: config, dataSource: self)
         }
@@ -551,11 +555,16 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
             await MainActor.run { [weak self] in
                 guard let self, wasRunning else { return }
 
-                var rawConfig = MJCVideoStreamerConfig()
-                rawConfig.port = self.cameraBasePort + 1
-                rawConfig.transportMode = .rawUDP
-                self.videoStreamer = MJCVideoStreamer(config: rawConfig, dataSource: self)
-                self.videoStreamer?.start()
+                let rawPort = self.cameraBasePort + 1
+                if rawPort == self.port {
+                    logger.warning("Skipping raw UDP video streamer: port \(rawPort) collides with C/S UDP port")
+                } else {
+                    var rawConfig = MJCVideoStreamerConfig()
+                    rawConfig.port = rawPort
+                    rawConfig.transportMode = .rawUDP
+                    self.videoStreamer = MJCVideoStreamer(config: rawConfig, dataSource: self)
+                    self.videoStreamer?.start()
+                }
 
                 var vlcConfig = MJCVideoStreamerConfig()
                 vlcConfig.port = self.cameraBasePort
