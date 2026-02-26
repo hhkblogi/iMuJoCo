@@ -163,6 +163,13 @@ void MJVideoMJPEGServer::AcceptLoop() {
     snd_tv.tv_usec = 100000;  // 100ms
     setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &snd_tv, sizeof(snd_tv));
 
+    // Receive timeout: prevent Stop() from hanging if client connects but
+    // never sends the HTTP request (e.g. port scanner, half-open connection).
+    struct timeval rcv_tv;
+    rcv_tv.tv_sec = 2;
+    rcv_tv.tv_usec = 0;
+    setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &rcv_tv, sizeof(rcv_tv));
+
     // Read the HTTP request (consume it, we don't need the content)
     char buf[4096];
     recv(client_fd, buf, sizeof(buf) - 1, 0);

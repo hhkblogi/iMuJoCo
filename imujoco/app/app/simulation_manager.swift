@@ -6,7 +6,7 @@ import Observation
 import os.log
 import core
 import render
-import video
+@preconcurrency import video
 import MJCPhysicsRuntime
 import MJCGrpcServer
 #if canImport(UIKit)
@@ -237,14 +237,32 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
                 }
             }
             if !vlcOff {
-                var config = MJCVideoStreamerConfig()
-                config.port = cameraPort
-                config.transportMode = vlcTransportMode
-                config.rtspPort = cameraPort
-                vlcStreamer = MJCVideoStreamer(config: config, dataSource: self)
+                // Create + start streamer entirely on GCD thread.
+                // MJCHEVCEncoder init creates a VTCompressionSession (hardware encoder
+                // init) and QUIC start() blocks on a semaphore — both are expensive
+                // on first use and must not run on MainActor.
+                let mode = vlcTransportMode
+                let port = cameraPort
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    guard let self else { return }
+                    var config = MJCVideoStreamerConfig()
+                    config.port = port
+                    config.transportMode = mode
+                    config.rtspPort = port
+                    let streamer = MJCVideoStreamer(config: config, dataSource: self)
+                    streamer.start()
+                    DispatchQueue.main.async { [weak self] in
+                        self?.vlcStreamer = streamer
+                    }
+                }
+            }
+        } else {
+            // Existing streamer — just start on GCD
+            let streamer = vlcStreamer
+            DispatchQueue.global(qos: .userInitiated).async {
+                streamer?.start()
             }
         }
-        vlcStreamer?.start()
 
         // Start state polling for SwiftUI updates
         startStatePolling()
@@ -456,21 +474,28 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         vlcOff = false
         vlcTransportModeExplicit = true
 
-        Task.detached { [weak self] in
-            // stop() spin-waits for the capture thread — do it off MainActor.
+        // Use GCD (not Task.detached) — stop()/start() block on spin-waits
+        // and semaphores that would starve Swift's cooperative thread pool.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             oldStreamer?.stop()
 
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                defer { self.isRestartingVLC = false }
-                guard self.state == .running else { return }
+            // Create the new streamer on main thread and unlock the UI immediately.
+            // start() may block (QUIC/RTP bind retry) so it runs AFTER the flag is reset.
+            DispatchQueue.main.async { [weak self] in
+                defer { self?.isRestartingVLC = false }
+                guard let self, self.state == .running else { return }
 
                 var config = MJCVideoStreamerConfig()
                 config.port = self.cameraPort
                 config.transportMode = mode
                 config.rtspPort = self.cameraPort
-                self.vlcStreamer = MJCVideoStreamer(config: config, dataSource: self)
-                self.vlcStreamer?.start()
+                let streamer = MJCVideoStreamer(config: config, dataSource: self)
+                self.vlcStreamer = streamer
+
+                // start() may block (QUIC retry loop) — keep off main thread.
+                DispatchQueue.global(qos: .userInitiated).async {
+                    streamer.start()
+                }
             }
         }
     }
@@ -485,9 +510,9 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         vlcOff = true
         vlcTransportModeExplicit = true
 
-        Task.detached { [weak self] in
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             oldStreamer?.stop()
-            await MainActor.run { [weak self] in
+            DispatchQueue.main.async { [weak self] in
                 self?.isRestartingVLC = false
             }
         }
@@ -525,19 +550,22 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         // Update port
         cameraBasePort = newPort
 
-        Task.detached { [weak self] in
-            // Stop on background to avoid blocking MainActor's spin-wait.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             oldVLC?.stop()
 
-            await MainActor.run { [weak self] in
+            DispatchQueue.main.async { [weak self] in
                 guard let self, wasRunning else { return }
 
                 var vlcConfig = MJCVideoStreamerConfig()
                 vlcConfig.port = self.cameraBasePort
                 vlcConfig.transportMode = self.vlcTransportMode
                 vlcConfig.rtspPort = self.cameraBasePort
-                self.vlcStreamer = MJCVideoStreamer(config: vlcConfig, dataSource: self)
-                self.vlcStreamer?.start()
+                let streamer = MJCVideoStreamer(config: vlcConfig, dataSource: self)
+                self.vlcStreamer = streamer
+
+                DispatchQueue.global(qos: .userInitiated).async {
+                    streamer.start()
+                }
             }
         }
     }
