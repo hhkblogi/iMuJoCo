@@ -506,6 +506,9 @@ struct SettingsView: View {
     @State private var showPortWarning = false
     @State private var portWarningMessage = ""
     @State private var editingPort: PortEditTarget?
+    @State private var showGrpcPortInfo = false
+    @State private var showUdpPortInfo = false
+    @State private var showCamPortInfo = false
 
     // tag 0 = grid, 1-4 = fullscreen instance (highlightedCell 0-3)
     private let viewOptions: [(highlightedCell: Int?, tag: Int)] = [
@@ -754,12 +757,24 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    portRow(label: "gRPC Port", value: $grpcPort, defaultValue: 8999)
+                    HStack {
+                        portRow(label: "gRPC Port", value: $grpcPort, defaultValue: 8999)
+                        portInfoButton(isPresented: $showGrpcPortInfo,
+                                       text: "Remote simulation control channel. Changing this port stops the server and restarts it on the new port. All active simulations are re-registered automatically.")
+                    }
 
                     ForEach(1...4, id: \.self) { inst in
                         DisclosureGroup("Instance \(inst)") {
-                            portRow(label: "UDP Port", value: udpPortBinding(for: inst), defaultValue: 9000 + inst)
-                            portRow(label: "Camera Port", value: camPortBinding(for: inst), defaultValue: 9000 + inst * 100)
+                            HStack {
+                                portRow(label: "UDP Port", value: udpPortBinding(for: inst), defaultValue: 9000 + inst)
+                                portInfoButton(isPresented: $showUdpPortInfo,
+                                               text: "Physics control channel for the Python driver. Changing this port pauses the simulation, recreates the runtime on the new port, and reloads the model automatically.")
+                            }
+                            HStack {
+                                portRow(label: "Camera Port", value: camPortBinding(for: inst), defaultValue: 9000 + inst * 100)
+                                portInfoButton(isPresented: $showCamPortInfo,
+                                               text: "Video streaming port (MJPEG, RTP/RTSP, or HEVC/QUIC). Changing this port restarts the video streamers — physics keeps running uninterrupted.")
+                            }
                         }
                         .font(.subheadline)
                     }
@@ -841,6 +856,23 @@ struct SettingsView: View {
         [grpcPort,
          inst1UdpPort, inst2UdpPort, inst3UdpPort, inst4UdpPort,
          inst1CamPort, inst2CamPort, inst3CamPort, inst4CamPort]
+    }
+
+    private func portInfoButton(isPresented: Binding<Bool>, text: String) -> some View {
+        Button {
+            isPresented.wrappedValue.toggle()
+        } label: {
+            Image(systemName: "info.circle")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: isPresented) {
+            Text(text)
+                .font(.caption)
+                .padding()
+                .frame(maxWidth: 280)
+        }
     }
 
     private func portRow(label: String, value: Binding<Int>, defaultValue: Int) -> some View {
