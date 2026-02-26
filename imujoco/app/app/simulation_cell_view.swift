@@ -10,7 +10,7 @@ import video
 func transportBadgeLabel(_ mode: MJCVideoTransportMode) -> String {
     switch mode {
     case .mjpegHTTP: return "MJPEG"
-    case .rtpRTSP: return "HEVC"
+    case .rtpRTSP: return "RTSP"
     case .hevcQUIC: return "QUIC"
     case .rawUDP: return "UDP"
     }
