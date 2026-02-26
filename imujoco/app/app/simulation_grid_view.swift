@@ -844,14 +844,12 @@ struct SettingsView: View {
     private func portRow(label: String, value: Binding<Int>, defaultValue: Int,
                          infoPresented: Binding<Bool>? = nil, infoText: String? = nil) -> some View {
         HStack {
-            Button {
-                editingPort = PortEditTarget(label: label, value: value, defaultValue: defaultValue)
-            } label: {
-                Text(label)
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
-            }
-            .buttonStyle(.borderless)
+            Text(label)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .onTapGesture {
+                    editingPort = PortEditTarget(label: label, value: value, defaultValue: defaultValue)
+                }
             #if !os(tvOS)
             if let infoPresented, let infoText {
                 Button {
@@ -876,14 +874,12 @@ struct SettingsView: View {
             }
             #endif
             Spacer()
-            Button {
-                editingPort = PortEditTarget(label: label, value: value, defaultValue: defaultValue)
-            } label: {
-                Text(String(value.wrappedValue))
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.borderless)
+            Text(String(value.wrappedValue))
+                .font(.system(size: 13, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .onTapGesture {
+                    editingPort = PortEditTarget(label: label, value: value, defaultValue: defaultValue)
+                }
         }
     }
 
