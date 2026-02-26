@@ -62,6 +62,9 @@ public final class MJVideoQUICTransport {
     // Keep groups alive
     private var groups: [NWConnectionGroup] = []
 
+    // Signaled when listener reaches .cancelled state
+    private let cancelSemaphore = DispatchSemaphore(value: 0)
+
     // MARK: - Public API
 
     public init() {}
@@ -105,6 +108,7 @@ public final class MJVideoQUICTransport {
                 self?.stop()
             case .cancelled:
                 logger.info("QUIC listener cancelled")
+                self?.cancelSemaphore.signal()
             default:
                 break
             }
@@ -125,25 +129,24 @@ public final class MJVideoQUICTransport {
         guard _isActive else { return }
         _isActive = false
 
+        let hadListener = listener != nil
         listener?.cancel()
+
+        // Wait for the listener to fully release the port (async cancel).
+        // Timeout after 2s to avoid deadlock if stateUpdateHandler never fires.
+        if hadListener {
+            _ = cancelSemaphore.wait(timeout: .now() + 2.0)
+        }
         listener = nil
 
+        // Listener cancel cascades to groups/streams — just clear our bookkeeping.
         streamsLock.lock()
-        let currentStreams = streams
         streams.removeAll()
         sendPending.removeAll()
         metadataSent.removeAll()
         readyStreams.removeAll()
-        let currentGroups = groups
         groups.removeAll()
         streamsLock.unlock()
-
-        for stream in currentStreams {
-            stream.cancel()
-        }
-        for group in currentGroups {
-            group.cancel()
-        }
 
         logger.info("QUIC transport stopped")
     }
