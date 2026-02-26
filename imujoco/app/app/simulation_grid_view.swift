@@ -67,7 +67,7 @@ struct SimulationGridView: View {
     #endif
     @AppStorage("defaultLocked") private var defaultLocked: Bool = false
     @AppStorage("showStatsBar") private var showStatsBar: Bool = true
-    @AppStorage("videoTransport") private var videoTransport: Int = 0
+    @AppStorage("videoTransport") private var videoTransport: Int = 3
     #if os(macOS)
     @Environment(\.openSettings) private var openSettings
     #endif
@@ -489,7 +489,7 @@ struct SettingsView: View {
     @AppStorage("caffeineMode") private var caffeineMode: Int = 1  // 0=off, 1=half, 2=full
     @AppStorage("tripleClickAction") private var tripleClickAction: Int = 0  // 0=grid/fullscreen, 1=lock/unlock
     @AppStorage("showStatsBar") private var showStatsBar: Bool = true
-    @AppStorage("videoTransport") private var videoTransport: Int = 0  // 0=MJPEG/HTTP, 1=RTP/RTSP, 2=HEVC/QUIC
+    @AppStorage("videoTransport") private var videoTransport: Int = 3  // 0=MJPEG/HTTP, 1=RTP/RTSP, 2=HEVC/QUIC
     @AppStorage("bindAddress") private var bindAddress: String = ""
     @AppStorage("grpcPort") private var grpcPort: Int = 8999
     @AppStorage("inst1_udpPort") private var inst1UdpPort: Int = 9001
