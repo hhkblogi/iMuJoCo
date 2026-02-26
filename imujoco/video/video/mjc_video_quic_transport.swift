@@ -129,24 +129,36 @@ public final class MJVideoQUICTransport {
         guard _isActive else { return }
         _isActive = false
 
-        let hadListener = listener != nil
-        listener?.cancel()
-
-        // Wait for the listener to fully release the port (async cancel).
-        // Timeout after 2s to avoid deadlock if stateUpdateHandler never fires.
-        if hadListener {
-            _ = cancelSemaphore.wait(timeout: .now() + 2.0)
-        }
-        listener = nil
-
-        // Listener cancel cascades to groups/streams — just clear our bookkeeping.
+        // 1) Force-cancel all streams (immediately disconnects remote clients).
+        //    This releases the QUIC connections that hold the UDP socket open.
         streamsLock.lock()
+        let currentStreams = streams
+        let currentGroups = groups
         streams.removeAll()
         sendPending.removeAll()
         metadataSent.removeAll()
         readyStreams.removeAll()
         groups.removeAll()
         streamsLock.unlock()
+
+        for stream in currentStreams {
+            stream.stateUpdateHandler = nil
+            stream.forceCancel()
+        }
+        for group in currentGroups {
+            group.stateUpdateHandler = nil
+            group.cancel()
+        }
+
+        // 2) Cancel listener (releases the UDP port binding).
+        let hadListener = listener != nil
+        listener?.cancel()
+
+        // 3) Wait for the listener to fully release the port.
+        if hadListener {
+            _ = cancelSemaphore.wait(timeout: .now() + 3.0)
+        }
+        listener = nil
 
         logger.info("QUIC transport stopped")
     }
@@ -341,11 +353,13 @@ public final class MJVideoQUICTransport {
     private func removeStream(_ stream: NWConnection) {
         let streamId = ObjectIdentifier(stream)
         streamsLock.lock()
+        let wasTracked = streams.contains { $0 === stream }
         streams.removeAll { $0 === stream }
         sendPending.remove(streamId)
         metadataSent.remove(streamId)
         readyStreams.remove(streamId)
         streamsLock.unlock()
-        stream.cancel()
+        // Only cancel if still tracked (stop() already force-cancelled all)
+        if wasTracked { stream.cancel() }
     }
 }
