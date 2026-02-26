@@ -715,7 +715,7 @@ struct SettingsView: View {
                         }
                         HStack(spacing: 8) {
                             ForEach(
-                                [(0, "MJPEG/HTTP", "photo.on.rectangle"), (1, "HEVC/RTSP", "video.fill"), (2, "HEVC/QUIC", "bolt.fill")],
+                                [(0, "MJPEG", "photo.on.rectangle"), (1, "RTSP", "video.fill"), (2, "QUIC", "bolt.fill")],
                                 id: \.0
                             ) { tag, label, icon in
                                 let isSwitching = gridManager?.isRestartingVideoTransport ?? false
@@ -726,6 +726,8 @@ struct SettingsView: View {
                                             .font(.system(size: 20))
                                         Text(label)
                                             .font(.caption2)
+                                            .lineLimit(1)
+                                            .minimumScaleFactor(0.7)
                                     }
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 12)
