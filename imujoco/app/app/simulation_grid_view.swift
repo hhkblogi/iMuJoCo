@@ -702,7 +702,7 @@ struct SettingsView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("**MJPEG/HTTP** — Works with VLC, ffplay, browsers. Simpler, more reliable.")
                                     Text("**HEVC/RTSP** — Works with VLC, ffplay. Hardware-encoded H.265, very low bandwidth.")
-                                    Text("**HEVC/QUIC** — Custom receiver app. Sub-0.5s latency, zero client-side buffering.")
+                                    Text("**HEVC/QUIC** — Hardware H.265 over QUIC (TLS 1.3). Requires the bundled macOS receiver app. Reliable delivery, no packet loss.")
                                 }
                                 .fixedSize(horizontal: false, vertical: true)
                                 .font(.caption)
