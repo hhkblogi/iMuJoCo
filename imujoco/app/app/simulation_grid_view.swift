@@ -767,7 +767,7 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Button("Reset to Defaults") {
+                    Button("Reset to Default Ports") {
                         grpcPort = 8999
                         inst1UdpPort = 9001; inst2UdpPort = 9002
                         inst3UdpPort = 9003; inst4UdpPort = 9004
@@ -777,6 +777,8 @@ struct SettingsView: View {
                     .font(.subheadline)
                 }
                 #endif
+
+                Section {} // visual separator
 
                 Section {
                     Toggle("Performance Stats Bar", isOn: $showStatsBar)
