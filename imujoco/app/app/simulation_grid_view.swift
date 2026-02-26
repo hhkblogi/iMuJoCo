@@ -852,25 +852,23 @@ struct SettingsView: View {
                 }
             #if !os(tvOS)
             if let infoPresented, let infoText {
-                Button {
-                    infoPresented.wrappedValue.toggle()
-                } label: {
-                    Image(systemName: "info.circle")
-                        .font(.caption)
-                        .padding(.horizontal, 4)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.primary)
-                .popover(isPresented: infoPresented) {
-                    ScrollView {
-                        Text(infoText)
-                            .font(.caption)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding()
+                Image(systemName: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 4)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        infoPresented.wrappedValue.toggle()
                     }
-                    .frame(width: 260, height: 120)
-                }
+                    .popover(isPresented: infoPresented) {
+                        ScrollView {
+                            Text(infoText)
+                                .font(.caption)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding()
+                        }
+                        .frame(width: 260, height: 120)
+                    }
             }
             #endif
             Spacer()
