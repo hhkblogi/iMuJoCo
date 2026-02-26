@@ -61,6 +61,52 @@ func overlayTertiaryTextColor(brightness: Float) -> Color {
     brightness > 0.5 ? .black.opacity(0.4) : .white.opacity(0.5)
 }
 
+// MARK: - Transport Picker Popover Content
+
+/// Shared popover content for per-instance video transport selection.
+/// Uses a plain VStack of buttons — avoids UIAlertController / UIContextMenuInteraction.
+@ViewBuilder
+func transportPickerContent(instance: SimulationInstance, dismiss: @escaping () -> Void) -> some View {
+    VStack(spacing: 0) {
+        ForEach(
+            [
+                ("Off", "xmark.circle", Optional<MJCVideoTransportMode>.none),
+                ("MJPEG", "photo.on.rectangle", Optional<MJCVideoTransportMode>.some(.mjpegHTTP)),
+                ("RTSP", "video.fill", Optional<MJCVideoTransportMode>.some(.rtpRTSP)),
+                ("QUIC", "bolt.fill", Optional<MJCVideoTransportMode>.some(.hevcQUIC)),
+            ],
+            id: \.0
+        ) { label, icon, mode in
+            let isActive = mode == nil ? instance.vlcOff : (!instance.vlcOff && instance.vlcTransportMode == mode)
+            Button {
+                if let mode {
+                    instance.restartVLCStreamer(mode: mode)
+                } else {
+                    instance.stopVLCStreamer()
+                }
+                dismiss()
+            } label: {
+                HStack {
+                    Image(systemName: icon)
+                        .frame(width: 20)
+                    Text(label)
+                    Spacer()
+                    if isActive {
+                        Image(systemName: "checkmark")
+                            .foregroundStyle(.blue)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(instance.isRestartingVLC)
+        }
+    }
+    .frame(width: 160)
+}
+
 // MARK: - Triple-Tap Gesture with Visual Hints
 
 /// Shows progress dots (● ● ○) and a countdown hint under the view as the user
@@ -378,20 +424,21 @@ struct SimulationCellView: View {
                             Text(verbatim: "Cam0")
                                 .font(.system(size: 9, weight: .medium))
                             #if !os(tvOS)
-                            Button { showTransportPicker = true } label: {
-                                Text(verbatim: instance.vlcOff ? "Off" : transportBadgeLabel(instance.vlcTransportMode))
-                                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 4)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 3)
-                                            .fill(Color.white.opacity(0.15))
-                                    )
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(instance.isRestartingVLC)
-                            .accessibilityLabel("Video transport: \(instance.vlcOff ? "Off" : transportFullLabel(instance.vlcTransportMode))")
+                            Text(verbatim: instance.vlcOff ? "Off" : transportBadgeLabel(instance.vlcTransportMode))
+                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 4)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(Color.white.opacity(0.15))
+                                )
+                                .contentShape(Rectangle())
+                                .onTapGesture { showTransportPicker = true }
+                                .popover(isPresented: $showTransportPicker) {
+                                    transportPickerContent(instance: instance, dismiss: { showTransportPicker = false })
+                                        .presentationCompactAdaptation(.popover)
+                                }
+                                .accessibilityLabel("Video transport: \(instance.vlcOff ? "Off" : transportFullLabel(instance.vlcTransportMode))")
                             #endif
                             Text(verbatim: ":\(instance.cameraPort)")
                                 .font(.system(size: 9, weight: .medium))
@@ -511,15 +558,6 @@ struct SimulationCellView: View {
             }
         }
         .contentShape(Rectangle())
-        #if !os(tvOS)
-        .confirmationDialog("Video Transport", isPresented: $showTransportPicker) {
-            Button(instance.vlcOff ? "✓ Off" : "Off") { instance.stopVLCStreamer() }
-            Button(!instance.vlcOff && instance.vlcTransportMode == .mjpegHTTP ? "✓ MJPEG" : "MJPEG") { instance.restartVLCStreamer(mode: .mjpegHTTP) }
-            Button(!instance.vlcOff && instance.vlcTransportMode == .rtpRTSP ? "✓ RTSP" : "RTSP") { instance.restartVLCStreamer(mode: .rtpRTSP) }
-            Button(!instance.vlcOff && instance.vlcTransportMode == .hevcQUIC ? "✓ QUIC" : "QUIC") { instance.restartVLCStreamer(mode: .hevcQUIC) }
-            Button("Cancel", role: .cancel) {}
-        }
-        #endif
         #if !os(macOS)
         .onTripleTap(dotColor: overlayTextColor(brightness: brightness), targetLabel: tripleClickAction == 0 ? "fullscreen" : "lock/unlock") {
             if tripleClickAction == 0 {

@@ -103,15 +103,6 @@ struct FullscreenSimulationView: View {
         }
         .background(Color.black)
         .contentShape(Rectangle())
-        #if !os(tvOS)
-        .confirmationDialog("Video Transport", isPresented: $showTransportPicker) {
-            Button(instance.vlcOff ? "✓ Off" : "Off") { instance.stopVLCStreamer() }
-            Button(!instance.vlcOff && instance.vlcTransportMode == .mjpegHTTP ? "✓ MJPEG" : "MJPEG") { instance.restartVLCStreamer(mode: .mjpegHTTP) }
-            Button(!instance.vlcOff && instance.vlcTransportMode == .rtpRTSP ? "✓ RTSP" : "RTSP") { instance.restartVLCStreamer(mode: .rtpRTSP) }
-            Button(!instance.vlcOff && instance.vlcTransportMode == .hevcQUIC ? "✓ QUIC" : "QUIC") { instance.restartVLCStreamer(mode: .hevcQUIC) }
-            Button("Cancel", role: .cancel) {}
-        }
-        #endif
         .onTripleTap(dotColor: instance.isActive ? overlayTextColor(brightness: brightness) : .gray, targetLabel: tripleClickAction == 0 ? "grid view" : (instance.isActive ? "lock/unlock" : "")) {
             if tripleClickAction == 0 {
                 withAnimation(.easeInOut(duration: 0.3)) {
@@ -245,20 +236,21 @@ struct FullscreenSimulationView: View {
                             Text(verbatim: "Cam0")
                                 .font(.system(size: 11, weight: .medium))
                             #if !os(tvOS)
-                            Button { showTransportPicker = true } label: {
-                                Text(verbatim: instance.vlcOff ? "Off" : transportBadgeLabel(instance.vlcTransportMode))
-                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 5)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 4)
-                                            .fill(Color.white.opacity(0.15))
-                                    )
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(instance.isRestartingVLC)
-                            .accessibilityLabel("Video transport: \(instance.vlcOff ? "Off" : transportFullLabel(instance.vlcTransportMode))")
+                            Text(verbatim: instance.vlcOff ? "Off" : transportBadgeLabel(instance.vlcTransportMode))
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Color.white.opacity(0.15))
+                                )
+                                .contentShape(Rectangle())
+                                .onTapGesture { showTransportPicker = true }
+                                .popover(isPresented: $showTransportPicker) {
+                                    transportPickerContent(instance: instance, dismiss: { showTransportPicker = false })
+                                        .presentationCompactAdaptation(.popover)
+                                }
+                                .accessibilityLabel("Video transport: \(instance.vlcOff ? "Off" : transportFullLabel(instance.vlcTransportMode))")
                             #endif
                             Text(verbatim: ":\(instance.cameraPort)")
                                 .font(.system(size: 11, weight: .medium))
