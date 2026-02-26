@@ -35,7 +35,9 @@ struct FullscreenSimulationView: View {
                 } else {
                     MuJoCoMetalView(dataSource: instance, isFullscreen: true)
                         .allowsHitTesting(!instance.isLocked)
+                        #if os(iOS)
                         .defersSystemGestures(on: .all)
+                        #endif
                         .ignoresSafeArea()
                 }
 
