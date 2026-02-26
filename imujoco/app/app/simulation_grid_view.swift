@@ -779,19 +779,6 @@ struct SettingsView: View {
                         .font(.subheadline)
                     }
 
-                    Text("Port changes apply immediately")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Button("Reset to Default Ports") {
-                        grpcPort = 8999
-                        inst1UdpPort = 9001; inst2UdpPort = 9002
-                        inst3UdpPort = 9003; inst4UdpPort = 9004
-                        inst1CamPort = 9100; inst2CamPort = 9200
-                        inst3CamPort = 9300; inst4CamPort = 9400
-                        applyAllPortDefaults()
-                    }
-                    .font(.subheadline)
                 }
                 #endif
 
