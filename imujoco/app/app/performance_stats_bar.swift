@@ -7,6 +7,7 @@ import SwiftUI
 struct PerformanceStatsBar: View {
     let instances: [SimulationInstance]
     var grpcRpcCount: () -> UInt64
+    var grpcPort: () -> UInt16
     @State private var memoryMB: Double = 0
     @State private var cpuUsage: Double = 0
     @State private var gpuMemoryMB: Double = 0
@@ -46,7 +47,7 @@ struct PerformanceStatsBar: View {
             Spacer()
 
             statCapsule(
-                value: ":8999",
+                value: ":\(grpcPort())",
                 unit: "",
                 label: "gRPC",
                 color: grpcActive ? .green : .white

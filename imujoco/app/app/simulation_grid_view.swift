@@ -82,7 +82,7 @@ struct SimulationGridView: View {
             menuBar
 
             if showStatsBar {
-                PerformanceStatsBar(instances: gridManager.instances, grpcRpcCount: { gridManager.grpcRpcCount })
+                PerformanceStatsBar(instances: gridManager.instances, grpcRpcCount: { gridManager.grpcRpcCount }, grpcPort: { gridManager.grpcPort })
             }
 
             // Grid of simulations
@@ -112,9 +112,9 @@ struct SimulationGridView: View {
         .onAppear {
             updateDeviceIP()
         }
-        // videoTransport is persisted via @AppStorage; new instances
-        // read it in start(). Changing it does NOT restart running streamers
-        // — use the per-instance MJPEG/HEVC toggle for that.
+        .onChange(of: videoTransport) { _, newValue in
+            gridManager.restartVLCStreamers(videoTransport: newValue)
+        }
         #if !os(tvOS)
         .sheet(isPresented: $showingModelPicker) {
             ModelPickerView(

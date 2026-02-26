@@ -823,7 +823,7 @@ final class SimulationGridManager: @unchecked Sendable {
     private(set) var instances: [SimulationInstance]
     private(set) var fullscreenInstanceId: Int? = nil
     @ObservationIgnored private var grpcServer: MJGrpcServer?
-    @ObservationIgnored private var grpcPort: UInt16
+    @ObservationIgnored private(set) var grpcPort: UInt16
 
     /// Monotonically increasing count of gRPC RPCs processed.
     var grpcRpcCount: UInt64 {
@@ -919,8 +919,11 @@ final class SimulationGridManager: @unchecked Sendable {
             grpcServer?.unregisterRuntime(Int32(inst.id))
         }
 
-        // Stop old server
-        grpcServer?.stop()
+        // Destroy old server (SWIFT_IMMORTAL_REFERENCE means Swift won't
+        // release C++ objects, so we must call destroy() explicitly).
+        if let old = grpcServer {
+            MJGrpcServer.destroy(old)
+        }
         grpcServer = nil
 
         // Start new server on new port
