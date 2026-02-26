@@ -778,7 +778,11 @@ struct SettingsView: View {
                 }
                 #endif
 
-                Section {} // visual separator
+                Section {
+                    Divider()
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                }
 
                 Section {
                     Toggle("Performance Stats Bar", isOn: $showStatsBar)
