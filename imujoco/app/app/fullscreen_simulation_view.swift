@@ -18,6 +18,7 @@ struct FullscreenSimulationView: View {
     @State private var isNavigating = false
     @State private var hoveredCell: Int? = nil
     @State private var navGridFrame: CGRect = .zero
+    @State private var showTransportPicker = false
 
     var body: some View {
         ZStack {
@@ -102,6 +103,15 @@ struct FullscreenSimulationView: View {
         }
         .background(Color.black)
         .contentShape(Rectangle())
+        #if !os(tvOS)
+        .confirmationDialog("Video Transport", isPresented: $showTransportPicker) {
+            Button(instance.vlcOff ? "✓ Off" : "Off") { instance.stopVLCStreamer() }
+            Button(!instance.vlcOff && instance.vlcTransportMode == .mjpegHTTP ? "✓ MJPEG" : "MJPEG") { instance.restartVLCStreamer(mode: .mjpegHTTP) }
+            Button(!instance.vlcOff && instance.vlcTransportMode == .rtpRTSP ? "✓ RTSP" : "RTSP") { instance.restartVLCStreamer(mode: .rtpRTSP) }
+            Button(!instance.vlcOff && instance.vlcTransportMode == .hevcQUIC ? "✓ QUIC" : "QUIC") { instance.restartVLCStreamer(mode: .hevcQUIC) }
+            Button("Cancel", role: .cancel) {}
+        }
+        #endif
         .onTripleTap(dotColor: instance.isActive ? overlayTextColor(brightness: brightness) : .gray, targetLabel: tripleClickAction == 0 ? "grid view" : (instance.isActive ? "lock/unlock" : "")) {
             if tripleClickAction == 0 {
                 withAnimation(.easeInOut(duration: 0.3)) {
@@ -235,24 +245,7 @@ struct FullscreenSimulationView: View {
                             Text(verbatim: "Cam0")
                                 .font(.system(size: 11, weight: .medium))
                             #if !os(tvOS)
-                            Menu {
-                                Button { instance.stopVLCStreamer() } label: {
-                                    Label("Off", systemImage: "xmark.circle")
-                                    if instance.vlcOff { Image(systemName: "checkmark") }
-                                }
-                                Button { instance.restartVLCStreamer(mode: .mjpegHTTP) } label: {
-                                    Label("MJPEG", systemImage: "photo.on.rectangle")
-                                    if !instance.vlcOff && instance.vlcTransportMode == .mjpegHTTP { Image(systemName: "checkmark") }
-                                }
-                                Button { instance.restartVLCStreamer(mode: .rtpRTSP) } label: {
-                                    Label("RTSP", systemImage: "video.fill")
-                                    if !instance.vlcOff && instance.vlcTransportMode == .rtpRTSP { Image(systemName: "checkmark") }
-                                }
-                                Button { instance.restartVLCStreamer(mode: .hevcQUIC) } label: {
-                                    Label("QUIC", systemImage: "bolt.fill")
-                                    if !instance.vlcOff && instance.vlcTransportMode == .hevcQUIC { Image(systemName: "checkmark") }
-                                }
-                            } label: {
+                            Button { showTransportPicker = true } label: {
                                 Text(verbatim: instance.vlcOff ? "Off" : transportBadgeLabel(instance.vlcTransportMode))
                                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                                     .padding(.horizontal, 8)
@@ -263,6 +256,7 @@ struct FullscreenSimulationView: View {
                                     )
                                     .contentShape(Rectangle())
                             }
+                            .buttonStyle(.plain)
                             .disabled(instance.isRestartingVLC)
                             .accessibilityLabel("Video transport: \(instance.vlcOff ? "Off" : transportFullLabel(instance.vlcTransportMode))")
                             #endif

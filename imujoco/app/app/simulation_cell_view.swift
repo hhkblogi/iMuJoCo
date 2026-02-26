@@ -248,6 +248,7 @@ struct SimulationCellView: View {
     @AppStorage("tripleClickAction") private var tripleClickAction: Int = 0
     @State private var resetProgress: CGFloat = 0
     @State private var stopProgress: CGFloat = 0
+    @State private var showTransportPicker = false
 
     #if os(tvOS)
     @FocusState private var isFocused: Bool
@@ -377,24 +378,7 @@ struct SimulationCellView: View {
                             Text(verbatim: "Cam0")
                                 .font(.system(size: 9, weight: .medium))
                             #if !os(tvOS)
-                            Menu {
-                                Button { instance.stopVLCStreamer() } label: {
-                                    Label("Off", systemImage: "xmark.circle")
-                                    if instance.vlcOff { Image(systemName: "checkmark") }
-                                }
-                                Button { instance.restartVLCStreamer(mode: .mjpegHTTP) } label: {
-                                    Label("MJPEG", systemImage: "photo.on.rectangle")
-                                    if !instance.vlcOff && instance.vlcTransportMode == .mjpegHTTP { Image(systemName: "checkmark") }
-                                }
-                                Button { instance.restartVLCStreamer(mode: .rtpRTSP) } label: {
-                                    Label("RTSP", systemImage: "video.fill")
-                                    if !instance.vlcOff && instance.vlcTransportMode == .rtpRTSP { Image(systemName: "checkmark") }
-                                }
-                                Button { instance.restartVLCStreamer(mode: .hevcQUIC) } label: {
-                                    Label("QUIC", systemImage: "bolt.fill")
-                                    if !instance.vlcOff && instance.vlcTransportMode == .hevcQUIC { Image(systemName: "checkmark") }
-                                }
-                            } label: {
+                            Button { showTransportPicker = true } label: {
                                 Text(verbatim: instance.vlcOff ? "Off" : transportBadgeLabel(instance.vlcTransportMode))
                                     .font(.system(size: 8, weight: .bold, design: .monospaced))
                                     .padding(.horizontal, 6)
@@ -405,6 +389,7 @@ struct SimulationCellView: View {
                                     )
                                     .contentShape(Rectangle())
                             }
+                            .buttonStyle(.plain)
                             .disabled(instance.isRestartingVLC)
                             .accessibilityLabel("Video transport: \(instance.vlcOff ? "Off" : transportFullLabel(instance.vlcTransportMode))")
                             #endif
@@ -526,6 +511,15 @@ struct SimulationCellView: View {
             }
         }
         .contentShape(Rectangle())
+        #if !os(tvOS)
+        .confirmationDialog("Video Transport", isPresented: $showTransportPicker) {
+            Button(instance.vlcOff ? "✓ Off" : "Off") { instance.stopVLCStreamer() }
+            Button(!instance.vlcOff && instance.vlcTransportMode == .mjpegHTTP ? "✓ MJPEG" : "MJPEG") { instance.restartVLCStreamer(mode: .mjpegHTTP) }
+            Button(!instance.vlcOff && instance.vlcTransportMode == .rtpRTSP ? "✓ RTSP" : "RTSP") { instance.restartVLCStreamer(mode: .rtpRTSP) }
+            Button(!instance.vlcOff && instance.vlcTransportMode == .hevcQUIC ? "✓ QUIC" : "QUIC") { instance.restartVLCStreamer(mode: .hevcQUIC) }
+            Button("Cancel", role: .cancel) {}
+        }
+        #endif
         #if !os(macOS)
         .onTripleTap(dotColor: overlayTextColor(brightness: brightness), targetLabel: tripleClickAction == 0 ? "fullscreen" : "lock/unlock") {
             if tripleClickAction == 0 {
