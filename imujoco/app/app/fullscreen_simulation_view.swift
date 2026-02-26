@@ -16,10 +16,9 @@ struct FullscreenSimulationView: View {
     @State private var resetProgress: CGFloat = 0
     @State private var stopProgress: CGFloat = 0
     @State private var isNavigating = false
-    @State private var showPortInfo = false
-    @State private var showCamInfo = false
     @State private var hoveredCell: Int? = nil
     @State private var navGridFrame: CGRect = .zero
+    @State private var showTransportPicker = false
 
     var body: some View {
         ZStack {
@@ -229,64 +228,34 @@ struct FullscreenSimulationView: View {
                         HStack(spacing: 3) {
                             Text(verbatim: "C/S")
                                 .font(.system(size: 11, weight: .medium))
-                            #if !os(tvOS)
-                            Image(systemName: "info.circle")
-                                .font(.system(size: 9))
-                                .onTapGesture { showPortInfo = true }
-                                .popover(isPresented: $showPortInfo) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("C/S = Control / State")
-                                            .font(.system(size: 13, weight: .semibold))
-                                        Text("Bidirectional UDP port for\ncontrol input and state output")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(.secondary)
-                                    }
-                                    .padding(10)
-                                }
-                            #endif
                             Text(verbatim: ":\(instance.port)")
                                 .font(.system(size: 11, weight: .medium))
                         }
                         .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
-                        if instance.isStreaming {
-                            HStack(spacing: 3) {
-                                Text(verbatim: "Cam0")
-                                    .font(.system(size: 11, weight: .medium))
-                                #if !os(tvOS)
-                                Text(verbatim: transportBadgeLabel(instance.vlcTransportMode))
-                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                    .padding(.horizontal, 4)
-                                    .padding(.vertical, 2)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 4)
-                                            .fill(Color.white.opacity(0.15))
-                                    )
-                                    .onTapGesture { instance.toggleVLCTransport() }
-                                    .accessibilityLabel("Video transport: \(transportFullLabel(instance.vlcTransportMode)), tap to cycle")
-                                Image(systemName: "info.circle")
-                                    .font(.system(size: 9))
-                                    .onTapGesture { showCamInfo = true }
-                                    .popover(isPresented: $showCamInfo) {
-                                        let ip = getDeviceIPAddress() ?? "<ip>"
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text("Cam0 = Default Free Camera")
-                                                .font(.system(size: 13, weight: .semibold))
-                                            Text("Video stream port for\noffscreen camera capture")
-                                                .font(.system(size: 12))
-                                                .foregroundColor(.secondary)
-                                            Text(verbatim: transportURL(instance.vlcTransportMode, ip: ip, port: instance.cameraPort))
-                                                .font(.system(size: 12, design: .monospaced))
-                                                .foregroundColor(.accentColor)
-                                                .textSelection(.enabled)
-                                        }
-                                        .padding(10)
-                                    }
-                                #endif
-                                Text(verbatim: ":\(instance.cameraPort)")
-                                    .font(.system(size: 11, weight: .medium))
-                            }
-                            .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
+                        HStack(spacing: 3) {
+                            Text(verbatim: "Cam0")
+                                .font(.system(size: 11, weight: .medium))
+                            #if !os(tvOS)
+                            Text(verbatim: instance.vlcOff ? "Off" : transportBadgeLabel(instance.vlcTransportMode))
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Color.white.opacity(0.15))
+                                )
+                                .contentShape(Rectangle())
+                                .onTapGesture { showTransportPicker = true }
+                                .popover(isPresented: $showTransportPicker) {
+                                    transportPickerContent(instance: instance, dismiss: { showTransportPicker = false })
+                                        .presentationCompactAdaptation(.popover)
+                                }
+                                .accessibilityLabel("Video transport: \(instance.vlcOff ? "Off" : transportFullLabel(instance.vlcTransportMode))")
+                            #endif
+                            Text(verbatim: ":\(instance.cameraPort)")
+                                .font(.system(size: 11, weight: .medium))
                         }
+                        .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
                         HStack(spacing: 4) {
                             Circle()
                                 .fill(instance.state == .running ? Color.green : Color.yellow)
@@ -536,7 +505,7 @@ struct ControlButton: View {
 #if DEBUG
 #Preview {
     FullscreenSimulationView(
-        instance: SimulationInstance(id: 0),
+        instance: SimulationInstance(id: 0, udpPort: 9001, cameraPort: 9100),
         instanceIndex: 0,
         onExit: {},
         onSwitchInstance: { _ in },

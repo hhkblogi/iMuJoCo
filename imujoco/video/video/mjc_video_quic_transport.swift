@@ -62,6 +62,13 @@ public final class MJVideoQUICTransport {
     // Keep groups alive
     private var groups: [NWConnectionGroup] = []
 
+    // Signaled when listener reaches .cancelled state
+    private let cancelSemaphore = DispatchSemaphore(value: 0)
+
+    // Signaled when listener reaches .ready or .failed state
+    private let startSemaphore = DispatchSemaphore(value: 0)
+    private var listenerStartFailed = false
+
     // MARK: - Public API
 
     public init() {}
@@ -81,67 +88,109 @@ public final class MJVideoQUICTransport {
             return false
         }
 
-        let params = NWParameters(quic: quicOptions)
+        // Retry listener start up to ~2s (40 × 50ms) — previous transport's
+        // UDP socket may still be releasing when switching transports.
+        for attempt in 0..<40 {
+            let params = NWParameters(quic: quicOptions)
+            // Restrict to WiFi/Ethernet only — no cellular or other interfaces
+            params.prohibitedInterfaceTypes = [.cellular, .other]
 
-        do {
-            listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
-        } catch {
-            logger.error("Failed to create NWListener: \(error.localizedDescription)")
-            return false
-        }
-
-        guard let listener else { return false }
-
-        listener.stateUpdateHandler = { [weak self] state in
-            switch state {
-            case .ready:
-                if let port = self?.listener?.port {
-                    logger.info("QUIC listener ready on port \(port.rawValue)")
-                }
-            case .failed(let error):
-                logger.error("QUIC listener failed: \(error.localizedDescription)")
-                self?.stop()
-            case .cancelled:
-                logger.info("QUIC listener cancelled")
-            default:
-                break
+            do {
+                listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
+            } catch {
+                logger.error("Failed to create NWListener: \(error.localizedDescription)")
+                return false
             }
+
+            guard let listener else { return false }
+
+            listenerStartFailed = false
+
+            listener.stateUpdateHandler = { [weak self] state in
+                guard let self else { return }
+                switch state {
+                case .ready:
+                    if let port = self.listener?.port {
+                        logger.info("QUIC listener ready on port \(port.rawValue)")
+                    }
+                    self.listenerStartFailed = false
+                    self.startSemaphore.signal()
+                case .failed(let error):
+                    logger.error("QUIC listener failed: \(error.localizedDescription)")
+                    self.listenerStartFailed = true
+                    self.startSemaphore.signal()
+                case .cancelled:
+                    logger.info("QUIC listener cancelled")
+                    self.cancelSemaphore.signal()
+                default:
+                    break
+                }
+            }
+
+            // Use newConnectionGroupHandler for QUIC tunnels (per WWDC 2021)
+            listener.newConnectionGroupHandler = { [weak self] group in
+                self?.handleNewGroup(group)
+            }
+
+            listener.start(queue: queue)
+
+            // Wait for .ready or .failed (up to 3s per attempt)
+            _ = startSemaphore.wait(timeout: .now() + 3.0)
+
+            if !listenerStartFailed {
+                // Listener is ready
+                _isActive = true
+                logger.info("QUIC transport started on port \(port) [\(width)x\(height)]")
+                return true
+            }
+
+            // Failed — cancel this listener and retry after a short delay
+            logger.info("QUIC listener bind failed (attempt \(attempt + 1)/40), retrying...")
+            listener.cancel()
+            _ = cancelSemaphore.wait(timeout: .now() + 1.0)
+            self.listener = nil
+
+            usleep(50000)  // 50ms
         }
 
-        // Use newConnectionGroupHandler for QUIC tunnels (per WWDC 2021)
-        listener.newConnectionGroupHandler = { [weak self] group in
-            self?.handleNewGroup(group)
-        }
-
-        listener.start(queue: queue)
-        _isActive = true
-        logger.info("QUIC transport started on port \(port) [\(width)x\(height)]")
-        return true
+        logger.error("QUIC transport failed to start after 40 attempts")
+        return false
     }
 
     public func stop() {
         guard _isActive else { return }
         _isActive = false
 
-        listener?.cancel()
-        listener = nil
-
+        // 1) Force-cancel all streams (immediately disconnects remote clients).
+        //    This releases the QUIC connections that hold the UDP socket open.
         streamsLock.lock()
         let currentStreams = streams
+        let currentGroups = groups
         streams.removeAll()
         sendPending.removeAll()
         metadataSent.removeAll()
         readyStreams.removeAll()
-        let currentGroups = groups
         groups.removeAll()
         streamsLock.unlock()
 
         for stream in currentStreams {
-            stream.cancel()
+            stream.stateUpdateHandler = nil
+            stream.forceCancel()
         }
         for group in currentGroups {
+            group.stateUpdateHandler = nil
             group.cancel()
         }
+
+        // 2) Cancel listener (releases the UDP port binding).
+        let hadListener = listener != nil
+        listener?.cancel()
+
+        // 3) Wait for the listener to fully release the port.
+        if hadListener {
+            _ = cancelSemaphore.wait(timeout: .now() + 3.0)
+        }
+        listener = nil
 
         logger.info("QUIC transport stopped")
     }
@@ -336,11 +385,13 @@ public final class MJVideoQUICTransport {
     private func removeStream(_ stream: NWConnection) {
         let streamId = ObjectIdentifier(stream)
         streamsLock.lock()
+        let wasTracked = streams.contains { $0 === stream }
         streams.removeAll { $0 === stream }
         sendPending.remove(streamId)
         metadataSent.remove(streamId)
         readyStreams.remove(streamId)
         streamsLock.unlock()
-        stream.cancel()
+        // Only cancel if still tracked (stop() already force-cancelled all)
+        if wasTracked { stream.cancel() }
     }
 }

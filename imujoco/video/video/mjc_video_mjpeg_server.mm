@@ -14,6 +14,7 @@
 //   ...
 
 #include "mjc_video_mjpeg_server.h"
+#include "imujoco/core/core/mjc_net_interface.h"
 
 #include <arpa/inet.h>
 #include <cstring>
@@ -54,18 +55,31 @@ bool MJVideoMJPEGServer::Start(uint16_t port) {
   int reuse = 1;
   setsockopt(listen_fd_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
 
+  auto bind_ip = imujoco::GetLocalBindAddress();
   struct sockaddr_in addr {};
   addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = INADDR_ANY;
+  inet_pton(AF_INET, bind_ip.c_str(), &addr.sin_addr);
   addr.sin_port = htons(port);
 
-  if (bind(listen_fd_, reinterpret_cast<struct sockaddr *>(&addr),
-           sizeof(addr)) < 0) {
-    os_log_error(OS_LOG_DEFAULT, "MJPEG: Failed to bind port %u", port);
-    close(listen_fd_);
-    listen_fd_ = -1;
-    return false;
+  // Retry bind up to ~2s (40 × 50ms) — QUIC's kernel UDP socket may
+  // outlive NWListener.cancelled when switching transports.
+  bool bound = false;
+  for (int attempt = 0; attempt < 40; ++attempt) {
+    if (bind(listen_fd_, reinterpret_cast<struct sockaddr *>(&addr),
+             sizeof(addr)) == 0) {
+      bound = true;
+      break;
+    }
+    if (errno != EADDRINUSE || attempt == 39) {
+      os_log_error(OS_LOG_DEFAULT, "MJPEG: Failed to bind %{public}s:%u: [%d: %{public}s]",
+                   bind_ip.c_str(), port, errno, strerror(errno));
+      close(listen_fd_);
+      listen_fd_ = -1;
+      return false;
+    }
+    usleep(50000);  // 50ms
   }
+  if (!bound) { close(listen_fd_); listen_fd_ = -1; return false; }
 
   if (listen(listen_fd_, 4) < 0) {
     os_log_error(OS_LOG_DEFAULT, "MJPEG: Failed to listen");
@@ -78,7 +92,7 @@ bool MJVideoMJPEGServer::Start(uint16_t port) {
   active_.store(true, std::memory_order_release);
   accept_thread_ = std::thread([this] { AcceptLoop(); });
 
-  os_log_info(OS_LOG_DEFAULT, "MJPEG: Server started on port %u", port);
+  os_log_info(OS_LOG_DEFAULT, "MJPEG: Server started on %{public}s:%u", bind_ip.c_str(), port);
   return true;
 }
 
@@ -148,6 +162,13 @@ void MJVideoMJPEGServer::AcceptLoop() {
     snd_tv.tv_sec = 0;
     snd_tv.tv_usec = 100000;  // 100ms
     setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &snd_tv, sizeof(snd_tv));
+
+    // Receive timeout: prevent Stop() from hanging if client connects but
+    // never sends the HTTP request (e.g. port scanner, half-open connection).
+    struct timeval rcv_tv;
+    rcv_tv.tv_sec = 2;
+    rcv_tv.tv_usec = 0;
+    setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &rcv_tv, sizeof(rcv_tv));
 
     // Read the HTTP request (consume it, we don't need the content)
     char buf[4096];

@@ -6,7 +6,7 @@ import Observation
 import os.log
 import core
 import render
-import video
+@preconcurrency import video
 import MJCPhysicsRuntime
 import MJCGrpcServer
 #if canImport(UIKit)
@@ -107,11 +107,14 @@ enum MuJoCoError: Error, LocalizedError {
 @Observable
 final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataSource, @unchecked Sendable {
     let id: Int
-    let port: UInt16
+    private(set) var port: UInt16
+    private(set) var cameraBasePort: UInt16
 
     // C++ physics runtime (owns model, data, scene, camera, option)
     private(set) var runtime: MJRuntime?
     fileprivate(set) var modelName: String = ""
+    /// Path of the currently loaded model file (for live port rebind reload).
+    @ObservationIgnored private(set) var modelPath: String?
 
     // UI state (persists across grid/fullscreen switches)
     var isLocked: Bool = true
@@ -138,21 +141,25 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     @ObservationIgnored private var _renderedFrameTime: Double = 0
     @ObservationIgnored private var _renderedGeomCount: Int32 = 0
 
-    // Video streaming (raw UDP for Python driver + VLC-facing streamer)
-    @ObservationIgnored private var videoStreamer: MJCVideoStreamer?
+    // Video streaming (MJPEG/RTSP/QUIC for VLC, browsers, custom receivers)
     @ObservationIgnored private var vlcStreamer: MJCVideoStreamer?
 
     /// Current VLC transport mode for this instance (observable for UI toggle).
     private(set) var vlcTransportMode: MJCVideoTransportMode = .mjpegHTTP
+    /// Whether VLC streaming is disabled ("Off" mode).
+    private(set) var vlcOff: Bool = false
     /// Whether the user has explicitly toggled the transport mode on this instance.
     @ObservationIgnored private var vlcTransportModeExplicit = false
+    /// Guard against overlapping VLC streamer restarts (observable for UI disable).
+    private(set) var isRestartingVLC = false
 
     // State polling timer
     private var stateUpdateTask: Task<Void, Never>?
 
-    init(id: Int, basePort: UInt16 = 9000) {
+    init(id: Int, udpPort: UInt16, cameraPort: UInt16) {
         self.id = id
-        self.port = basePort + UInt16(id)
+        self.port = udpPort
+        self.cameraBasePort = cameraPort
     }
 
     deinit {
@@ -170,6 +177,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
 
         await MainActor.run {
             self.runtime = rt
+            self.modelPath = path
             self.modelName = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
             self.displayTime = 0.0
         }
@@ -184,6 +192,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
 
         await MainActor.run {
             self.runtime = rt
+            self.modelPath = nil  // XML-loaded models don't have a file path
             self.modelName = name
             self.displayTime = 0.0
         }
@@ -193,9 +202,9 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     func unload() {
         stop()
         vlcStreamer = nil
-        videoStreamer = nil
         runtime?.unload()
         runtime = nil
+        modelPath = nil
         modelName = ""
         displayTime = 0.0
     }
@@ -211,19 +220,9 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         runtime.start()
 
         // Start video streaming
-        // Camera port scheme: 9000 + instance_id * 100 + camera_id
-        // Instance IDs are 1-indexed, so ports start at 9100 (instance 1, camera 0)
+        // Camera port from per-instance config (default: 9000 + id * 100)
         // Cam0 = default free camera
-        let cameraPort = UInt16(9000 + id * 100 + 0)
-
-        // Raw UDP streamer for Python driver (port + 1 to leave cameraPort for QUIC)
-        if videoStreamer == nil {
-            var config = MJCVideoStreamerConfig()
-            config.port = cameraPort + 1
-            config.transportMode = .rawUDP
-            videoStreamer = MJCVideoStreamer(config: config, dataSource: self)
-        }
-        videoStreamer?.start()
+        let cameraPort = cameraBasePort
 
         // VLC-facing streamer (MJPEG/HTTP, RTP/RTSP, or HEVC/QUIC per user setting)
         // All modes use cameraPort directly; RTP (UDP) + RTSP (TCP) share the port number
@@ -231,18 +230,39 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
             if !vlcTransportModeExplicit {
                 let setting = UserDefaults.standard.integer(forKey: "videoTransport")
                 switch setting {
-                case 1: vlcTransportMode = .rtpRTSP
-                case 2: vlcTransportMode = .hevcQUIC
-                default: vlcTransportMode = .mjpegHTTP
+                case 1: vlcTransportMode = .rtpRTSP; vlcOff = false
+                case 2: vlcTransportMode = .hevcQUIC; vlcOff = false
+                case 3: vlcOff = true
+                default: vlcTransportMode = .mjpegHTTP; vlcOff = false
                 }
             }
-            var config = MJCVideoStreamerConfig()
-            config.port = cameraPort
-            config.transportMode = vlcTransportMode
-            config.rtspPort = cameraPort
-            vlcStreamer = MJCVideoStreamer(config: config, dataSource: self)
+            if !vlcOff {
+                // Create + start streamer entirely on GCD thread.
+                // MJCHEVCEncoder init creates a VTCompressionSession (hardware encoder
+                // init) and QUIC start() blocks on a semaphore — both are expensive
+                // on first use and must not run on MainActor.
+                let mode = vlcTransportMode
+                let port = cameraPort
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    guard let self else { return }
+                    var config = MJCVideoStreamerConfig()
+                    config.port = port
+                    config.transportMode = mode
+                    config.rtspPort = port
+                    let streamer = MJCVideoStreamer(config: config, dataSource: self)
+                    streamer.start()
+                    DispatchQueue.main.async { [weak self] in
+                        self?.vlcStreamer = streamer
+                    }
+                }
+            }
+        } else {
+            // Existing streamer — just start on GCD
+            let streamer = vlcStreamer
+            DispatchQueue.global(qos: .userInitiated).async {
+                streamer?.start()
+            }
         }
-        vlcStreamer?.start()
 
         // Start state polling for SwiftUI updates
         startStatePolling()
@@ -252,7 +272,6 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     func pause() {
         guard let runtime = runtime else { return }
         vlcStreamer?.stop()
-        videoStreamer?.stop()
         runtime.pause()
         stopStatePolling()
 
@@ -264,7 +283,6 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     /// called from deinit and async contexts. Only performs thread-safe operations.
     func stop() {
         vlcStreamer?.stop()
-        videoStreamer?.stop()
         stopStatePolling()
         runtime?.pause()
     }
@@ -402,37 +420,36 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     var frameTime: Double { displayFrameTime }
     var geomCount: Int32 { displayGeomCount }
 
-    /// Camera port for this instance (9000 + id * 100 + camera_id).
+    /// Camera port for this instance (configured via UserDefaults, default: 9000 + id * 100).
     /// Cam0 = default free camera.
     var cameraPort: UInt16 {
-        UInt16(9000 + id * 100 + 0)
+        cameraBasePort
     }
 
     /// Whether video streaming is active (streamers are running).
     var isStreaming: Bool {
-        videoStreamer?.isRunning == true || vlcStreamer?.isRunning == true
+        vlcStreamer?.isRunning == true
     }
 
     /// Measured output FPS of the active video streamer (updated once per second).
     var videoFPS: Double {
-        videoStreamer?.measuredFPS ?? vlcStreamer?.measuredFPS ?? 0
+        vlcStreamer?.measuredFPS ?? 0
     }
 
     /// Suspend GPU-based video capture (app entering background).
     /// Transports stay alive so clients remain connected.
     func suspendVideoCapture() {
-        videoStreamer?.suspend()
         vlcStreamer?.suspend()
     }
 
     /// Resume GPU-based video capture (app returning to foreground).
     func resumeVideoCapture() {
-        videoStreamer?.resume()
         vlcStreamer?.resume()
     }
 
     /// Restart the VLC-facing streamer with a new transport mode.
     /// Only acts if the instance is currently running.
+    /// Moves the blocking stop() off MainActor to avoid freezing the UI.
     @MainActor
     func restartVLCStreamer(mode: MJCVideoTransportMode) {
         let modeStr: String
@@ -442,34 +459,154 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         case .hevcQUIC: modeStr = "HEVC/QUIC"
         case .rawUDP: modeStr = "rawUDP"
         }
-        guard state == .running else {
-            logger.debug("restartVLCStreamer(\(modeStr)): skipped, instance \(self.id) state=\(self.stateDescription)")
+        guard state == .running, !isRestartingVLC else {
+            logger.debug("restartVLCStreamer(\(modeStr)): skipped, instance \(self.id) state=\(self.stateDescription) restarting=\(self.isRestartingVLC)")
             return
         }
+        isRestartingVLC = true
         logger.info("restartVLCStreamer(\(modeStr)): restarting VLC streamer on instance \(self.id)")
-        vlcStreamer?.stop()
+
+        // Capture the old streamer and detach from instance immediately.
+        // The local var keeps it alive until the background task finishes.
+        let oldStreamer = vlcStreamer
         vlcStreamer = nil
         vlcTransportMode = mode
+        vlcOff = false
         vlcTransportModeExplicit = true
-        var config = MJCVideoStreamerConfig()
-        config.port = cameraPort
-        config.transportMode = mode
-        config.rtspPort = cameraPort
-        vlcStreamer = MJCVideoStreamer(config: config, dataSource: self)
-        vlcStreamer?.start()
+
+        // Use GCD (not Task.detached) — stop()/start() block on spin-waits
+        // and semaphores that would starve Swift's cooperative thread pool.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            oldStreamer?.stop()
+
+            // Create the new streamer on main thread and unlock the UI immediately.
+            // start() may block (QUIC/RTP bind retry) so it runs AFTER the flag is reset.
+            DispatchQueue.main.async { [weak self] in
+                defer { self?.isRestartingVLC = false }
+                guard let self, self.state == .running else { return }
+
+                var config = MJCVideoStreamerConfig()
+                config.port = self.cameraPort
+                config.transportMode = mode
+                config.rtspPort = self.cameraPort
+                let streamer = MJCVideoStreamer(config: config, dataSource: self)
+                self.vlcStreamer = streamer
+
+                // start() may block (QUIC retry loop) — keep off main thread.
+                DispatchQueue.global(qos: .userInitiated).async {
+                    streamer.start()
+                }
+            }
+        }
     }
 
-    /// Cycle the VLC transport mode: MJPEG/HTTP → RTP/RTSP → HEVC/QUIC → MJPEG/HTTP.
+    /// Stop the VLC-facing streamer (set to "Off" mode).
+    @MainActor
+    func stopVLCStreamer() {
+        guard !isRestartingVLC else { return }
+        isRestartingVLC = true
+        let oldStreamer = vlcStreamer
+        vlcStreamer = nil
+        vlcOff = true
+        vlcTransportModeExplicit = true
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            oldStreamer?.stop()
+            DispatchQueue.main.async { [weak self] in
+                self?.isRestartingVLC = false
+            }
+        }
+    }
+
+    /// Cycle the VLC transport mode: Off → MJPEG/HTTP → RTP/RTSP → HEVC/QUIC → Off.
     @MainActor
     func toggleVLCTransport() {
-        let newMode: MJCVideoTransportMode
-        switch vlcTransportMode {
-        case .mjpegHTTP: newMode = .rtpRTSP
-        case .rtpRTSP: newMode = .hevcQUIC
-        case .hevcQUIC: newMode = .mjpegHTTP
-        case .rawUDP: newMode = .mjpegHTTP
+        if vlcOff {
+            restartVLCStreamer(mode: .mjpegHTTP)
+        } else {
+            switch vlcTransportMode {
+            case .mjpegHTTP: restartVLCStreamer(mode: .rtpRTSP)
+            case .rtpRTSP: restartVLCStreamer(mode: .hevcQUIC)
+            case .hevcQUIC: stopVLCStreamer()
+            case .rawUDP: restartVLCStreamer(mode: .mjpegHTTP)
+            }
         }
-        restartVLCStreamer(mode: newMode)
+    }
+
+    // MARK: - Live Port Rebinding
+
+    /// Rebind the camera (video) port without stopping physics.
+    /// Moves blocking stop() off MainActor to avoid freezing the UI.
+    @MainActor
+    func rebindCameraPort(_ newPort: UInt16) {
+        guard newPort != cameraBasePort else { return }
+        let wasRunning = runtime?.state == .running
+        logger.info("Instance \(self.id): rebinding camera port \(self.cameraBasePort) → \(newPort)")
+
+        // Capture old streamer; detach from instance immediately.
+        let oldVLC = vlcStreamer
+        vlcStreamer = nil
+
+        // Update port
+        cameraBasePort = newPort
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            oldVLC?.stop()
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self, wasRunning else { return }
+
+                var vlcConfig = MJCVideoStreamerConfig()
+                vlcConfig.port = self.cameraBasePort
+                vlcConfig.transportMode = self.vlcTransportMode
+                vlcConfig.rtspPort = self.cameraBasePort
+                let streamer = MJCVideoStreamer(config: vlcConfig, dataSource: self)
+                self.vlcStreamer = streamer
+
+                DispatchQueue.global(qos: .userInitiated).async {
+                    streamer.start()
+                }
+            }
+        }
+    }
+
+    /// Rebind the UDP (physics control) port. Requires runtime destruction and reload.
+    @MainActor
+    func rebindUDPPort(_ newPort: UInt16) async {
+        guard newPort != port else { return }
+        logger.info("Instance \(self.id): rebinding UDP port \(self.port) → \(newPort)")
+
+        let savedPath = modelPath
+        let savedModelName = modelName
+        let wasRunning = runtime?.state == .running
+        let savedLocked = isLocked
+
+        // Tear down
+        stop()
+        vlcStreamer = nil
+        runtime?.unload()
+        runtime = nil
+
+        // Update port
+        port = newPort
+
+        // Reload model if one was loaded
+        if let path = savedPath {
+            do {
+                let rt = try MJRuntime(instanceIndex: Int32(id), udpPort: port)
+                try rt.loadModel(fromFile: path)
+                runtime = rt
+                modelPath = path
+                modelName = savedModelName
+                displayTime = 0.0
+                isLocked = savedLocked
+                if wasRunning { start() }
+            } catch {
+                logger.error("Failed to reload model after UDP rebind: \(error.localizedDescription)")
+                modelPath = nil
+                modelName = ""
+            }
+        }
     }
 
     // MARK: - Network Status
@@ -738,11 +875,11 @@ private func grpcGetInstanceInfoHandler(_ instanceId: Int32, _ outInfo: UnsafeMu
 @Observable
 final class SimulationGridManager: @unchecked Sendable {
     static let gridSize = 4  // 2x2 grid
-    static let basePort: UInt16 = 9000
 
     private(set) var instances: [SimulationInstance]
     private(set) var fullscreenInstanceId: Int? = nil
     @ObservationIgnored private var grpcServer: MJGrpcServer?
+    @ObservationIgnored private(set) var grpcPort: UInt16
 
     /// Monotonically increasing count of gRPC RPCs processed.
     var grpcRpcCount: UInt64 {
@@ -781,10 +918,27 @@ final class SimulationGridManager: @unchecked Sendable {
         }
     }
 
+    /// Read a port from UserDefaults, returning `fallback` if missing or out of valid range (1024–65535).
+    private static func readPort(_ key: String, fallback: UInt16) -> UInt16 {
+        let val = UserDefaults.standard.integer(forKey: key)
+        return (val >= 1024 && val <= 65535) ? UInt16(val) : fallback
+    }
+
     init() {
-        instances = (1...Self.gridSize).map { index in
-            SimulationInstance(id: index, basePort: Self.basePort)
+        // Read per-instance ports from UserDefaults (0 or missing = use default)
+        let defaultUdpPorts: [UInt16] = [9001, 9002, 9003, 9004]
+        let defaultCamPorts: [UInt16] = [9100, 9200, 9300, 9400]
+
+        var insts: [SimulationInstance] = []
+        for i in 0..<Self.gridSize {
+            let instNum = i + 1
+            let udpPort = Self.readPort("inst\(instNum)_udpPort", fallback: defaultUdpPorts[i])
+            let camPort = Self.readPort("inst\(instNum)_camPort", fallback: defaultCamPorts[i])
+            insts.append(SimulationInstance(id: instNum, udpPort: udpPort, cameraPort: camPort))
         }
+        instances = insts
+        grpcPort = Self.readPort("grpcPort", fallback: 8999)
+
         startGrpcServer()
     }
 
@@ -792,7 +946,7 @@ final class SimulationGridManager: @unchecked Sendable {
 
     private func startGrpcServer() {
         var config = MJGrpcServerConfig()
-        config.port = 8999
+        config.port = grpcPort
         config.numInstances = Int32(Self.gridSize)
 
         guard let server = MJGrpcServer.create(config) else {
@@ -808,7 +962,47 @@ final class SimulationGridManager: @unchecked Sendable {
         server.setGetInstanceInfoCallback(grpcGetInstanceInfoHandler, ctx)
         server.start()
         grpcServer = server
-        logger.info("gRPC server started on port 8999")
+        logger.info("gRPC server started on port \(self.grpcPort)")
+    }
+
+    /// Rebind the gRPC server to a new port. Re-registers all active runtimes.
+    func rebindGRPCPort(_ newPort: UInt16) {
+        guard newPort != grpcPort else { return }
+        logger.info("Rebinding gRPC server: port \(self.grpcPort) → \(newPort)")
+
+        // Unregister all runtimes from old server
+        for inst in instances {
+            grpcServer?.unregisterRuntime(Int32(inst.id))
+        }
+
+        // Destroy old server (SWIFT_IMMORTAL_REFERENCE means Swift won't
+        // release C++ objects, so we must call destroy() explicitly).
+        if let old = grpcServer {
+            MJGrpcServer.destroy(old)
+        }
+        grpcServer = nil
+
+        // Start new server on new port
+        grpcPort = newPort
+        startGrpcServer()
+
+        // Re-register active runtimes
+        for inst in instances {
+            if let rt = inst.runtime {
+                grpcServer?.registerRuntime(Int32(inst.id), rt.cppRuntime, inst.modelName)
+            }
+        }
+    }
+
+    /// Rebind an instance's UDP port with gRPC re-registration.
+    @MainActor
+    func rebindInstanceUDPPort(at index: Int, newPort: UInt16) async {
+        guard let instance = instance(at: index) else { return }
+        grpcServer?.unregisterRuntime(Int32(instance.id))
+        await instance.rebindUDPPort(newPort)
+        if let rt = instance.runtime {
+            grpcServer?.registerRuntime(Int32(instance.id), rt.cppRuntime, instance.modelName)
+        }
     }
 
     // MARK: - Instance Access
@@ -824,6 +1018,11 @@ final class SimulationGridManager: @unchecked Sendable {
 
     var activeCount: Int {
         activeInstances.count
+    }
+
+    /// True if any instance is mid-video-transport switch (UI should disable transport buttons).
+    var isRestartingVideoTransport: Bool {
+        instances.contains { $0.isRestartingVLC }
     }
 
     // MARK: - Model Loading
@@ -990,10 +1189,16 @@ final class SimulationGridManager: @unchecked Sendable {
     }
 
     /// Restart VLC-facing streamers on all running instances with the given transport setting.
-    /// `videoTransport`: 0 = MJPEG/HTTP, 1 = RTP/RTSP, 2 = HEVC/QUIC.
+    /// `videoTransport`: 0 = MJPEG/HTTP, 1 = RTP/RTSP, 2 = HEVC/QUIC, 3 = Off.
     @MainActor
     func restartVLCStreamers(videoTransport: Int) {
         logger.info("restartVLCStreamers: videoTransport=\(videoTransport)")
+        if videoTransport == 3 {
+            for instance in instances {
+                instance.stopVLCStreamer()
+            }
+            return
+        }
         let mode: MJCVideoTransportMode
         switch videoTransport {
         case 1: mode = .rtpRTSP

@@ -10,7 +10,7 @@ import video
 func transportBadgeLabel(_ mode: MJCVideoTransportMode) -> String {
     switch mode {
     case .mjpegHTTP: return "MJPEG"
-    case .rtpRTSP: return "HEVC"
+    case .rtpRTSP: return "RTSP"
     case .hevcQUIC: return "QUIC"
     case .rawUDP: return "UDP"
     }
@@ -59,6 +59,52 @@ func overlaySecondaryTextColor(brightness: Float) -> Color {
 
 func overlayTertiaryTextColor(brightness: Float) -> Color {
     brightness > 0.5 ? .black.opacity(0.4) : .white.opacity(0.5)
+}
+
+// MARK: - Transport Picker Popover Content
+
+/// Shared popover content for per-instance video transport selection.
+/// Uses a plain VStack of buttons — avoids UIAlertController / UIContextMenuInteraction.
+@ViewBuilder
+func transportPickerContent(instance: SimulationInstance, dismiss: @escaping () -> Void) -> some View {
+    VStack(spacing: 0) {
+        ForEach(
+            [
+                ("Off", "xmark.circle", Optional<MJCVideoTransportMode>.none),
+                ("MJPEG", "photo.on.rectangle", Optional<MJCVideoTransportMode>.some(.mjpegHTTP)),
+                ("RTSP", "video.fill", Optional<MJCVideoTransportMode>.some(.rtpRTSP)),
+                ("QUIC", "bolt.fill", Optional<MJCVideoTransportMode>.some(.hevcQUIC)),
+            ],
+            id: \.0
+        ) { label, icon, mode in
+            let isActive = mode == nil ? instance.vlcOff : (!instance.vlcOff && instance.vlcTransportMode == mode)
+            Button {
+                if let mode {
+                    instance.restartVLCStreamer(mode: mode)
+                } else {
+                    instance.stopVLCStreamer()
+                }
+                dismiss()
+            } label: {
+                HStack {
+                    Image(systemName: icon)
+                        .frame(width: 20)
+                    Text(label)
+                    Spacer()
+                    if isActive {
+                        Image(systemName: "checkmark")
+                            .foregroundStyle(.blue)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(instance.isRestartingVLC)
+        }
+    }
+    .frame(width: 160)
 }
 
 // MARK: - Triple-Tap Gesture with Visual Hints
@@ -248,8 +294,7 @@ struct SimulationCellView: View {
     @AppStorage("tripleClickAction") private var tripleClickAction: Int = 0
     @State private var resetProgress: CGFloat = 0
     @State private var stopProgress: CGFloat = 0
-    @State private var showPortInfo = false
-    @State private var showCamInfo = false
+    @State private var showTransportPicker = false
 
     #if os(tvOS)
     @FocusState private var isFocused: Bool
@@ -371,64 +416,34 @@ struct SimulationCellView: View {
                         HStack(spacing: 2) {
                             Text(verbatim: "C/S")
                                 .font(.system(size: 9, weight: .medium))
-                            #if !os(tvOS)
-                            Image(systemName: "info.circle")
-                                .font(.system(size: 7))
-                                .onTapGesture { showPortInfo = true }
-                                .popover(isPresented: $showPortInfo) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text("C/S = Control / State")
-                                            .font(.system(size: 11, weight: .semibold))
-                                        Text("Bidirectional UDP port for\ncontrol input and state output")
-                                            .font(.system(size: 10))
-                                            .foregroundColor(.secondary)
-                                    }
-                                    .padding(8)
-                                }
-                            #endif
                             Text(verbatim: ":\(instance.port)")
                                 .font(.system(size: 9, weight: .medium))
                         }
                         .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
-                        if instance.isStreaming {
-                            HStack(spacing: 2) {
-                                Text(verbatim: "Cam0")
-                                    .font(.system(size: 9, weight: .medium))
-                                #if !os(tvOS)
-                                Text(verbatim: transportBadgeLabel(instance.vlcTransportMode))
-                                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                    .padding(.horizontal, 3)
-                                    .padding(.vertical, 1)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 3)
-                                            .fill(Color.white.opacity(0.15))
-                                    )
-                                    .onTapGesture { instance.toggleVLCTransport() }
-                                    .accessibilityLabel("Video transport: \(transportFullLabel(instance.vlcTransportMode)), tap to cycle")
-                                Image(systemName: "info.circle")
-                                    .font(.system(size: 7))
-                                    .onTapGesture { showCamInfo = true }
-                                    .popover(isPresented: $showCamInfo) {
-                                        let ip = getDeviceIPAddress() ?? "<ip>"
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text("Cam0 = Default Free Camera")
-                                                .font(.system(size: 11, weight: .semibold))
-                                            Text("Video stream port for\noffscreen camera capture")
-                                                .font(.system(size: 10))
-                                                .foregroundColor(.secondary)
-                                            Text(verbatim: transportURL(instance.vlcTransportMode, ip: ip, port: instance.cameraPort))
-                                                .font(.system(size: 10, design: .monospaced))
-                                                .foregroundColor(.accentColor)
-                                                .textSelection(.enabled)
-                                        }
-                                        .padding(8)
-                                    }
-                                #endif
-                                Text(verbatim: ":\(instance.cameraPort)")
-                                    .font(.system(size: 9, weight: .medium))
-                            }
-                            .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
+                        HStack(spacing: 2) {
+                            Text(verbatim: "Cam0")
+                                .font(.system(size: 9, weight: .medium))
+                            #if !os(tvOS)
+                            Text(verbatim: instance.vlcOff ? "Off" : transportBadgeLabel(instance.vlcTransportMode))
+                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 4)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .fill(Color.white.opacity(0.15))
+                                )
+                                .contentShape(Rectangle())
+                                .onTapGesture { showTransportPicker = true }
+                                .popover(isPresented: $showTransportPicker) {
+                                    transportPickerContent(instance: instance, dismiss: { showTransportPicker = false })
+                                        .presentationCompactAdaptation(.popover)
+                                }
+                                .accessibilityLabel("Video transport: \(instance.vlcOff ? "Off" : transportFullLabel(instance.vlcTransportMode))")
+                            #endif
+                            Text(verbatim: ":\(instance.cameraPort)")
+                                .font(.system(size: 9, weight: .medium))
                         }
+                        .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
                         if instance.geomCount > 0 {
                             Text(verbatim: "Geom :\(instance.geomCount)")
                                 .font(.system(size: 9, weight: .medium))
@@ -701,7 +716,7 @@ struct TVCellButtonStyle: ButtonStyle {
 #if DEBUG
 #Preview {
     SimulationCellView(
-        instance: SimulationInstance(id: 0),
+        instance: SimulationInstance(id: 0, udpPort: 9001, cameraPort: 9100),
         instanceIndex: 0,
         onTapFullscreen: {},
         onLoadModel: {}

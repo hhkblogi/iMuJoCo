@@ -11,6 +11,7 @@
 //   Fragmentation Unit (FU): [RTP header][PayloadHdr(2)][FU header(1)][FU payload]
 
 #include "mjc_video_rtp_transport.h"
+#include "imujoco/core/core/mjc_net_interface.h"
 
 #include <arpa/inet.h>
 #include <cstring>
@@ -80,22 +81,35 @@ bool MJVideoRTPTransport::Start(uint16_t port) {
 
     // Bind to port so RTP packets have a predictable source address.
     // Clients use NWConnection to this port for bidirectional UDP flow.
+    auto bind_ip = imujoco::GetLocalBindAddress();
     struct sockaddr_in bind_addr{};
     bind_addr.sin_family = AF_INET;
-    bind_addr.sin_addr.s_addr = INADDR_ANY;
+    inet_pton(AF_INET, bind_ip.c_str(), &bind_addr.sin_addr);
     bind_addr.sin_port = htons(port);
-    if (bind(socket_fd_, reinterpret_cast<struct sockaddr*>(&bind_addr), sizeof(bind_addr)) < 0) {
-        os_log_error(OS_LOG_DEFAULT, "RTP: Failed to bind UDP port %u: %{errno}d", port, errno);
-        close(socket_fd_);
-        socket_fd_ = -1;
-        return false;
+    // Retry bind up to ~2s (40 × 50ms) — QUIC's kernel UDP socket may
+    // outlive NWListener.cancelled when switching transports.
+    bool bound = false;
+    for (int attempt = 0; attempt < 40; ++attempt) {
+        if (bind(socket_fd_, reinterpret_cast<struct sockaddr*>(&bind_addr), sizeof(bind_addr)) == 0) {
+            bound = true;
+            break;
+        }
+        if (errno != EADDRINUSE || attempt == 39) {
+            os_log_error(OS_LOG_DEFAULT, "RTP: Failed to bind %{public}s:%u: [%d: %{public}s]",
+                         bind_ip.c_str(), port, errno, strerror(errno));
+            close(socket_fd_);
+            socket_fd_ = -1;
+            return false;
+        }
+        usleep(50000);  // 50ms
     }
+    if (!bound) { close(socket_fd_); socket_fd_ = -1; return false; }
 
     port_ = port;
     active_.store(true, std::memory_order_release);
     packet_buffer_.reserve(kRTPHeaderSize + kMaxRTPPayloadSize);
 
-    os_log_info(OS_LOG_DEFAULT, "RTP: HEVC transport started on port %u", port);
+    os_log_info(OS_LOG_DEFAULT, "RTP: HEVC transport started on %{public}s:%u", bind_ip.c_str(), port);
     return true;
 }
 
