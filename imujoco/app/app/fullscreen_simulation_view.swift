@@ -19,6 +19,7 @@ struct FullscreenSimulationView: View {
     @State private var hoveredCell: Int? = nil
     @State private var navGridFrame: CGRect = .zero
     @State private var showTransportPicker = false
+    @State private var popoverWarmedUp = false
 
     var body: some View {
         ZStack {
@@ -122,6 +123,18 @@ struct FullscreenSimulationView: View {
         }
         .onExitCommand {
             onExit()
+        }
+        #endif
+        #if !os(tvOS)
+        .onAppear {
+            guard !popoverWarmedUp else { return }
+            popoverWarmedUp = true
+            DispatchQueue.main.async {
+                showTransportPicker = true
+                DispatchQueue.main.async {
+                    showTransportPicker = false
+                }
+            }
         }
         #endif
     }
