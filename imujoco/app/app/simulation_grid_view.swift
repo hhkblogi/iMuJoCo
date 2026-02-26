@@ -762,13 +762,18 @@ struct SettingsView: View {
                             infoText: "Remote simulation control channel. Changing this port stops the server and restarts it on the new port. All active simulations are re-registered automatically.")
 
                     ForEach(1...4, id: \.self) { inst in
-                        DisclosureGroup("Instance \(inst)") {
+                        DisclosureGroup {
                             portRow(label: "UDP Port", value: udpPortBinding(for: inst), defaultValue: 9000 + inst,
                                     infoPresented: $showUdpPortInfo,
                                     infoText: "Control (input to MuJoCo) and state (output from MuJoCo) channel for the external iMuJoCo driver. Changing this port pauses the simulation, recreates the runtime on the new port, and reloads the model automatically.")
                             portRow(label: "Camera Port", value: camPortBinding(for: inst), defaultValue: 9000 + inst * 100,
                                     infoPresented: $showCamPortInfo,
                                     infoText: "Video streaming port (MJPEG, RTP/RTSP, or HEVC/QUIC). Changing this port restarts the video streamers — physics keeps running uninterrupted.")
+                        } label: {
+                            HStack(spacing: 8) {
+                                LayoutIcon(highlightedCell: inst - 1, isSelected: true, size: 20)
+                                Text("Instance \(inst)")
+                            }
                         }
                         .font(.subheadline)
                     }
