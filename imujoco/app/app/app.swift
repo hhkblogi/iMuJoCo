@@ -32,6 +32,12 @@ struct MuJoCoApp: App {
     #endif
 
     init() {
+        // Register UserDefaults so .integer(forKey:) returns correct values
+        // even before @AppStorage writes anything (fresh install).
+        UserDefaults.standard.register(defaults: [
+            "videoTransport": 3,   // Off
+            "defaultLocked": false
+        ])
         #if os(iOS)
         SimulationGridManager.registerBackgroundTask()
         #endif
