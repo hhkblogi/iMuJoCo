@@ -8,7 +8,6 @@ struct ContentView: View {
     @State private var showingFullscreenModelPicker = false
     @State private var fullscreenErrorMessage = ""
     @State private var showingFullscreenError = false
-    @State private var popoverWarmup = false
     @AppStorage("defaultView") private var defaultView: Int = 0
 
     var body: some View {
@@ -42,11 +41,6 @@ struct ContentView: View {
         .background(Color.black)
         .preferredColorScheme(.dark)
         #if !os(tvOS)
-        // Hidden popover warmup — pre-initializes UIKit's presentation
-        // controller to avoid "System gesture gate timed out" on first tap.
-        .popover(isPresented: $popoverWarmup) {
-            Color.clear.frame(width: 1, height: 1)
-        }
         .sheet(isPresented: $showingFullscreenModelPicker) {
             ModelPickerView(
                 modelGroups: gridManager.bundledModelsBySource,
@@ -62,13 +56,6 @@ struct ContentView: View {
         .onAppear {
             if defaultView >= 1, defaultView <= 4 {
                 gridManager.enterFullscreen(index: defaultView - 1)
-            }
-            // Warm up UIKit popover presentation infrastructure at app launch
-            DispatchQueue.main.async {
-                popoverWarmup = true
-                DispatchQueue.main.async {
-                    popoverWarmup = false
-                }
             }
         }
         .alert("Failed to Load Model", isPresented: $showingFullscreenError) {

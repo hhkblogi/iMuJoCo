@@ -374,6 +374,7 @@ struct SimulationCellView: View {
             } else {
                 MuJoCoMetalView(dataSource: instance)
                     .allowsHitTesting(!instance.isLocked)
+                    .defersSystemGestures(on: .all)
             }
 
             // Large centered countdown overlays (always present so trim animates)
