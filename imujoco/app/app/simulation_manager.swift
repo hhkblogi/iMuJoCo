@@ -149,6 +149,8 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     private(set) var vlcTransportMode: MJCVideoTransportMode = .mjpegHTTP
     /// Whether the user has explicitly toggled the transport mode on this instance.
     @ObservationIgnored private var vlcTransportModeExplicit = false
+    /// Guard against overlapping VLC streamer restarts.
+    @ObservationIgnored private var isRestartingVLC = false
 
     // State polling timer
     private var stateUpdateTask: Task<Void, Never>?
@@ -439,6 +441,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
 
     /// Restart the VLC-facing streamer with a new transport mode.
     /// Only acts if the instance is currently running.
+    /// Moves the blocking stop() off MainActor to avoid freezing the UI.
     @MainActor
     func restartVLCStreamer(mode: MJCVideoTransportMode) {
         let modeStr: String
@@ -448,21 +451,38 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         case .hevcQUIC: modeStr = "HEVC/QUIC"
         case .rawUDP: modeStr = "rawUDP"
         }
-        guard state == .running else {
-            logger.debug("restartVLCStreamer(\(modeStr)): skipped, instance \(self.id) state=\(self.stateDescription)")
+        guard state == .running, !isRestartingVLC else {
+            logger.debug("restartVLCStreamer(\(modeStr)): skipped, instance \(self.id) state=\(self.stateDescription) restarting=\(self.isRestartingVLC)")
             return
         }
+        isRestartingVLC = true
         logger.info("restartVLCStreamer(\(modeStr)): restarting VLC streamer on instance \(self.id)")
-        vlcStreamer?.stop()
+
+        // Capture the old streamer and detach from instance immediately.
+        // The local var keeps it alive until the background task finishes.
+        let oldStreamer = vlcStreamer
         vlcStreamer = nil
         vlcTransportMode = mode
         vlcTransportModeExplicit = true
-        var config = MJCVideoStreamerConfig()
-        config.port = cameraPort
-        config.transportMode = mode
-        config.rtspPort = cameraPort
-        vlcStreamer = MJCVideoStreamer(config: config, dataSource: self)
-        vlcStreamer?.start()
+
+        Task.detached { [weak self] in
+            // stop() spin-waits for the capture thread — do it off MainActor.
+            oldStreamer?.stop()
+            // oldStreamer released when closure ends → deinit destroys C++ transports.
+
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                defer { self.isRestartingVLC = false }
+                guard self.state == .running else { return }
+
+                var config = MJCVideoStreamerConfig()
+                config.port = self.cameraPort
+                config.transportMode = mode
+                config.rtspPort = self.cameraPort
+                self.vlcStreamer = MJCVideoStreamer(config: config, dataSource: self)
+                self.vlcStreamer?.start()
+            }
+        }
     }
 
     /// Cycle the VLC transport mode: MJPEG/HTTP → RTP/RTSP → HEVC/QUIC → MJPEG/HTTP.
@@ -481,35 +501,43 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     // MARK: - Live Port Rebinding
 
     /// Rebind the camera (video) port without stopping physics.
+    /// Moves blocking stop() off MainActor to avoid freezing the UI.
     @MainActor
     func rebindCameraPort(_ newPort: UInt16) {
         guard newPort != cameraBasePort else { return }
         let wasRunning = runtime?.state == .running
         logger.info("Instance \(self.id): rebinding camera port \(self.cameraBasePort) → \(newPort)")
 
-        // Stop existing streamers
-        vlcStreamer?.stop()
+        // Capture old streamers; detach from instance immediately.
+        let oldVLC = vlcStreamer
+        let oldRaw = videoStreamer
         vlcStreamer = nil
-        videoStreamer?.stop()
         videoStreamer = nil
 
         // Update port
         cameraBasePort = newPort
 
-        // Restart streamers if physics was running
-        if wasRunning {
-            var rawConfig = MJCVideoStreamerConfig()
-            rawConfig.port = cameraBasePort + 1
-            rawConfig.transportMode = .rawUDP
-            videoStreamer = MJCVideoStreamer(config: rawConfig, dataSource: self)
-            videoStreamer?.start()
+        Task.detached { [weak self] in
+            // Stop on background to avoid blocking MainActor's spin-wait.
+            oldVLC?.stop()
+            oldRaw?.stop()
 
-            var vlcConfig = MJCVideoStreamerConfig()
-            vlcConfig.port = cameraBasePort
-            vlcConfig.transportMode = vlcTransportMode
-            vlcConfig.rtspPort = cameraBasePort
-            vlcStreamer = MJCVideoStreamer(config: vlcConfig, dataSource: self)
-            vlcStreamer?.start()
+            await MainActor.run { [weak self] in
+                guard let self, wasRunning else { return }
+
+                var rawConfig = MJCVideoStreamerConfig()
+                rawConfig.port = self.cameraBasePort + 1
+                rawConfig.transportMode = .rawUDP
+                self.videoStreamer = MJCVideoStreamer(config: rawConfig, dataSource: self)
+                self.videoStreamer?.start()
+
+                var vlcConfig = MJCVideoStreamerConfig()
+                vlcConfig.port = self.cameraBasePort
+                vlcConfig.transportMode = self.vlcTransportMode
+                vlcConfig.rtspPort = self.cameraBasePort
+                self.vlcStreamer = MJCVideoStreamer(config: vlcConfig, dataSource: self)
+                self.vlcStreamer?.start()
+            }
         }
     }
 
