@@ -373,27 +373,45 @@ struct SimulationCellView: View {
                                 .font(.system(size: 9, weight: .medium))
                         }
                         .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
-                        if instance.isStreaming {
-                            HStack(spacing: 2) {
-                                Text(verbatim: "Cam0")
-                                    .font(.system(size: 9, weight: .medium))
-                                #if !os(tvOS)
-                                Text(verbatim: transportBadgeLabel(instance.vlcTransportMode))
+                        HStack(spacing: 2) {
+                            Text(verbatim: "Cam0")
+                                .font(.system(size: 9, weight: .medium))
+                            #if !os(tvOS)
+                            Menu {
+                                Button { instance.stopVLCStreamer() } label: {
+                                    Label("Off", systemImage: "xmark.circle")
+                                    if instance.vlcOff { Image(systemName: "checkmark") }
+                                }
+                                Button { instance.restartVLCStreamer(mode: .mjpegHTTP) } label: {
+                                    Label("MJPEG", systemImage: "photo.on.rectangle")
+                                    if !instance.vlcOff && instance.vlcTransportMode == .mjpegHTTP { Image(systemName: "checkmark") }
+                                }
+                                Button { instance.restartVLCStreamer(mode: .rtpRTSP) } label: {
+                                    Label("RTSP", systemImage: "video.fill")
+                                    if !instance.vlcOff && instance.vlcTransportMode == .rtpRTSP { Image(systemName: "checkmark") }
+                                }
+                                Button { instance.restartVLCStreamer(mode: .hevcQUIC) } label: {
+                                    Label("QUIC", systemImage: "bolt.fill")
+                                    if !instance.vlcOff && instance.vlcTransportMode == .hevcQUIC { Image(systemName: "checkmark") }
+                                }
+                            } label: {
+                                Text(verbatim: instance.vlcOff ? "Off" : transportBadgeLabel(instance.vlcTransportMode))
                                     .font(.system(size: 8, weight: .bold, design: .monospaced))
-                                    .padding(.horizontal, 3)
-                                    .padding(.vertical, 1)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 4)
                                     .background(
                                         RoundedRectangle(cornerRadius: 3)
                                             .fill(Color.white.opacity(0.15))
                                     )
-                                    .onTapGesture { instance.toggleVLCTransport() }
-                                    .accessibilityLabel("Video transport: \(transportFullLabel(instance.vlcTransportMode)), tap to cycle")
-                                #endif
-                                Text(verbatim: ":\(instance.cameraPort)")
-                                    .font(.system(size: 9, weight: .medium))
+                                    .contentShape(Rectangle())
                             }
-                            .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
+                            .disabled(instance.isRestartingVLC)
+                            .accessibilityLabel("Video transport: \(instance.vlcOff ? "Off" : transportFullLabel(instance.vlcTransportMode))")
+                            #endif
+                            Text(verbatim: ":\(instance.cameraPort)")
+                                .font(.system(size: 9, weight: .medium))
                         }
+                        .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
                         if instance.geomCount > 0 {
                             Text(verbatim: "Geom :\(instance.geomCount)")
                                 .font(.system(size: 9, weight: .medium))

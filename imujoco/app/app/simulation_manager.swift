@@ -147,6 +147,8 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
 
     /// Current VLC transport mode for this instance (observable for UI toggle).
     private(set) var vlcTransportMode: MJCVideoTransportMode = .mjpegHTTP
+    /// Whether VLC streaming is disabled ("Off" mode).
+    private(set) var vlcOff: Bool = false
     /// Whether the user has explicitly toggled the transport mode on this instance.
     @ObservationIgnored private var vlcTransportModeExplicit = false
     /// Guard against overlapping VLC streamer restarts (observable for UI disable).
@@ -239,16 +241,19 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
             if !vlcTransportModeExplicit {
                 let setting = UserDefaults.standard.integer(forKey: "videoTransport")
                 switch setting {
-                case 1: vlcTransportMode = .rtpRTSP
-                case 2: vlcTransportMode = .hevcQUIC
-                default: vlcTransportMode = .mjpegHTTP
+                case 1: vlcTransportMode = .rtpRTSP; vlcOff = false
+                case 2: vlcTransportMode = .hevcQUIC; vlcOff = false
+                case 3: vlcOff = true
+                default: vlcTransportMode = .mjpegHTTP; vlcOff = false
                 }
             }
-            var config = MJCVideoStreamerConfig()
-            config.port = cameraPort
-            config.transportMode = vlcTransportMode
-            config.rtspPort = cameraPort
-            vlcStreamer = MJCVideoStreamer(config: config, dataSource: self)
+            if !vlcOff {
+                var config = MJCVideoStreamerConfig()
+                config.port = cameraPort
+                config.transportMode = vlcTransportMode
+                config.rtspPort = cameraPort
+                vlcStreamer = MJCVideoStreamer(config: config, dataSource: self)
+            }
         }
         vlcStreamer?.start()
 
@@ -463,6 +468,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         let oldStreamer = vlcStreamer
         vlcStreamer = nil
         vlcTransportMode = mode
+        vlcOff = false
         vlcTransportModeExplicit = true
 
         Task.detached { [weak self] in
@@ -485,17 +491,37 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         }
     }
 
-    /// Cycle the VLC transport mode: MJPEG/HTTP → RTP/RTSP → HEVC/QUIC → MJPEG/HTTP.
+    /// Stop the VLC-facing streamer (set to "Off" mode).
+    @MainActor
+    func stopVLCStreamer() {
+        guard !isRestartingVLC else { return }
+        isRestartingVLC = true
+        let oldStreamer = vlcStreamer
+        vlcStreamer = nil
+        vlcOff = true
+        vlcTransportModeExplicit = true
+
+        Task.detached { [weak self] in
+            oldStreamer?.stop()
+            await MainActor.run { [weak self] in
+                self?.isRestartingVLC = false
+            }
+        }
+    }
+
+    /// Cycle the VLC transport mode: Off → MJPEG/HTTP → RTP/RTSP → HEVC/QUIC → Off.
     @MainActor
     func toggleVLCTransport() {
-        let newMode: MJCVideoTransportMode
-        switch vlcTransportMode {
-        case .mjpegHTTP: newMode = .rtpRTSP
-        case .rtpRTSP: newMode = .hevcQUIC
-        case .hevcQUIC: newMode = .mjpegHTTP
-        case .rawUDP: newMode = .mjpegHTTP
+        if vlcOff {
+            restartVLCStreamer(mode: .mjpegHTTP)
+        } else {
+            switch vlcTransportMode {
+            case .mjpegHTTP: restartVLCStreamer(mode: .rtpRTSP)
+            case .rtpRTSP: restartVLCStreamer(mode: .hevcQUIC)
+            case .hevcQUIC: stopVLCStreamer()
+            case .rawUDP: restartVLCStreamer(mode: .mjpegHTTP)
+            }
         }
-        restartVLCStreamer(mode: newMode)
     }
 
     // MARK: - Live Port Rebinding
@@ -1161,10 +1187,16 @@ final class SimulationGridManager: @unchecked Sendable {
     }
 
     /// Restart VLC-facing streamers on all running instances with the given transport setting.
-    /// `videoTransport`: 0 = MJPEG/HTTP, 1 = RTP/RTSP, 2 = HEVC/QUIC.
+    /// `videoTransport`: 0 = MJPEG/HTTP, 1 = RTP/RTSP, 2 = HEVC/QUIC, 3 = Off.
     @MainActor
     func restartVLCStreamers(videoTransport: Int) {
         logger.info("restartVLCStreamers: videoTransport=\(videoTransport)")
+        if videoTransport == 3 {
+            for instance in instances {
+                instance.stopVLCStreamer()
+            }
+            return
+        }
         let mode: MJCVideoTransportMode
         switch videoTransport {
         case 1: mode = .rtpRTSP

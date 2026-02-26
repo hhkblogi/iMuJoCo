@@ -700,6 +700,7 @@ struct SettingsView: View {
                             .accessibilityLabel("About Default Video Transport")
                             .popover(isPresented: $showVideoTransportInfo) {
                                 VStack(alignment: .leading, spacing: 4) {
+                                    Text("**Off** — Disables video streaming. Physics and control continue running.")
                                     Text("**MJPEG/HTTP** — Works with VLC, ffplay, browsers. Simpler, more reliable.")
                                     Text("**HEVC/RTSP** — Works with VLC, ffplay. Hardware-encoded H.265, very low bandwidth.")
                                     Text("**HEVC/QUIC** — Hardware H.265 over QUIC (TLS 1.3). Requires the bundled macOS receiver app. Reliable delivery, no packet loss.")
@@ -715,7 +716,7 @@ struct SettingsView: View {
                         }
                         HStack(spacing: 8) {
                             ForEach(
-                                [(0, "MJPEG", "photo.on.rectangle"), (1, "RTSP", "video.fill"), (2, "QUIC", "bolt.fill")],
+                                [(3, "Off", "xmark.circle"), (0, "MJPEG", "photo.on.rectangle"), (1, "RTSP", "video.fill"), (2, "QUIC", "bolt.fill")],
                                 id: \.0
                             ) { tag, label, icon in
                                 let isSwitching = gridManager?.isRestartingVideoTransport ?? false
