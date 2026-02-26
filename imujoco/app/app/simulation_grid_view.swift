@@ -59,14 +59,15 @@ struct SimulationGridView: View {
     @State private var showingErrorAlert = false
     @State private var errorMessage: String = ""
     @State private var showingSettings = false
+    @State private var showingIPPicker = false
     @AppStorage("defaultView") private var defaultView: Int = 0
     @AppStorage("bindAddress") private var bindAddress: String = ""
     #if os(iOS)
     @AppStorage("caffeineMode") private var caffeineMode: Int = 1
     #endif
-    @AppStorage("defaultLocked") private var defaultLocked: Bool = true
+    @AppStorage("defaultLocked") private var defaultLocked: Bool = false
     @AppStorage("showStatsBar") private var showStatsBar: Bool = true
-    @AppStorage("videoTransport") private var videoTransport: Int = 0
+    @AppStorage("videoTransport") private var videoTransport: Int = 3
     #if os(macOS)
     @Environment(\.openSettings) private var openSettings
     #endif
@@ -145,6 +146,17 @@ struct SimulationGridView: View {
         } message: {
             Text(errorMessage)
         }
+        .confirmationDialog("Bind Address", isPresented: $showingIPPicker, titleVisibility: .visible) {
+            ForEach(availableIPs, id: \.self) { ip in
+                Button(ip == deviceIP ? "\(ip) ✓" : ip) {
+                    bindAddress = ip
+                    deviceIP = ip
+                }
+            }
+            Button("Refresh", role: .destructive) {
+                refreshIPs()
+            }
+        }
         #if !os(macOS)
         .sheet(isPresented: $showingSettings) {
             SettingsView(defaultView: $defaultView, defaultLocked: $defaultLocked, onDismiss: { showingSettings = false }, gridManager: gridManager)
@@ -202,26 +214,10 @@ struct SimulationGridView: View {
             }
             #endif
 
-            // IP address picker capsule (tap opens dropdown)
-            Menu {
-                ForEach(availableIPs, id: \.self) { ip in
-                    Button {
-                        bindAddress = ip
-                        deviceIP = ip
-                    } label: {
-                        if ip == deviceIP {
-                            Label(ip, systemImage: "checkmark")
-                        } else {
-                            Text(ip)
-                        }
-                    }
-                }
-                if !availableIPs.isEmpty { Divider() }
-                Button {
-                    refreshIPs()
-                } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                }
+            // IP address picker capsule (tap opens action sheet)
+            Button {
+                refreshIPs()
+                showingIPPicker = true
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "network")
@@ -235,6 +231,7 @@ struct SimulationGridView: View {
                 .background(Color.white.opacity(0.1))
                 .clipShape(Capsule())
             }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
         .padding(.top, 10)
@@ -360,7 +357,9 @@ struct ModelPickerView: View {
             }
         }
         #if os(iOS)
-        .presentationDetents([.medium, .large])
+        .presentationDetents(
+            UIDevice.current.userInterfaceIdiom == .pad ? [.large] : [.medium, .large]
+        )
         #endif
         #if os(macOS)
         .frame(minWidth: 300, minHeight: 250)
@@ -490,7 +489,7 @@ struct SettingsView: View {
     @AppStorage("caffeineMode") private var caffeineMode: Int = 1  // 0=off, 1=half, 2=full
     @AppStorage("tripleClickAction") private var tripleClickAction: Int = 0  // 0=grid/fullscreen, 1=lock/unlock
     @AppStorage("showStatsBar") private var showStatsBar: Bool = true
-    @AppStorage("videoTransport") private var videoTransport: Int = 0  // 0=MJPEG/HTTP, 1=RTP/RTSP, 2=HEVC/QUIC
+    @AppStorage("videoTransport") private var videoTransport: Int = 3  // 0=MJPEG/HTTP, 1=RTP/RTSP, 2=HEVC/QUIC
     @AppStorage("bindAddress") private var bindAddress: String = ""
     @AppStorage("grpcPort") private var grpcPort: Int = 8999
     @AppStorage("inst1_udpPort") private var inst1UdpPort: Int = 9001
