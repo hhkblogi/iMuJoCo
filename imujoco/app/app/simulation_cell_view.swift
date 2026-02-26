@@ -295,7 +295,6 @@ struct SimulationCellView: View {
     @State private var resetProgress: CGFloat = 0
     @State private var stopProgress: CGFloat = 0
     @State private var showTransportPicker = false
-    @State private var popoverWarmedUp = false
 
     #if os(tvOS)
     @FocusState private var isFocused: Bool
@@ -565,20 +564,6 @@ struct SimulationCellView: View {
                 onTapFullscreen()
             } else {
                 instance.isLocked.toggle()
-            }
-        }
-        #endif
-        #if !os(tvOS)
-        // Warm up UIKit's popover presentation infrastructure on first appear
-        // to avoid "System gesture gate timed out" on the first tap.
-        .onAppear {
-            guard !popoverWarmedUp else { return }
-            popoverWarmedUp = true
-            DispatchQueue.main.async {
-                showTransportPicker = true
-                DispatchQueue.main.async {
-                    showTransportPicker = false
-                }
             }
         }
         #endif
