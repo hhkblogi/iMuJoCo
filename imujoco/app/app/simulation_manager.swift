@@ -117,7 +117,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     @ObservationIgnored private(set) var modelPath: String?
 
     // UI state (persists across grid/fullscreen switches)
-    var isLocked: Bool = true
+    var isLocked: Bool = UserDefaults.standard.object(forKey: "defaultLocked") as? Bool ?? false
     var isBlinded: Bool = false
     fileprivate(set) var isLoading: Bool = false
     fileprivate(set) var loadingModelName: String = ""
@@ -1044,7 +1044,7 @@ final class SimulationGridManager: @unchecked Sendable {
         instance.isLoading = true
         do {
             try await instance.loadModel(fromFile: path)
-            instance.isLocked = UserDefaults.standard.object(forKey: "defaultLocked") as? Bool ?? true
+            instance.isLocked = UserDefaults.standard.object(forKey: "defaultLocked") as? Bool ?? false
             instance.start()
             if let rt = instance.runtime {
                 grpcServer?.registerRuntime(Int32(instance.id), rt.cppRuntime, instance.modelName)
@@ -1111,7 +1111,7 @@ final class SimulationGridManager: @unchecked Sendable {
             if let az = model.cameraAzimuth { instance.cameraAzimuth = az }
             if let dist = model.cameraDistance { instance.cameraDistance = dist }
             instance.modelName = name
-            instance.isLocked = UserDefaults.standard.object(forKey: "defaultLocked") as? Bool ?? true
+            instance.isLocked = UserDefaults.standard.object(forKey: "defaultLocked") as? Bool ?? false
             instance.start()
             if let rt = instance.runtime {
                 grpcServer?.registerRuntime(Int32(instance.id), rt.cppRuntime, name)
