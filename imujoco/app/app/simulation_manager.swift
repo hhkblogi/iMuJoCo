@@ -141,8 +141,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     @ObservationIgnored private var _renderedFrameTime: Double = 0
     @ObservationIgnored private var _renderedGeomCount: Int32 = 0
 
-    // Video streaming (raw UDP for Python driver + VLC-facing streamer)
-    @ObservationIgnored private var videoStreamer: MJCVideoStreamer?
+    // Video streaming (MJPEG/RTSP/QUIC for VLC, browsers, custom receivers)
     @ObservationIgnored private var vlcStreamer: MJCVideoStreamer?
 
     /// Current VLC transport mode for this instance (observable for UI toggle).
@@ -203,7 +202,6 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     func unload() {
         stop()
         vlcStreamer = nil
-        videoStreamer = nil
         runtime?.unload()
         runtime = nil
         modelPath = nil
@@ -225,19 +223,6 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         // Camera port from per-instance config (default: 9000 + id * 100)
         // Cam0 = default free camera
         let cameraPort = cameraBasePort
-
-        // Raw UDP streamer for Python driver (port + 1 to leave cameraPort for VLC)
-        // Skip if cameraPort + 1 collides with the C/S UDP port.
-        let rawUDPPort = cameraPort + 1
-        if rawUDPPort == port {
-            logger.warning("Skipping raw UDP video streamer: port \(rawUDPPort) collides with C/S UDP port")
-        } else if videoStreamer == nil {
-            var config = MJCVideoStreamerConfig()
-            config.port = rawUDPPort
-            config.transportMode = .rawUDP
-            videoStreamer = MJCVideoStreamer(config: config, dataSource: self)
-        }
-        videoStreamer?.start()
 
         // VLC-facing streamer (MJPEG/HTTP, RTP/RTSP, or HEVC/QUIC per user setting)
         // All modes use cameraPort directly; RTP (UDP) + RTSP (TCP) share the port number
@@ -269,7 +254,6 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     func pause() {
         guard let runtime = runtime else { return }
         vlcStreamer?.stop()
-        videoStreamer?.stop()
         runtime.pause()
         stopStatePolling()
 
@@ -281,7 +265,6 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
     /// called from deinit and async contexts. Only performs thread-safe operations.
     func stop() {
         vlcStreamer?.stop()
-        videoStreamer?.stop()
         stopStatePolling()
         runtime?.pause()
     }
@@ -427,24 +410,22 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
 
     /// Whether video streaming is active (streamers are running).
     var isStreaming: Bool {
-        videoStreamer?.isRunning == true || vlcStreamer?.isRunning == true
+        vlcStreamer?.isRunning == true
     }
 
     /// Measured output FPS of the active video streamer (updated once per second).
     var videoFPS: Double {
-        videoStreamer?.measuredFPS ?? vlcStreamer?.measuredFPS ?? 0
+        vlcStreamer?.measuredFPS ?? 0
     }
 
     /// Suspend GPU-based video capture (app entering background).
     /// Transports stay alive so clients remain connected.
     func suspendVideoCapture() {
-        videoStreamer?.suspend()
         vlcStreamer?.suspend()
     }
 
     /// Resume GPU-based video capture (app returning to foreground).
     func resumeVideoCapture() {
-        videoStreamer?.resume()
         vlcStreamer?.resume()
     }
 
@@ -538,11 +519,9 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         let wasRunning = runtime?.state == .running
         logger.info("Instance \(self.id): rebinding camera port \(self.cameraBasePort) → \(newPort)")
 
-        // Capture old streamers; detach from instance immediately.
+        // Capture old streamer; detach from instance immediately.
         let oldVLC = vlcStreamer
-        let oldRaw = videoStreamer
         vlcStreamer = nil
-        videoStreamer = nil
 
         // Update port
         cameraBasePort = newPort
@@ -550,21 +529,9 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         Task.detached { [weak self] in
             // Stop on background to avoid blocking MainActor's spin-wait.
             oldVLC?.stop()
-            oldRaw?.stop()
 
             await MainActor.run { [weak self] in
                 guard let self, wasRunning else { return }
-
-                let rawPort = self.cameraBasePort + 1
-                if rawPort == self.port {
-                    logger.warning("Skipping raw UDP video streamer: port \(rawPort) collides with C/S UDP port")
-                } else {
-                    var rawConfig = MJCVideoStreamerConfig()
-                    rawConfig.port = rawPort
-                    rawConfig.transportMode = .rawUDP
-                    self.videoStreamer = MJCVideoStreamer(config: rawConfig, dataSource: self)
-                    self.videoStreamer?.start()
-                }
 
                 var vlcConfig = MJCVideoStreamerConfig()
                 vlcConfig.port = self.cameraBasePort
@@ -590,7 +557,6 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         // Tear down
         stop()
         vlcStreamer = nil
-        videoStreamer = nil
         runtime?.unload()
         runtime = nil
 
