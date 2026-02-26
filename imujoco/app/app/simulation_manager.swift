@@ -459,7 +459,9 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         Task.detached { [weak self] in
             // stop() spin-waits for the capture thread — do it off MainActor.
             oldStreamer?.stop()
-            // oldStreamer released when closure ends → deinit destroys C++ transports.
+            // Brief delay for kernel to fully release QUIC's UDP socket.
+            // NWListener's .cancelled callback fires before the kernel socket is freed.
+            try? await Task.sleep(nanoseconds: 200_000_000)
 
             await MainActor.run { [weak self] in
                 guard let self else { return }
@@ -529,6 +531,8 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         Task.detached { [weak self] in
             // Stop on background to avoid blocking MainActor's spin-wait.
             oldVLC?.stop()
+            // Brief delay for kernel to fully release QUIC's UDP socket.
+            try? await Task.sleep(nanoseconds: 200_000_000)
 
             await MainActor.run { [weak self] in
                 guard let self, wasRunning else { return }
