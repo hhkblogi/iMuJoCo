@@ -460,30 +460,17 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
             // stop() spin-waits for the capture thread — do it off MainActor.
             oldStreamer?.stop()
 
-            // Retry start: QUIC's kernel UDP socket may outlive NWListener.cancelled.
-            // Poll up to ~2s (20 × 100ms) until the port is available.
-            for attempt in 0..<20 {
-                if attempt > 0 {
-                    try? await Task.sleep(nanoseconds: 100_000_000)
-                }
-                let success = await MainActor.run { [weak self] () -> Bool in
-                    guard let self, self.state == .running else { return true }
-                    var config = MJCVideoStreamerConfig()
-                    config.port = self.cameraPort
-                    config.transportMode = mode
-                    config.rtspPort = self.cameraPort
-                    let streamer = MJCVideoStreamer(config: config, dataSource: self)
-                    streamer.start()
-                    if streamer.isRunning {
-                        self.vlcStreamer = streamer
-                        return true
-                    }
-                    return false
-                }
-                if success { break }
-            }
             await MainActor.run { [weak self] in
-                self?.isRestartingVLC = false
+                guard let self else { return }
+                defer { self.isRestartingVLC = false }
+                guard self.state == .running else { return }
+
+                var config = MJCVideoStreamerConfig()
+                config.port = self.cameraPort
+                config.transportMode = mode
+                config.rtspPort = self.cameraPort
+                self.vlcStreamer = MJCVideoStreamer(config: config, dataSource: self)
+                self.vlcStreamer?.start()
             }
         }
     }
@@ -542,26 +529,15 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
             // Stop on background to avoid blocking MainActor's spin-wait.
             oldVLC?.stop()
 
-            // Retry start: QUIC's kernel UDP socket may outlive NWListener.cancelled.
-            for attempt in 0..<20 {
-                if attempt > 0 {
-                    try? await Task.sleep(nanoseconds: 100_000_000)
-                }
-                let success = await MainActor.run { [weak self] () -> Bool in
-                    guard let self, wasRunning else { return true }
-                    var vlcConfig = MJCVideoStreamerConfig()
-                    vlcConfig.port = self.cameraBasePort
-                    vlcConfig.transportMode = self.vlcTransportMode
-                    vlcConfig.rtspPort = self.cameraBasePort
-                    let streamer = MJCVideoStreamer(config: vlcConfig, dataSource: self)
-                    streamer.start()
-                    if streamer.isRunning {
-                        self.vlcStreamer = streamer
-                        return true
-                    }
-                    return false
-                }
-                if success { break }
+            await MainActor.run { [weak self] in
+                guard let self, wasRunning else { return }
+
+                var vlcConfig = MJCVideoStreamerConfig()
+                vlcConfig.port = self.cameraBasePort
+                vlcConfig.transportMode = self.vlcTransportMode
+                vlcConfig.rtspPort = self.cameraBasePort
+                self.vlcStreamer = MJCVideoStreamer(config: vlcConfig, dataSource: self)
+                self.vlcStreamer?.start()
             }
         }
     }
