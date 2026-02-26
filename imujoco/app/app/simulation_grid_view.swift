@@ -147,7 +147,7 @@ struct SimulationGridView: View {
         }
         #if !os(macOS)
         .sheet(isPresented: $showingSettings) {
-            SettingsView(defaultView: $defaultView, defaultLocked: $defaultLocked, onDismiss: { showingSettings = false })
+            SettingsView(defaultView: $defaultView, defaultLocked: $defaultLocked, onDismiss: { showingSettings = false }, gridManager: gridManager)
         }
         #endif
     }
@@ -486,6 +486,7 @@ struct SettingsView: View {
     @Binding var defaultView: Int
     @Binding var defaultLocked: Bool
     var onDismiss: () -> Void
+    var gridManager: SimulationGridManager?
     @AppStorage("caffeineMode") private var caffeineMode: Int = 1  // 0=off, 1=half, 2=full
     @AppStorage("tripleClickAction") private var tripleClickAction: Int = 0  // 0=grid/fullscreen, 1=lock/unlock
     @AppStorage("showStatsBar") private var showStatsBar: Bool = true
@@ -763,7 +764,7 @@ struct SettingsView: View {
                         .font(.subheadline)
                     }
 
-                    Text("Restart app to apply port changes")
+                    Text("Port changes apply immediately")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -773,6 +774,7 @@ struct SettingsView: View {
                         inst3UdpPort = 9003; inst4UdpPort = 9004
                         inst1CamPort = 9100; inst2CamPort = 9200
                         inst3CamPort = 9300; inst4CamPort = 9400
+                        applyAllPortDefaults()
                     }
                     .font(.subheadline)
                 }
@@ -815,7 +817,9 @@ struct SettingsView: View {
                     defaultValue: target.defaultValue,
                     registeredPorts: allRegisteredPorts
                 ) { newValue in
+                    let oldValue = target.value.wrappedValue
                     target.value.wrappedValue = newValue
+                    applyPortChange(label: target.label, oldValue: oldValue, newValue: newValue)
                 } onWarning: { msg in
                     portWarningMessage = msg
                     showPortWarning = true
@@ -873,6 +877,50 @@ struct SettingsView: View {
         case 4: return $inst4CamPort
         default: return .constant(0)
         }
+    }
+
+    // MARK: - Live Port Rebinding
+
+    private func applyPortChange(label: String, oldValue: Int, newValue: Int) {
+        guard oldValue != newValue, let manager = gridManager else { return }
+
+        if label == "gRPC Port" {
+            manager.rebindGRPCPort(UInt16(newValue))
+        } else if label == "UDP Port" {
+            if let inst = instanceIndex(forUdpPort: newValue) {
+                Task { @MainActor in await manager.rebindInstanceUDPPort(at: inst, newPort: UInt16(newValue)) }
+            }
+        } else if label == "Camera Port" {
+            if let inst = instanceIndex(forCamPort: newValue) {
+                manager.instance(at: inst)?.rebindCameraPort(UInt16(newValue))
+            }
+        }
+    }
+
+    private func applyAllPortDefaults() {
+        guard let manager = gridManager else { return }
+        manager.rebindGRPCPort(8999)
+        for i in 0..<4 {
+            let inst = i + 1
+            Task { @MainActor in await manager.rebindInstanceUDPPort(at: i, newPort: UInt16(9000 + inst)) }
+            manager.instance(at: i)?.rebindCameraPort(UInt16(9000 + inst * 100))
+        }
+    }
+
+    private func instanceIndex(forUdpPort port: Int) -> Int? {
+        if port == inst1UdpPort { return 0 }
+        if port == inst2UdpPort { return 1 }
+        if port == inst3UdpPort { return 2 }
+        if port == inst4UdpPort { return 3 }
+        return nil
+    }
+
+    private func instanceIndex(forCamPort port: Int) -> Int? {
+        if port == inst1CamPort { return 0 }
+        if port == inst2CamPort { return 1 }
+        if port == inst3CamPort { return 2 }
+        if port == inst4CamPort { return 3 }
+        return nil
     }
 }
 

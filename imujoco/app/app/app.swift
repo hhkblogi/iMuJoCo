@@ -118,12 +118,14 @@ struct MuJoCoApp: App {
 struct MacSettingsWrapper: View {
     @AppStorage("defaultView") private var defaultView: Int = 0
     @AppStorage("defaultLocked") private var defaultLocked: Bool = true
+    @FocusedValue(\.gridManager) private var gridManager
 
     var body: some View {
         SettingsView(
             defaultView: $defaultView,
             defaultLocked: $defaultLocked,
-            onDismiss: {}
+            onDismiss: {},
+            gridManager: gridManager
         )
     }
 }

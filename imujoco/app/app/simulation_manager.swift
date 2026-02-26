@@ -107,12 +107,14 @@ enum MuJoCoError: Error, LocalizedError {
 @Observable
 final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataSource, @unchecked Sendable {
     let id: Int
-    let port: UInt16
-    let cameraBasePort: UInt16
+    private(set) var port: UInt16
+    private(set) var cameraBasePort: UInt16
 
     // C++ physics runtime (owns model, data, scene, camera, option)
     private(set) var runtime: MJRuntime?
     fileprivate(set) var modelName: String = ""
+    /// Path of the currently loaded model file (for live port rebind reload).
+    @ObservationIgnored private(set) var modelPath: String?
 
     // UI state (persists across grid/fullscreen switches)
     var isLocked: Bool = true
@@ -172,6 +174,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
 
         await MainActor.run {
             self.runtime = rt
+            self.modelPath = path
             self.modelName = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
             self.displayTime = 0.0
         }
@@ -186,6 +189,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
 
         await MainActor.run {
             self.runtime = rt
+            self.modelPath = nil  // XML-loaded models don't have a file path
             self.modelName = name
             self.displayTime = 0.0
         }
@@ -198,6 +202,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         videoStreamer = nil
         runtime?.unload()
         runtime = nil
+        modelPath = nil
         modelName = ""
         displayTime = 0.0
     }
@@ -473,6 +478,81 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         restartVLCStreamer(mode: newMode)
     }
 
+    // MARK: - Live Port Rebinding
+
+    /// Rebind the camera (video) port without stopping physics.
+    @MainActor
+    func rebindCameraPort(_ newPort: UInt16) {
+        guard newPort != cameraBasePort else { return }
+        let wasRunning = runtime?.state == .running
+        logger.info("Instance \(self.id): rebinding camera port \(self.cameraBasePort) → \(newPort)")
+
+        // Stop existing streamers
+        vlcStreamer?.stop()
+        vlcStreamer = nil
+        videoStreamer?.stop()
+        videoStreamer = nil
+
+        // Update port
+        cameraBasePort = newPort
+
+        // Restart streamers if physics was running
+        if wasRunning {
+            var rawConfig = MJCVideoStreamerConfig()
+            rawConfig.port = cameraBasePort + 1
+            rawConfig.transportMode = .rawUDP
+            videoStreamer = MJCVideoStreamer(config: rawConfig, dataSource: self)
+            videoStreamer?.start()
+
+            var vlcConfig = MJCVideoStreamerConfig()
+            vlcConfig.port = cameraBasePort
+            vlcConfig.transportMode = vlcTransportMode
+            vlcConfig.rtspPort = cameraBasePort
+            vlcStreamer = MJCVideoStreamer(config: vlcConfig, dataSource: self)
+            vlcStreamer?.start()
+        }
+    }
+
+    /// Rebind the UDP (physics control) port. Requires runtime destruction and reload.
+    @MainActor
+    func rebindUDPPort(_ newPort: UInt16) async {
+        guard newPort != port else { return }
+        logger.info("Instance \(self.id): rebinding UDP port \(self.port) → \(newPort)")
+
+        let savedPath = modelPath
+        let savedModelName = modelName
+        let wasRunning = runtime?.state == .running
+        let savedLocked = isLocked
+
+        // Tear down
+        stop()
+        vlcStreamer = nil
+        videoStreamer = nil
+        runtime?.unload()
+        runtime = nil
+
+        // Update port
+        port = newPort
+
+        // Reload model if one was loaded
+        if let path = savedPath {
+            do {
+                let rt = try MJRuntime(instanceIndex: Int32(id), udpPort: port)
+                try rt.loadModel(fromFile: path)
+                runtime = rt
+                modelPath = path
+                modelName = savedModelName
+                displayTime = 0.0
+                isLocked = savedLocked
+                if wasRunning { start() }
+            } catch {
+                logger.error("Failed to reload model after UDP rebind: \(error.localizedDescription)")
+                modelPath = nil
+                modelName = ""
+            }
+        }
+    }
+
     // MARK: - Network Status
 
     var hasClient: Bool {
@@ -743,7 +823,7 @@ final class SimulationGridManager: @unchecked Sendable {
     private(set) var instances: [SimulationInstance]
     private(set) var fullscreenInstanceId: Int? = nil
     @ObservationIgnored private var grpcServer: MJGrpcServer?
-    @ObservationIgnored private let grpcPort: UInt16
+    @ObservationIgnored private var grpcPort: UInt16
 
     /// Monotonically increasing count of gRPC RPCs processed.
     var grpcRpcCount: UInt64 {
@@ -827,6 +907,43 @@ final class SimulationGridManager: @unchecked Sendable {
         server.start()
         grpcServer = server
         logger.info("gRPC server started on port \(self.grpcPort)")
+    }
+
+    /// Rebind the gRPC server to a new port. Re-registers all active runtimes.
+    func rebindGRPCPort(_ newPort: UInt16) {
+        guard newPort != grpcPort else { return }
+        logger.info("Rebinding gRPC server: port \(self.grpcPort) → \(newPort)")
+
+        // Unregister all runtimes from old server
+        for inst in instances {
+            grpcServer?.unregisterRuntime(Int32(inst.id))
+        }
+
+        // Stop old server
+        grpcServer?.stop()
+        grpcServer = nil
+
+        // Start new server on new port
+        grpcPort = newPort
+        startGrpcServer()
+
+        // Re-register active runtimes
+        for inst in instances {
+            if let rt = inst.runtime {
+                grpcServer?.registerRuntime(Int32(inst.id), rt.cppRuntime, inst.modelName)
+            }
+        }
+    }
+
+    /// Rebind an instance's UDP port with gRPC re-registration.
+    @MainActor
+    func rebindInstanceUDPPort(at index: Int, newPort: UInt16) async {
+        guard let instance = instance(at: index) else { return }
+        grpcServer?.unregisterRuntime(Int32(instance.id))
+        await instance.rebindUDPPort(newPort)
+        if let rt = instance.runtime {
+            grpcServer?.registerRuntime(Int32(instance.id), rt.cppRuntime, instance.modelName)
+        }
     }
 
     // MARK: - Instance Access
