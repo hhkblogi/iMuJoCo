@@ -23,67 +23,21 @@ iMuJoCo brings the [MuJoCo](https://github.com/google-deepmind/mujoco) physics s
 ```
 iMuJoCo/
 ├── imujoco/
-│   ├── app/                           # SwiftUI Application
-│   │   ├── app/
-│   │   │   ├── app.swift              # App entry point
-│   │   │   ├── content_view.swift     # Main UI view
-│   │   │   └── Assets.xcassets/       # App icons, colors
-│   │   └── BUILD.bazel                # iOS/macOS/tvOS app targets
-│   │
-│   ├── core/                          # Core Runtime Library
-│   │   ├── core/
-│   │   │   ├── core.swift             # Swift interface to C++ runtime
-│   │   │   ├── mjc_physics_runtime.mm # C++ physics runtime
-│   │   │   └── module.modulemap       # Swift-C++ interop module
-│   │   └── BUILD.bazel
-│   │
-│   ├── render/                        # Metal Rendering Library
-│   │   ├── render/
-│   │   │   ├── mjc_metal_render.swift # Metal render engine
-│   │   │   └── mujoco_shaders.metal   # Metal shaders (Blinn-Phong)
-│   │   └── BUILD.bazel
-│   │
-│   ├── grpc/                          # gRPC Simulation Control Server
-│   │   └── BUILD.bazel
-│   │
-│   └── video/                         # Video Streaming (HEVC/RTSP, MJPEG)
-│       └── BUILD.bazel
+│   ├── app/              # SwiftUI application (iOS, iPadOS, tvOS, macOS)
+│   ├── core/             # C++ physics runtime + Swift interop
+│   ├── render/           # Metal GPU renderer (Blinn-Phong shaders)
+│   ├── grpc/             # gRPC simulation control server
+│   └── video/            # Video streaming (HEVC/RTSP, MJPEG/HTTP)
 │
-├── driver/                            # External Driver Library
-│   ├── cc/                            # C++ UDP driver + tests
-│   ├── imujoco_driver/                # Python package (pybind11)
-│   ├── examples/                      # Driver usage examples
-│   ├── swift/                         # Swift driver client
-│   ├── hevc/                          # HEVC receiver app
-│   ├── README.md                      # Driver documentation
-│   └── BUILD.bazel
+├── driver/               # External driver: C++, Python (pybind11), Swift
+├── schema/               # FlatBuffers (.fbs) + Protobuf (.proto) schemas
+├── models/               # MuJoCo XML model files
+├── benchmarks/           # Performance benchmarks
+├── third_party/          # Vendored C deps + Bazel 9 patches
 │
-├── schema/                            # Serialization Schemas
-│   ├── control.fbs                    # FlatBuffers: control packets
-│   ├── state.fbs                      # FlatBuffers: state packets
-│   ├── simulation_control.proto       # Protobuf: gRPC service
-│   └── BUILD.bazel
-│
-├── models/                            # MuJoCo XML Models
-│   ├── humanoid_supine.xml
-│   ├── simple_pendulum.xml
-│   └── BUILD.bazel
-│
-├── benchmarks/                        # Performance Benchmarks
-│   ├── bm_flatbuffers.cc
-│   ├── bm_fragment.cc
-│   ├── bm_metal_render.mm
-│   ├── bm_video_pipeline.mm
-│   └── BUILD.bazel
-│
-├── third_party/                       # External Dependencies
-│   ├── mujoco.BUILD                   # BUILD files for vendored C deps
-│   └── patches/                       # Patches for Bazel 9 compatibility
-│
-├── MODULE.bazel                       # Bazel module config (bzlmod)
-├── BUILD.bazel                        # Root: xcodeproj generation
-├── extensions.bzl                     # Module extension for C deps
-└── .bazelrc                           # Build flags + platform configs
+├── MODULE.bazel          # Bazel module config (bzlmod)
+├── extensions.bzl        # Module extension for C deps
+└── .bazelrc              # Build flags + platform configs
 ```
 
 ## Architecture
