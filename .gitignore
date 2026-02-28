@@ -83,3 +83,13 @@ MODULE.bazel.lock
 
 # Generated Xcode project (created by `bazel run //:xcodeproj`)
 imujoco.xcodeproj/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+*.whl
+.build/

@@ -1,0 +1,49 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Swift, Metal shaders
+[*.{swift,metal}]
+indent_style = space
+indent_size = 2
+
+# C / C++ / Objective-C++
+[*.{c,h,cc,cpp,hpp,mm}]
+indent_style = space
+indent_size = 2
+
+# Python
+[*.py]
+indent_style = space
+indent_size = 4
+
+# Starlark (Bazel)
+[*.{bzl,bazel}]
+indent_style = space
+indent_size = 4
+
+[BUILD.bazel]
+indent_style = space
+indent_size = 4
+
+[MODULE.bazel]
+indent_style = space
+indent_size = 4
+
+# FlatBuffers, Protobuf
+[*.{fbs,proto}]
+indent_style = space
+indent_size = 2
+
+# Markdown
+[*.md]
+trim_trailing_whitespace = false
+
+# YAML (GitHub Actions, configs)
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
