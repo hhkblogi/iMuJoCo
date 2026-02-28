@@ -1,6 +1,12 @@
 # iMuJoCo
 
-Real-time MuJoCo simulation on Apple devices for your robotics projects
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-iOS%20%7C%20iPadOS%20%7C%20tvOS%20%7C%20macOS-lightgrey.svg)](https://developer.apple.com)
+[![Bazel](https://img.shields.io/badge/Bazel-9-green.svg)](https://bazel.build)
+
+Real-time MuJoCo simulation on Apple devices for your robotics projects.
+
+Control simulations from Python or C++ over UDP/gRPC while Metal renders at 60 fps on-device.
 
 ## Overview
 
@@ -9,6 +15,8 @@ iMuJoCo brings the [MuJoCo](https://github.com/google-deepmind/mujoco) physics s
 - **Swift + Metal** for UI and rendering (no OpenGL)
 - **C/C++** for core simulation runtime
 - **Swift-C++ interop** for direct calls without bridging overhead
+- **UDP + gRPC** for external driver control
+- **HEVC/RTSP + MJPEG** video streaming from device
 
 ## Project Structure
 
@@ -27,27 +35,49 @@ iMuJoCo/
 │   │   │   ├── core.swift             # Swift interface to C++ runtime
 │   │   │   ├── mjc_physics_runtime.mm # C++ physics runtime
 │   │   │   └── module.modulemap       # Swift-C++ interop module
-│   │   └── BUILD.bazel                # objc_library + swift_library
+│   │   └── BUILD.bazel
 │   │
-│   └── render/                        # Metal Rendering Library
-│       ├── render/
-│       │   ├── mjc_metal_render.swift  # Metal render engine
-│       │   └── mujoco_shaders.metal   # Metal shaders
-│       └── BUILD.bazel                # Metal compilation + swift_library
+│   ├── render/                        # Metal Rendering Library
+│   │   ├── render/
+│   │   │   ├── mjc_metal_render.swift # Metal render engine
+│   │   │   └── mujoco_shaders.metal   # Metal shaders (Blinn-Phong)
+│   │   └── BUILD.bazel
+│   │
+│   ├── grpc/                          # gRPC Simulation Control Server
+│   │   └── BUILD.bazel
+│   │
+│   └── video/                         # Video Streaming (HEVC/RTSP, MJPEG)
+│       └── BUILD.bazel
 │
-├── driver/                            # C++ Driver Library
-│   ├── cc/                            # C++ source and tests
-│   ├── python/                        # Python bindings
-│   └── BUILD.bazel                    # cc_library + cc_test
+├── driver/                            # External Driver Library
+│   ├── cc/                            # C++ UDP driver + tests
+│   ├── imujoco_driver/                # Python package (pybind11)
+│   ├── examples/                      # Driver usage examples
+│   ├── swift/                         # Swift driver client
+│   ├── hevc/                          # HEVC receiver app
+│   ├── README.md                      # Driver documentation
+│   └── BUILD.bazel
 │
-├── schema/                            # FlatBuffers Schemas
-│   ├── control.fbs                    # Control packet schema
-│   ├── state.fbs                      # State packet schema
-│   └── BUILD.bazel                    # FlatBuffers codegen
+├── schema/                            # Serialization Schemas
+│   ├── control.fbs                    # FlatBuffers: control packets
+│   ├── state.fbs                      # FlatBuffers: state packets
+│   ├── simulation_control.proto       # Protobuf: gRPC service
+│   └── BUILD.bazel
+│
+├── models/                            # MuJoCo XML Models
+│   ├── humanoid_supine.xml
+│   ├── simple_pendulum.xml
+│   └── BUILD.bazel
+│
+├── benchmarks/                        # Performance Benchmarks
+│   ├── bm_flatbuffers.cc
+│   ├── bm_fragment.cc
+│   ├── bm_metal_render.mm
+│   ├── bm_video_pipeline.mm
+│   └── BUILD.bazel
 │
 ├── third_party/                       # External Dependencies
-│   ├── mujoco.BUILD                   # cc_library for MuJoCo
-│   ├── *.BUILD                        # BUILD files for MuJoCo C deps
+│   ├── mujoco.BUILD                   # BUILD files for vendored C deps
 │   └── patches/                       # Patches for Bazel 9 compatibility
 │
 ├── MODULE.bazel                       # Bazel module config (bzlmod)
@@ -59,23 +89,28 @@ iMuJoCo/
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        app (SwiftUI)                        │
-│                   UI, Views, User Interaction               │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                     core (Static Library)                   │
-│         Swift ←→ C++ Interop, Metal Rendering               │
-│         Real-time Simulation Runtime, Network IO            │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   MuJoCo (Static Library)                   │
-│                     Physics Simulation                      │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                        app (SwiftUI)                         │
+│                  UI, Views, User Interaction                  │
+└──────────────────────────────────────────────────────────────┘
+                     │                    │
+                     ▼                    ▼
+┌──────────────────────────┐  ┌────────────────────────────────┐
+│    render (Metal GPU)    │  │      video (Metal capture)     │
+│  Blinn-Phong, instanced  │  │   HEVC/RTSP, MJPEG/HTTP       │
+└──────────────────────────┘  └────────────────────────────────┘
+                     │                    │
+                     ▼                    ▼
+┌──────────────────────────────────────────────────────────────┐
+│                   core (Static Library)                       │
+│       Swift ←→ C++ Interop, Physics Runtime, Network IO      │
+└──────────────────────────────────────────────────────────────┘
+          │                │                 │
+          ▼                ▼                 ▼
+┌──────────────┐  ┌────────────────┐  ┌────────────────────────┐
+│    MuJoCo    │  │  UDP (FlatBuf) │  │    gRPC (Protobuf)     │
+│   Physics    │  │    ◄── driver  │  │     ◄── client         │
+└──────────────┘  └────────────────┘  └────────────────────────┘
 ```
 
 ## Supported Platforms
@@ -159,6 +194,49 @@ bazel build //imujoco/app:app_ios --config=ios_sim          # iOS simulator
 bazel build //imujoco/app:app_macos --config=macos           # macOS
 bazel build //imujoco/app:app_tvos --config=tvos_device     # tvOS device
 ```
+
+## Driver
+
+The C++ / Python driver library lets you control simulations running on-device from your development machine over UDP. Send joint commands, read sensor state, and replay trajectories.
+
+See [driver/README.md](driver/README.md) for setup and usage.
+
+## gRPC Control
+
+iMuJoCo also exposes a gRPC server for simulation control. The service definition is in [`schema/simulation_control.proto`](schema/simulation_control.proto). This provides a structured RPC alternative to the raw UDP driver for clients that prefer gRPC.
+
+## Troubleshooting
+
+**Bazel build cache stale after switching branches:**
+```bash
+bazel clean --expunge
+bazel build //...
+```
+
+**Xcode project out of date:**
+Regenerate after any `BUILD.bazel` or `MODULE.bazel` change:
+```bash
+bazel run //:xcodeproj
+```
+
+**`team_config.bzl` missing:**
+Required for device deployment only. Copy the template:
+```bash
+cp imujoco/app/team_config.bzl.template imujoco/app/team_config.bzl
+```
+
+**FlatBuffers / Protobuf codegen errors:**
+Ensure schemas build first:
+```bash
+bazel build //schema:core_schemas
+```
+
+**Bazel version mismatch:**
+This project requires Bazel 9. Use [Bazelisk](https://github.com/bazelbuild/bazelisk) for automatic version management.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
