@@ -74,7 +74,7 @@ iMuJoCo/
 | iOS      | 26.0        | arm64        |
 | iPadOS   | 26.0        | arm64        |
 | tvOS     | 26.0        | arm64        |
-| macOS    | 26.0        | arm64        |
+| macOS    | 15.0        | arm64        |
 
 ## Getting Started
 
@@ -187,6 +187,10 @@ bazel build //schema:core_schemas
 
 **Bazel version mismatch:**
 This project requires Bazel 9. Use [Bazelisk](https://github.com/bazelbuild/bazelisk) for automatic version management.
+
+## Work in Progress
+
+- **Network time sync** — Clock synchronization between iMuJoCo on-device and the driver client across Wi-Fi, for accurate latency measurement and coordinated replay
 
 ## Contributing
 
