@@ -17,6 +17,7 @@ from ._imujoco_driver import (
     SimulationState,
     ControlCommand,
     DriverStats,
+    ClockSyncState,
     __version__,
 )
 
@@ -26,4 +27,5 @@ __all__ = [
     "SimulationState",
     "ControlCommand",
     "DriverStats",
+    "ClockSyncState",
 ]

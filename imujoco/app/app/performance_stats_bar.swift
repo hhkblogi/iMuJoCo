@@ -3,6 +3,7 @@
 
 import Metal
 import SwiftUI
+import core
 
 struct PerformanceStatsBar: View {
     let instances: [SimulationInstance]
@@ -13,6 +14,11 @@ struct PerformanceStatsBar: View {
     @State private var gpuMemoryMB: Double = 0
     @State private var lastGrpcRpcCount: UInt64 = 0
     @State private var grpcActive: Bool = false
+    @State private var lastSyncResponsesSent: UInt64 = 0
+    @State private var syncActive: Bool = false
+    @State private var syncPort: UInt16 = 0
+    @State private var syncRunning: Bool = false
+    @State private var syncStats: MJSyncStats?
 
     private static let metalDevice = MTLCreateSystemDefaultDevice()
 
@@ -27,34 +33,40 @@ struct PerformanceStatsBar: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            statCapsule(
-                value: String(format: "%.0f", avgRenderFPS),
-                unit: "fps",
-                label: "SCR",
-                color: fpsColor(avgRenderFPS)
-            )
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                statCapsule(
+                    value: String(format: "%.0f", avgRenderFPS),
+                    unit: "fps",
+                    label: "SCR",
+                    color: fpsColor(avgRenderFPS)
+                )
 
-            statCapsule(
-                value: String(format: "%.0f", cpuUsage),
-                unit: "%",
-                label: "CPU",
-                color: cpuColor(cpuUsage)
-            )
+                statCapsule(
+                    value: String(format: "%.0f", cpuUsage),
+                    unit: "%",
+                    label: "CPU",
+                    color: cpuColor(cpuUsage)
+                )
 
-            memCapsule
+                memCapsule
 
-            Spacer()
+                Spacer()
 
-            statCapsule(
-                value: ":\(grpcPort())",
-                unit: "",
-                label: "gRPC",
-                color: grpcActive ? .green : .white
-            )
+                statCapsule(
+                    value: ":\(grpcPort())",
+                    unit: "",
+                    label: "gRPC",
+                    color: grpcActive ? .green : .white
+                )
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 2)
+
+            syncStatusLine
+                .padding(.horizontal, 16)
+                .padding(.bottom, 2)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 2)
         .background(Color.black.opacity(0.6))
         .task {
             while !Task.isCancelled {
@@ -62,12 +74,18 @@ struct PerformanceStatsBar: View {
                 let cpu = processCPUUsage()
                 let gpuMem = Double(Self.metalDevice?.currentAllocatedSize ?? 0) / (1024 * 1024)
                 let currentRpc = grpcRpcCount()
+                let syncStats = MJSyncStats.current()
                 await MainActor.run {
                     memoryMB = mem
                     cpuUsage = cpu
                     gpuMemoryMB = gpuMem
                     grpcActive = currentRpc != lastGrpcRpcCount
                     lastGrpcRpcCount = currentRpc
+                    syncRunning = syncStats.isRunning
+                    syncPort = syncStats.port
+                    syncActive = syncStats.responsesSent != lastSyncResponsesSent
+                    lastSyncResponsesSent = syncStats.responsesSent
+                    self.syncStats = syncStats
                 }
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }
@@ -118,6 +136,43 @@ struct PerformanceStatsBar: View {
                     .foregroundColor(.white.opacity(0.4))
             }
         }
+    }
+
+    // MARK: - Sync Status Line
+
+    private var syncStatusLine: some View {
+        let color: Color = {
+            if !syncRunning { return .gray }
+            if let s = syncStats, s.driverLocked { return .green }
+            if syncActive { return .white }
+            return .white.opacity(0.6)
+        }()
+
+        let text: String = {
+            guard syncRunning else { return "SYNC off" }
+            guard let s = syncStats else { return "SYNC :\(syncPort)" }
+
+            let status = s.driverLocked ? "locked" : (syncActive ? "syncing" : "idle")
+            var parts = ["SYNC \(status)"]
+
+            if s.driverExchanges > 0 {
+                parts.append("offset=\(s.driverOffsetUs)us")
+                parts.append("delay=\(s.driverDelayUs)us")
+                parts.append("rate=\(s.serverRateRatioPpm)ppm")
+                parts.append("exch=\(s.driverExchanges)")
+                parts.append(String(format: "jitter=%.1fus", s.driverJitterUs))
+            } else {
+                parts.append(":\(syncPort)")
+                parts.append("exch=\(s.responsesSent)")
+            }
+
+            return parts.joined(separator: "  ")
+        }()
+
+        return Text(text)
+            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .foregroundColor(color)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Color Thresholds

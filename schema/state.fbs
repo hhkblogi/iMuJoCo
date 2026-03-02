@@ -26,6 +26,23 @@ table StatePacket {
 
   // Sensor data (length = model.nsensordata)
   sensordata: [double];
+
+  // Time sync fields (appended for backward compatibility — default to 0)
+
+  // Monotonic step counter (incremented per mj_step)
+  step_index: uint64;
+
+  // Sequence of the control packet that was applied to produce this state
+  accepted_ctrl_seq: uint32;
+
+  // Device steady_clock at state capture (microseconds since epoch)
+  device_wall_us: uint64;
+
+  // Model timestep in microseconds (e.g. 2000 for 0.002s)
+  timestep_us: uint32;
+
+  // Echo of control packet's echo_token (for round-trip correlation)
+  echo_token: uint64;
 }
 
 root_type StatePacket;

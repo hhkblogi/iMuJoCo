@@ -29,6 +29,9 @@
 #include "control_generated.h"
 #include "state_generated.h"
 
+// Time synchronization
+#include "imujoco/driver/time_sync.h"
+
 namespace imujoco::driver {
 
 // Type aliases for FlatBuffers Object API types
@@ -57,6 +60,12 @@ struct DriverConfig {
 
     // Auto-start receiving on connect (default: true)
     bool auto_start_receiving = true;
+
+    // Sync port (0 = port + 100)
+    uint16_t sync_port = 0;
+
+    // Sync exchange interval in ms (0 = disable sync)
+    uint32_t sync_interval_ms = 100;
 };
 
 // Driver statistics
@@ -73,6 +82,9 @@ struct DriverStats {
 
     // Timing
     double last_state_time = 0.0;
+
+    // Clock synchronization state
+    ClockSyncState clock_sync;
 };
 
 // Subscription ID for managing callbacks
@@ -224,6 +236,16 @@ public:
     /// Get the configuration.
     const DriverConfig& Config() const;
 
+    // =========================================================================
+    // Time Synchronization (thread-safe)
+    // =========================================================================
+
+    /// Get current clock synchronization state.
+    ClockSyncState GetClockSync() const;
+
+    /// Predict current simulation time (returns nullopt if not synced).
+    std::optional<double> PredictSimTime() const;
+
 private:
     // RX thread function
     void rx_thread_func();
@@ -274,6 +296,12 @@ private:
     // Error callback
     mutable std::mutex error_callback_mutex_;
     ErrorCallback error_callback_;
+
+    // Time sync
+    mutable std::mutex sync_mutex_;
+    PTPClockServo clock_servo_;
+    SimTimeClock sim_time_clock_;
+    std::unique_ptr<SyncClient> sync_client_;
 
     // Statistics — atomic counters eliminate mutex from hot paths
     std::atomic<uint64_t> stat_packets_sent_{0};

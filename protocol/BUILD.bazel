@@ -1,0 +1,8 @@
+load("@rules_cc//cc:defs.bzl", "cc_library")
+
+cc_library(
+    name = "sync_protocol",
+    hdrs = ["mjc_sync_protocol.h"],
+    includes = ["."],
+    visibility = ["//visibility:public"],
+)

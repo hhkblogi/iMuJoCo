@@ -13,11 +13,13 @@ cc_library(
         "cc/src/driver.cc",
         "cc/src/fragment.cc",
         "cc/src/fragment.h",
+        "cc/src/time_sync.cc",
         "cc/src/udp_socket.h",
     ],
     hdrs = [
         "cc/include/imujoco/driver/args.h",
         "cc/include/imujoco/driver/driver.h",
+        "cc/include/imujoco/driver/time_sync.h",
     ],
     includes = [
         "cc/include",
@@ -25,6 +27,7 @@ cc_library(
     ],
     visibility = ["//visibility:public"],
     deps = [
+        "//protocol:sync_protocol",
         "//schema:driver_schemas",
         "@flatbuffers//:runtime_cc",
     ],
@@ -69,6 +72,20 @@ cc_test(
         ":mujoco_driver",
         "//schema:driver_schemas",
         "@flatbuffers//:runtime_cc",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "time_sync_test",
+    srcs = ["cc/tests/time_sync_test.cc"],
+    includes = [
+        "cc/include",
+        "cc/src",
+    ],
+    deps = [
+        ":mujoco_driver",
+        "//protocol:sync_protocol",
         "@googletest//:gtest_main",
     ],
 )
@@ -141,6 +158,13 @@ py_binary(
     name = "unitree_g1_driver",
     srcs = ["examples/unitree_g1_driver.py"],
     main = "examples/unitree_g1_driver.py",
+    deps = ["//driver/imujoco_driver"],
+)
+
+py_binary(
+    name = "time_sync_benchmark",
+    srcs = ["examples/time_sync_benchmark.py"],
+    main = "examples/time_sync_benchmark.py",
     deps = ["//driver/imujoco_driver"],
 )
 

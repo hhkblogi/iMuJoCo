@@ -29,6 +29,40 @@ or dispatch work to your own thread to avoid blocking state reception.
     m.attr("__version__") = "dev";
 #endif
 
+    // ClockSyncState
+    py::class_<ClockSyncState>(m, "ClockSyncState")
+        .def(py::init<>())
+        .def_readonly("locked", &ClockSyncState::locked,
+            "True when clock servo has converged")
+        .def_readonly("offset_us", &ClockSyncState::offset_us,
+            "Clock offset in microseconds (device = driver + offset)")
+        .def_readonly("delay_us", &ClockSyncState::delay_us,
+            "One-way delay estimate in microseconds")
+        .def_readonly("rate_ratio_ppm", &ClockSyncState::rate_ratio_ppm,
+            "Clock rate ratio in PPM")
+        .def_readonly("exchanges", &ClockSyncState::exchanges,
+            "Total peer-delay exchanges processed")
+        .def_readonly("jitter_us", &ClockSyncState::jitter_us,
+            "Windowed PI output jitter in microseconds (used for lock detection)")
+        .def_readonly("raw_jitter_us", &ClockSyncState::raw_jitter_us,
+            "Full-history Welford jitter of raw offsets in microseconds (diagnostic)")
+        .def_readonly("outliers_rejected", &ClockSyncState::outliers_rejected,
+            "Total outlier samples rejected")
+        .def_readonly("pi_integral", &ClockSyncState::pi_integral,
+            "PI controller integral term")
+        .def_readonly("mean_offset_us", &ClockSyncState::mean_offset_us,
+            "Welford running mean offset in microseconds")
+        .def_readonly("lock_count", &ClockSyncState::lock_count,
+            "Number of times lock was achieved")
+        .def_readonly("unlock_count", &ClockSyncState::unlock_count,
+            "Number of times lock was lost")
+        .def("__repr__", [](const ClockSyncState& s) {
+            return "<ClockSyncState locked=" + std::string(s.locked ? "True" : "False") +
+                   " offset=" + std::to_string(s.offset_us) + "us" +
+                   " delay=" + std::to_string(s.delay_us) + "us" +
+                   " exchanges=" + std::to_string(s.exchanges) + ">";
+        });
+
     // DriverConfig
     py::class_<DriverConfig>(m, "DriverConfig")
         .def(py::init<>())
@@ -42,6 +76,10 @@ or dispatch work to your own thread to avoid blocking state reception.
             "Receive timeout in milliseconds (0 = no timeout)")
         .def_readwrite("auto_start_receiving", &DriverConfig::auto_start_receiving,
             "Auto-start receiving on connect (default: true)")
+        .def_readwrite("sync_port", &DriverConfig::sync_port,
+            "Sync port (0 = port + 100)")
+        .def_readwrite("sync_interval_ms", &DriverConfig::sync_interval_ms,
+            "Sync exchange interval in ms (0 = disable sync)")
         .def("__repr__", [](const DriverConfig& c) {
             return "<DriverConfig host='" + c.host + "' port=" + std::to_string(c.port) + ">";
         });
@@ -56,6 +94,8 @@ or dispatch work to your own thread to avoid blocking state reception.
         .def_readonly("send_errors", &DriverStats::send_errors)
         .def_readonly("receive_errors", &DriverStats::receive_errors)
         .def_readonly("last_state_time", &DriverStats::last_state_time)
+        .def_readonly("clock_sync", &DriverStats::clock_sync,
+            "Clock synchronization state")
         .def("__repr__", [](const DriverStats& s) {
             return "<DriverStats tx=" + std::to_string(s.packets_sent) +
                    " rx=" + std::to_string(s.packets_received) +
@@ -81,6 +121,16 @@ or dispatch work to your own thread to avoid blocking state reception.
             "Control values (length = model.nu)")
         .def_readwrite("sensordata", &SimulationState::sensordata,
             "Sensor data (length = model.nsensordata)")
+        .def_readwrite("step_index", &SimulationState::step_index,
+            "Monotonic step counter")
+        .def_readwrite("accepted_ctrl_seq", &SimulationState::accepted_ctrl_seq,
+            "Sequence of the control packet applied for this state")
+        .def_readwrite("device_wall_us", &SimulationState::device_wall_us,
+            "Device steady_clock at capture (microseconds)")
+        .def_readwrite("timestep_us", &SimulationState::timestep_us,
+            "Model timestep in microseconds")
+        .def_readwrite("echo_token", &SimulationState::echo_token,
+            "Echo of control's echo_token")
         .def("__repr__", [](const SimulationState& s) {
             return "<SimulationState time=" + std::to_string(s.time) +
                    " qpos[" + std::to_string(s.qpos.size()) + "]" +
@@ -96,6 +146,10 @@ or dispatch work to your own thread to avoid blocking state reception.
             "Control values for actuators")
         .def_readwrite("host_timestamp_us", &ControlCommand::host_timestamp_us,
             "Host monotonic timestamp in microseconds (0 = apply immediately)")
+        .def_readwrite("target_sim_time", &ControlCommand::target_sim_time,
+            "Target simulation time (0.0 = use existing pacing)")
+        .def_readwrite("echo_token", &ControlCommand::echo_token,
+            "Opaque token echoed back in state")
         .def("__repr__", [](const ControlCommand& c) {
             return "<ControlCommand ctrl[" + std::to_string(c.ctrl.size()) + "]>";
         });
@@ -109,7 +163,8 @@ or dispatch work to your own thread to avoid blocking state reception.
         .def("connect", &Driver::Connect,
             "Connect to the simulation. Returns True if successful.")
         .def("disconnect", &Driver::Disconnect,
-            "Disconnect from the simulation.")
+            "Disconnect from the simulation.",
+            py::call_guard<py::gil_scoped_release>())
         .def("is_connected", &Driver::IsConnected,
             "Check if connected to the simulation.")
 
@@ -196,6 +251,17 @@ or dispatch work to your own thread to avoid blocking state reception.
             "Get current driver statistics.")
         .def("reset_stats", &Driver::ResetStats,
             "Reset statistics to zero.")
+
+        // Time sync
+        .def("get_clock_sync", &Driver::GetClockSync,
+            "Get current clock synchronization state.")
+        .def("predict_sim_time",
+            [](const Driver& self) -> py::object {
+                auto result = self.PredictSimTime();
+                if (result) return py::cast(*result);
+                return py::none();
+            },
+            "Predict current simulation time (None if not synced).")
 
         // Config
         .def_property_readonly("config", &Driver::Config,

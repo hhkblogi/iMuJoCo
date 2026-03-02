@@ -41,6 +41,9 @@
 // SPMC queue for mutex-free frame passing (producer is wait-free; consumers may block)
 #include "spmc_queue.h"
 
+// Sync server for gPTP-inspired time synchronization
+#include "mjc_sync_server.h"
+
 // MARK: - Constants
 
 namespace {
@@ -121,7 +124,21 @@ public:
     uint32_t GetPacketsReceived() const { return packets_received_; }
     uint32_t GetPacketsSent() const { return packets_sent_; }
 
-    int ReceiveControl(double* ctrl_out, int max_ctrl, uint64_t* host_timestamp_us_out) {
+    /// Metadata extracted from a control packet (beyond the ctrl values).
+    struct ControlMeta {
+        uint64_t host_timestamp_us = 0;
+        double target_sim_time = 0.0;
+        uint64_t echo_token = 0;
+        uint32_t sequence = 0;
+        // Driver-side sync feedback
+        int64_t sync_offset_us = 0;
+        int64_t sync_delay_us = 0;
+        float sync_jitter_us = 0.0f;
+        bool sync_locked = false;
+        uint32_t sync_exchanges = 0;
+    };
+
+    int ReceiveControl(double* ctrl_out, int max_ctrl, ControlMeta* meta_out) {
         if (socket_fd_ < 0) return -1;
 
         uint8_t buffer[MJ_MAX_UDP_PAYLOAD];
@@ -156,17 +173,17 @@ public:
                 std::memcpy(reassembly_buffer_.data(), complete, message_size);
 
                 return ParseControlPacket(reassembly_buffer_.data(), message_size,
-                                          ctrl_out, max_ctrl, host_timestamp_us_out);
+                                          ctrl_out, max_ctrl, meta_out);
             }
         }
 
         return ParseControlPacket(buffer, static_cast<size_t>(recv_len),
-                                  ctrl_out, max_ctrl, host_timestamp_us_out);
+                                  ctrl_out, max_ctrl, meta_out);
     }
 
     int ParseControlPacket(const uint8_t* data, size_t size,
                            double* ctrl_out, int max_ctrl,
-                           uint64_t* host_timestamp_us_out) {
+                           ControlMeta* meta_out) {
         flatbuffers::Verifier verifier(data, size);
         if (!imujoco::schema::VerifyControlPacketBuffer(verifier)) {
             os_log_error(OS_LOG_DEFAULT, "Invalid FlatBuffers ControlPacket buffer");
@@ -178,8 +195,16 @@ public:
 
         // Hot-path: skip per-packet logging
 
-        if (host_timestamp_us_out) {
-            *host_timestamp_us_out = packet->host_timestamp_us();
+        if (meta_out) {
+            meta_out->host_timestamp_us = packet->host_timestamp_us();
+            meta_out->target_sim_time = packet->target_sim_time();
+            meta_out->echo_token = packet->echo_token();
+            meta_out->sequence = packet->sequence();
+            meta_out->sync_offset_us = packet->sync_offset_us();
+            meta_out->sync_delay_us = packet->sync_delay_us();
+            meta_out->sync_jitter_us = packet->sync_jitter_us();
+            meta_out->sync_locked = packet->sync_locked();
+            meta_out->sync_exchanges = packet->sync_exchanges();
         }
 
         auto ctrl = packet->ctrl();
@@ -197,7 +222,9 @@ public:
         return copy_count;
     }
 
-    bool SendState(const mjModel* model, const mjData* data) {
+    bool SendState(const mjModel* model, const mjData* data,
+                   uint64_t step_index = 0, uint32_t accepted_ctrl_seq = 0,
+                   uint64_t echo_token = 0) {
         if (socket_fd_ < 0 || !has_client_ || !model || !data) {
             if (socket_fd_ < 0) os_log_debug(OS_LOG_DEFAULT, "SendState: socket not open");
             else if (!has_client_) os_log_debug(OS_LOG_DEFAULT, "SendState: no client");
@@ -216,10 +243,18 @@ public:
         if (model->nu > 0) ctrl_vec = fb_builder_.CreateVector(data->ctrl, model->nu);
         if (model->nsensordata > 0) sensor_vec = fb_builder_.CreateVector(data->sensordata, model->nsensordata);
 
+        // Capture device wall-clock and compute timestep_us
+        uint64_t device_wall_us = static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                Clock::now().time_since_epoch()).count());
+        uint32_t timestep_us = static_cast<uint32_t>(model->opt.timestep * 1e6);
+
         auto state_packet = imujoco::schema::CreateStatePacket(
             fb_builder_, send_sequence_++, data->time,
             data->energy[0], data->energy[1],
-            qpos_vec, qvel_vec, ctrl_vec, sensor_vec
+            qpos_vec, qvel_vec, ctrl_vec, sensor_vec,
+            step_index, accepted_ctrl_seq, device_wall_us,
+            timestep_us, echo_token
         );
 
         imujoco::schema::FinishStatePacketBuffer(fb_builder_, state_packet);
@@ -260,6 +295,34 @@ private:
 // Used by WaitForFrame() to maintain per-thread-per-instance state.
 static std::atomic<uint64_t> g_next_instance_id{1};
 
+// Process-wide sync server singleton — starts on first runtime creation, never stops.
+// Independent of model load/unload and individual runtime lifetimes.
+static SyncServer& GetGlobalSyncServer() {
+    static SyncServer server;
+    return server;
+}
+
+// Driver-side sync feedback (written from physics thread on control packet reception)
+struct DriverSyncFeedback {
+    std::atomic<int64_t> offset_us{0};
+    std::atomic<int64_t> delay_us{0};
+    std::atomic<float> jitter_us{0.0f};
+    std::atomic<bool> locked{false};
+    std::atomic<uint32_t> exchanges{0};
+};
+static DriverSyncFeedback& GetDriverSyncFeedback() {
+    static DriverSyncFeedback feedback;
+    return feedback;
+}
+
+static void EnsureSyncServerRunning() {
+    auto& server = GetGlobalSyncServer();
+    if (!server.IsRunning()) {
+        auto bind_ip = imujoco::GetLocalBindAddress();
+        server.Start(imujoco::protocol::MJ_SYNC_PORT, bind_ip);
+    }
+}
+
 class MJSimulationRuntimeImpl {
 public:
     explicit MJSimulationRuntimeImpl(const MJRuntimeConfig& config)
@@ -292,6 +355,9 @@ public:
         camera_.lookat[0] = 0;
         camera_.lookat[1] = 0;
         camera_.lookat[2] = 0.5;
+
+        // Start process-wide sync server (first runtime wins, survives all load/unload cycles)
+        EnsureSyncServerRunning();
 
         os_log_info(OS_LOG_DEFAULT, "Instance %d ready", config.instanceIndex);
     }
@@ -341,6 +407,7 @@ public:
         ExtractTextureData();
 
         state_ = MJRuntimeState::Loaded;
+
         return true;
     }
 
@@ -386,6 +453,7 @@ public:
         ExtractTextureData();
 
         state_ = MJRuntimeState::Loaded;
+
         return true;
     }
 
@@ -459,6 +527,10 @@ public:
             replay_anchor_cpu_ = Clock::time_point{};
             ctrl_timed_out_ = false;
             last_ctrl_received_ = Clock::time_point{};
+            // Reset time sync state
+            step_index_ = 0;
+            last_accepted_ctrl_seq_ = 0;
+            last_echo_token_ = 0;
         }
     }
 
@@ -919,11 +991,19 @@ private:
             if (udp_server_.IsActive()) {
                 int packets_received = 0;
                 while (packets_received < kMaxPacketsPerLoop) {
-                    uint64_t host_ts = 0;
+                    UDPServer::ControlMeta meta;
                     int received = udp_server_.ReceiveControl(ctrl_buffer.data(),
                                                               static_cast<int>(ctrl_buffer.size()),
-                                                              &host_ts);
+                                                              &meta);
                     if (received < 0) break;
+
+                    // Store driver-side sync feedback for UI polling
+                    auto& fb = GetDriverSyncFeedback();
+                    fb.offset_us.store(meta.sync_offset_us, std::memory_order_relaxed);
+                    fb.delay_us.store(meta.sync_delay_us, std::memory_order_relaxed);
+                    fb.jitter_us.store(meta.sync_jitter_us, std::memory_order_relaxed);
+                    fb.locked.store(meta.sync_locked, std::memory_order_relaxed);
+                    fb.exchanges.store(meta.sync_exchanges, std::memory_order_relaxed);
 
                     last_ctrl_received_ = Clock::now();
                     ctrl_timed_out_ = false;
@@ -934,7 +1014,10 @@ private:
                         int nu = model_->nu;
                         int copy_count = std::min(received, nu);
                         TimestampedCtrl tc;
-                        tc.host_timestamp_us = host_ts;
+                        tc.host_timestamp_us = meta.host_timestamp_us;
+                        tc.target_sim_time = meta.target_sim_time;
+                        tc.echo_token = meta.echo_token;
+                        tc.sequence = meta.sequence;
                         tc.ctrl.assign(ctrl_buffer.data(), ctrl_buffer.data() + copy_count);
                         ctrl_queue_.push_back(std::move(tc));
                     }
@@ -974,6 +1057,8 @@ private:
                     for (int i = 0; i < copy_count; i++) {
                         data_->ctrl[i] = next.ctrl[i];
                     }
+                    last_accepted_ctrl_seq_ = next.sequence;
+                    last_echo_token_ = next.echo_token;
                     ctrl_queue_.pop_front();
 
                     // Reset anchor when queue drains
@@ -982,11 +1067,13 @@ private:
                     }
 
                     mj_step(model_, data_);
+                    step_index_++;
                     step_count++;
                     steps_since_last_frame++;
                     did_udp_step = true;
 
-                    udp_server_.SendState(model_, data_);
+                    udp_server_.SendState(model_, data_, step_index_,
+                                          last_accepted_ctrl_seq_, last_echo_token_);
                 }
             }
 
@@ -1034,6 +1121,7 @@ private:
                     speed_changed_ = false;
 
                     mj_step(model_, data_);
+                    step_index_++;
                     stepped = true;
                     step_count++;
                 } else {
@@ -1044,6 +1132,7 @@ private:
                            Clock::now() - start_cpu < Seconds(refresh_time)) {
 
                         mj_step(model_, data_);
+                        step_index_++;
                         stepped = true;
                         step_count++;
 
@@ -1061,7 +1150,8 @@ private:
                     // real-time mode (not only on UDP-driven steps). This lets
                     // clients that send empty ctrl still receive state.
                     if (udp_server_.HasClient()) {
-                        udp_server_.SendState(model_, data_);
+                        udp_server_.SendState(model_, data_, step_index_,
+                                              last_accepted_ctrl_seq_, last_echo_token_);
                     }
                 }
             }
@@ -1177,6 +1267,9 @@ private:
     // Timestamped control entry for paced replay queue
     struct TimestampedCtrl {
         uint64_t host_timestamp_us = 0;  // 0 = apply immediately (legacy)
+        double target_sim_time = 0.0;
+        uint64_t echo_token = 0;
+        uint32_t sequence = 0;
         std::vector<double> ctrl;
     };
 
@@ -1215,6 +1308,11 @@ private:
     Clock::time_point replay_anchor_cpu_{};         // wall-clock anchor for paced replay
     uint64_t replay_anchor_host_us_ = 0;           // host timestamp anchor (0 = no anchor)
 
+    // Time sync state (physics thread only)
+    uint64_t step_index_ = 0;                       // monotonic step counter
+    uint32_t last_accepted_ctrl_seq_ = 0;            // seq of last applied control
+    uint64_t last_echo_token_ = 0;                   // echo token from last applied control
+
     // Pre-loaded mesh data (extracted from mjModel at load time)
     std::unique_ptr<MJMeshDataStorage> mesh_storage_;
     std::unique_ptr<MJMeshData> mesh_data_;
@@ -1228,6 +1326,24 @@ private:
 
 int32_t MJGetVersion() {
     return mj_version();
+}
+
+MJSyncServerStats MJGetSyncServerStats() {
+    auto& server = GetGlobalSyncServer();
+    auto& fb = GetDriverSyncFeedback();
+    MJSyncServerStats stats;
+    // Server-side
+    stats.isRunning = server.IsRunning();
+    stats.responsesSent = server.GetResponsesSent();
+    stats.port = server.GetPort();
+    stats.serverRateRatioPpm = server.GetRateRatioPpm();
+    // Driver-side feedback
+    stats.driverLocked = fb.locked.load(std::memory_order_relaxed);
+    stats.driverOffsetUs = fb.offset_us.load(std::memory_order_relaxed);
+    stats.driverDelayUs = fb.delay_us.load(std::memory_order_relaxed);
+    stats.driverJitterUs = fb.jitter_us.load(std::memory_order_relaxed);
+    stats.driverExchanges = fb.exchanges.load(std::memory_order_relaxed);
+    return stats;
 }
 
 // MARK: - MJFrameData Free Functions

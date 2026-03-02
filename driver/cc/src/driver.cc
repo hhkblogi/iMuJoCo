@@ -25,9 +25,25 @@ Driver::Driver(const DriverConfig& config)
       tx_builder_(std::make_unique<flatbuffers::FlatBufferBuilder>(256)),
       reassembler_(std::make_unique<ReassemblyManager>()) {
     recv_buffer_.resize(kMaxUDPPayload);
+
+    // Start sync client immediately (always-on, independent of Connect/Disconnect)
+    if (config_.sync_interval_ms > 0) {
+        SyncClient::Config sync_config;
+        sync_config.host = config_.host;
+        sync_config.port = config_.sync_port > 0 ? config_.sync_port : 9000;
+        sync_config.interval_ms = config_.sync_interval_ms;
+        sync_client_ = std::make_unique<SyncClient>(clock_servo_, sync_mutex_,
+                                                     sync_config);
+        sync_client_->Start();
+    }
 }
 
 Driver::~Driver() {
+    // Stop sync client first (always-on, independent of Disconnect)
+    if (sync_client_) {
+        sync_client_->Stop();
+        sync_client_.reset();
+    }
     Disconnect();
 }
 
@@ -107,6 +123,16 @@ void Driver::SendControl(const ControlCommand& cmd) {
         packet.host_timestamp_us = static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::microseconds>(
                 now.time_since_epoch()).count());
+    }
+
+    // Piggyback driver-side sync state for device UI display
+    {
+        auto sync = GetClockSync();
+        packet.sync_offset_us = sync.offset_us;
+        packet.sync_delay_us = sync.delay_us;
+        packet.sync_jitter_us = static_cast<float>(sync.jitter_us);
+        packet.sync_locked = sync.locked;
+        packet.sync_exchanges = sync.exchanges;
     }
 
     // Build and send under tx_mutex_ to reuse the pooled builder
@@ -289,6 +315,18 @@ void Driver::rx_thread_func() {
         auto packet = imujoco::schema::GetStatePacket(result.data);
         stat_last_state_time_.store(packet->time(), std::memory_order_relaxed);
 
+        // Update SimTimeAnchor from enriched state fields
+        if (packet->device_wall_us() > 0) {
+            SimTimeAnchor anchor;
+            anchor.sim_time = packet->time();
+            anchor.device_wall_us = packet->device_wall_us();
+            anchor.step_index = packet->step_index();
+            anchor.timestep_us = packet->timestep_us();
+
+            std::lock_guard<std::mutex> lock(sync_mutex_);
+            sim_time_clock_.UpdateAnchor(anchor);
+        }
+
         dispatch_state(result.data, result.size);
     }
 }
@@ -372,7 +410,30 @@ DriverStats Driver::GetStats() const {
     s.send_errors = stat_send_errors_.load(std::memory_order_relaxed);
     s.receive_errors = stat_receive_errors_.load(std::memory_order_relaxed);
     s.last_state_time = stat_last_state_time_.load(std::memory_order_relaxed);
+
+    {
+        std::lock_guard<std::mutex> lock(sync_mutex_);
+        s.clock_sync = clock_servo_.GetState();
+    }
     return s;
+}
+
+// ============================================================================
+// Time Synchronization
+// ============================================================================
+
+ClockSyncState Driver::GetClockSync() const {
+    std::lock_guard<std::mutex> lock(sync_mutex_);
+    return clock_servo_.GetState();
+}
+
+std::optional<double> Driver::PredictSimTime() const {
+    auto now_us = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+
+    std::lock_guard<std::mutex> lock(sync_mutex_);
+    return sim_time_clock_.PredictSimTime(now_us, clock_servo_);
 }
 
 void Driver::ResetStats() {

@@ -56,6 +56,37 @@ public struct MJRuntimeStatistics {
     }
 }
 
+// MARK: - Sync Server Stats
+
+public struct MJSyncStats {
+    // Server-side (iPad)
+    public let isRunning: Bool
+    public let responsesSent: UInt64
+    public let port: UInt16
+    public let serverRateRatioPpm: Int32
+    // Driver-side feedback
+    public let driverLocked: Bool
+    public let driverOffsetUs: Int64
+    public let driverDelayUs: Int64
+    public let driverJitterUs: Float
+    public let driverExchanges: UInt32
+
+    public static func current() -> MJSyncStats {
+        let cpp = MJGetSyncServerStats()
+        return MJSyncStats(
+            isRunning: cpp.isRunning,
+            responsesSent: cpp.responsesSent,
+            port: cpp.port,
+            serverRateRatioPpm: cpp.serverRateRatioPpm,
+            driverLocked: cpp.driverLocked,
+            driverOffsetUs: cpp.driverOffsetUs,
+            driverDelayUs: cpp.driverDelayUs,
+            driverJitterUs: cpp.driverJitterUs,
+            driverExchanges: cpp.driverExchanges
+        )
+    }
+}
+
 // MARK: - Runtime Error
 
 public enum MJRuntimeError: Error, LocalizedError {
