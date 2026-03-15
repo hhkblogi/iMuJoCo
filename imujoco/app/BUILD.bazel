@@ -59,6 +59,7 @@ xcode_provisioning_profile(
 local_provisioning_profile(
     name = "appstore_profile",
     profile_name = APPSTORE_PROFILE_NAME,
+    tags = ["manual"],
     team_id = TEAM_ID,
 )
 
@@ -138,6 +139,7 @@ ios_application(
         "//models",
         "//imujoco/render:mujoco_metallib",
     ],
+    tags = ["manual"],
     visibility = ["//visibility:public"],
     deps = [":app_lib"],
 )
