@@ -160,7 +160,9 @@ To deploy to a physical iOS/iPadOS device, set up code signing:
    If you're unsure which profiles exist on your machine, list them:
 
    ```bash
-   find ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles -name '*.mobileprovision' -exec \
+   find ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles \
+        ~/Library/MobileDevice/Provisioning\ Profiles \
+        -name '*.mobileprovision' -exec \
      sh -c 'security cms -D -i "$1" 2>/dev/null | grep -A1 "<key>Name</key>" | grep "<string>"' _ {} \;
    ```
 
