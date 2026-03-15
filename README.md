@@ -139,8 +139,11 @@ To deploy to a physical iOS/iPadOS device, set up code signing:
 2. **Set your Apple Developer Team ID.** Find it by running:
 
    ```bash
-   security find-certificate -c "Apple Development" -p | openssl x509 -noout -subject -nameopt multiline | grep organizationalUnitName
+   security find-certificate -a -c "Apple Development" -p | openssl x509 -noout -subject -nameopt multiline 2>/dev/null | grep organizationalUnitName
    ```
+
+   If multiple lines appear, you have certs for multiple teams — pick the one
+   matching your Apple Developer account (visible in Xcode → Settings → Accounts).
 
    Edit `imujoco/app/team_config.bzl` and set `TEAM_ID`:
 
@@ -216,7 +219,7 @@ bazel run //:xcodeproj
 ```
 
 **`team_config.bzl` missing:**
-Required for building any app target or generating the Xcode project. See [Device Deployment](#device-deployment) above.
+Required for all targets in `//imujoco/app` (including the Xcode project). See [Device Deployment](#device-deployment) above.
 
 **No provisioning profile found:**
 The `DEV_PROFILE_NAME` in `team_config.bzl` must match an installed profile exactly.
