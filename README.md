@@ -128,15 +128,56 @@ Build, run, and debug normally from Xcode.
 
 #### Device Deployment
 
-To deploy to a physical iOS device, set up your Apple Developer Team ID:
+To deploy to a physical iOS/iPadOS device, set up code signing:
 
-```bash
-cp imujoco/app/team_config.bzl.template imujoco/app/team_config.bzl
-# Edit team_config.bzl and set TEAM_ID to your Apple Developer Team ID
-bazel run //:xcodeproj
-```
+1. **Create `team_config.bzl`** from the template:
 
-Then select your device in Xcode and build. Xcode handles automatic code signing.
+   ```bash
+   cp imujoco/app/team_config.bzl.template imujoco/app/team_config.bzl
+   ```
+
+2. **Set your Apple Developer Team ID.** Find it by running:
+
+   ```bash
+   security find-certificate -c "Apple Development" -p | openssl x509 -noout -subject -nameopt multiline | grep organizationalUnitName
+   ```
+
+   Edit `imujoco/app/team_config.bzl` and set `TEAM_ID`:
+
+   ```python
+   TEAM_ID = "YOUR_TEAM_ID_HERE"
+   ```
+
+3. **Set the development provisioning profile name.** Xcode creates per-bundle-ID
+   profiles automatically when you first build for a device. The profile name is
+   typically `iOS Team Provisioning Profile: <bundle-id>`. Set `DEV_PROFILE_NAME`
+   to match:
+
+   ```python
+   DEV_PROFILE_NAME = "iOS Team Provisioning Profile: com.hhkblogi.imujoco.app"
+   ```
+
+   If you're unsure which profiles exist on your machine, list them:
+
+   ```bash
+   for f in ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles/*.mobileprovision; do
+     security cms -D -i "$f" 2>/dev/null | grep -A1 "<key>Name</key>" | grep "<string>"
+   done
+   ```
+
+   If no profile exists for the bundle ID yet, create one by opening any Xcode
+   project with automatic signing enabled for the same bundle ID and team, then
+   build to a connected device. Xcode will generate the profile automatically.
+
+4. **Regenerate the Xcode project and deploy:**
+
+   ```bash
+   bazel run //:xcodeproj
+   open imujoco.xcodeproj
+   ```
+
+   Select your device in Xcode and hit Run (Cmd+R). The device must have
+   **Developer Mode** enabled (Settings → Privacy & Security → Developer Mode).
 
 ### Platform Configs
 
@@ -174,10 +215,11 @@ bazel run //:xcodeproj
 ```
 
 **`team_config.bzl` missing:**
-Required for device deployment only. Copy the template:
-```bash
-cp imujoco/app/team_config.bzl.template imujoco/app/team_config.bzl
-```
+Required for device deployment only. See [Device Deployment](#device-deployment) above.
+
+**No provisioning profile found:**
+The `DEV_PROFILE_NAME` in `team_config.bzl` must match an installed profile exactly.
+List your profiles and update the name — see [Device Deployment](#device-deployment).
 
 **FlatBuffers / Protobuf codegen errors:**
 Ensure schemas build first:
