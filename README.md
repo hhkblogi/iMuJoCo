@@ -163,7 +163,7 @@ To deploy to a physical iOS/iPadOS device, set up code signing:
    find ~/Library/Developer/Xcode/UserData/Provisioning\ Profiles \
         ~/Library/MobileDevice/Provisioning\ Profiles \
         -name '*.mobileprovision' -exec \
-     sh -c 'security cms -D -i "$1" 2>/dev/null | grep -A1 "<key>Name</key>" | grep "<string>"' _ {} \;
+     sh -c 'security cms -D -i "$1" 2>/dev/null | grep -A1 "<key>Name</key>" | grep "<string>"' _ {} \; 2>/dev/null
    ```
 
    If no profile exists for the bundle ID yet, create one by opening any Xcode
@@ -216,7 +216,7 @@ bazel run //:xcodeproj
 ```
 
 **`team_config.bzl` missing:**
-Required for device deployment only. See [Device Deployment](#device-deployment) above.
+Required for building any app target or generating the Xcode project. See [Device Deployment](#device-deployment) above.
 
 **No provisioning profile found:**
 The `DEV_PROFILE_NAME` in `team_config.bzl` must match an installed profile exactly.
