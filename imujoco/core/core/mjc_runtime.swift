@@ -56,6 +56,13 @@ public struct MJRuntimeStatistics {
     }
 }
 
+// MARK: - Sync Server
+
+/// Start the process-wide sync server (safe to call multiple times).
+public func startSyncServer() {
+    MJStartSyncServer()
+}
+
 // MARK: - Sync Server Stats
 
 public struct MJSyncStats {

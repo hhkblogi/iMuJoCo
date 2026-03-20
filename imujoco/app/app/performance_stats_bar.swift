@@ -156,7 +156,6 @@ struct PerformanceStatsBar: View {
             var parts = ["SYNC \(status)"]
 
             if s.driverExchanges > 0 {
-                parts.append("offset=\(s.driverOffsetUs)us")
                 parts.append("delay=\(s.driverDelayUs)us")
                 parts.append("rate=\(s.serverRateRatioPpm)ppm")
                 parts.append("exch=\(s.driverExchanges)")

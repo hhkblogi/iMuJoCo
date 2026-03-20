@@ -360,6 +360,10 @@ struct MJSyncServerStats {
 /// Get current sync server stats (thread-safe, lock-free)
 MJSyncServerStats MJGetSyncServerStats();
 
+/// Start the process-wide sync server if not already running.
+/// Safe to call multiple times — only the first call binds the socket.
+void MJStartSyncServer();
+
 // MARK: - Forward Declarations
 
 class MJSimulationRuntimeImpl;

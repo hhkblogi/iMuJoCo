@@ -73,6 +73,7 @@ inline uint16_t mj_sync_crc16(const void* data, size_t len) {
 static constexpr uint16_t MJ_SYNC_PORT        = 9000;        // Fixed sync port for all instances
 static constexpr uint32_t MJ_SYNC_MAGIC_REQ  = 0x4D4A5351;  // "MJSQ"
 static constexpr uint32_t MJ_SYNC_MAGIC_RESP = 0x4D4A5352;  // "MJSR"
+static constexpr uint32_t MJ_SYNC_MAGIC_FB   = 0x4D4A5346;  // "MJSF" — driver feedback
 
 // ============================================================================
 // Packed structures (no padding)
@@ -99,11 +100,24 @@ struct MJPdelayResponse {
     uint16_t checksum;          // CRC-16 over preceding fields
 };
 
+/// Sync feedback: follower → master (32 bytes)
+/// Sent periodically by driver so device can display sync metrics.
+struct MJSyncFeedback {
+    uint32_t magic;             // MJ_SYNC_MAGIC_FB
+    int64_t  offset_us;         // Device-driver clock offset
+    int64_t  delay_us;          // One-way network delay estimate
+    float    jitter_us;         // PI output jitter (lock quality)
+    uint8_t  locked;            // 1 = servo locked, 0 = not
+    uint32_t exchanges;         // Total pdelay exchanges processed
+    uint16_t checksum;          // CRC-16 over preceding fields
+};
+
 #pragma pack(pop)
 
 // Compile-time size checks
 static_assert(sizeof(MJPdelayRequest)  == 18, "MJPdelayRequest must be 18 bytes");
 static_assert(sizeof(MJPdelayResponse) == 38, "MJPdelayResponse must be 38 bytes");
+static_assert(sizeof(MJSyncFeedback)   == 31, "MJSyncFeedback must be 31 bytes");
 
 // ============================================================================
 // Validation helpers
@@ -141,6 +155,20 @@ inline void mj_sync_build_request(MJPdelayRequest* req) {
 inline void mj_sync_build_response(MJPdelayResponse* resp) {
     resp->magic = MJ_SYNC_MAGIC_RESP;
     resp->checksum = mj_sync_crc16(resp, sizeof(*resp) - sizeof(resp->checksum));
+}
+
+/// Validate a received SyncFeedback (magic + checksum).
+inline bool mj_sync_validate_feedback(const MJSyncFeedback* fb) {
+    if (!fb) return false;
+    if (fb->magic != MJ_SYNC_MAGIC_FB) return false;
+    uint16_t expected = mj_sync_crc16(fb, sizeof(*fb) - sizeof(fb->checksum));
+    return fb->checksum == expected;
+}
+
+/// Finalize a SyncFeedback: set magic and compute checksum.
+inline void mj_sync_build_feedback(MJSyncFeedback* fb) {
+    fb->magic = MJ_SYNC_MAGIC_FB;
+    fb->checksum = mj_sync_crc16(fb, sizeof(*fb) - sizeof(fb->checksum));
 }
 
 }  // namespace imujoco::protocol

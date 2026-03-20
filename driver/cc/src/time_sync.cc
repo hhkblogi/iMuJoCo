@@ -344,6 +344,22 @@ void SyncClient::sync_thread_func() {
                     std::lock_guard<std::mutex> lock(servo_mutex_);
                     servo_.ProcessExchange(exchange);
                     servo_.UpdateRateRatio(resp->rate_ratio_ppm);
+
+                    // Send sync feedback to device every 10th exchange
+                    if (recv_count % 10 == 0) {
+                        auto state = servo_.GetState();
+                        imujoco::protocol::MJSyncFeedback fb;
+                        fb.offset_us = state.offset_us;
+                        fb.delay_us = state.delay_us;
+                        fb.jitter_us = static_cast<float>(state.jitter_us);
+                        fb.locked = state.locked ? 1 : 0;
+                        fb.exchanges = state.exchanges;
+                        imujoco::protocol::mj_sync_build_feedback(&fb);
+                        sendto(socket_fd_, &fb, sizeof(fb), 0,
+                               reinterpret_cast<const struct sockaddr*>(&target_addr),
+                               sizeof(target_addr));
+                    }
+
                     break;  // Got our match, done
                 }
             }

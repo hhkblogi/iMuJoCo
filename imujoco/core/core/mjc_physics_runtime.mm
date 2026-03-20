@@ -1330,20 +1330,23 @@ int32_t MJGetVersion() {
 
 MJSyncServerStats MJGetSyncServerStats() {
     auto& server = GetGlobalSyncServer();
-    auto& fb = GetDriverSyncFeedback();
     MJSyncServerStats stats;
     // Server-side
     stats.isRunning = server.IsRunning();
     stats.responsesSent = server.GetResponsesSent();
     stats.port = server.GetPort();
     stats.serverRateRatioPpm = server.GetRateRatioPpm();
-    // Driver-side feedback
-    stats.driverLocked = fb.locked.load(std::memory_order_relaxed);
-    stats.driverOffsetUs = fb.offset_us.load(std::memory_order_relaxed);
-    stats.driverDelayUs = fb.delay_us.load(std::memory_order_relaxed);
-    stats.driverJitterUs = fb.jitter_us.load(std::memory_order_relaxed);
-    stats.driverExchanges = fb.exchanges.load(std::memory_order_relaxed);
+    // Driver-side feedback (received via sync protocol, not control packets)
+    stats.driverLocked = server.GetDriverLocked();
+    stats.driverOffsetUs = server.GetDriverOffsetUs();
+    stats.driverDelayUs = server.GetDriverDelayUs();
+    stats.driverJitterUs = server.GetDriverJitterUs();
+    stats.driverExchanges = server.GetDriverExchanges();
     return stats;
+}
+
+void MJStartSyncServer() {
+    EnsureSyncServerRunning();
 }
 
 // MARK: - MJFrameData Free Functions

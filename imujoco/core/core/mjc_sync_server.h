@@ -98,6 +98,13 @@ public:
     uint64_t GetResponsesSent() const { return responses_sent_.load(std::memory_order_relaxed); }
     int32_t GetRateRatioPpm() const { return atomic_rate_ratio_ppm_.load(std::memory_order_relaxed); }
 
+    // Driver-side feedback (received via MJSyncFeedback messages)
+    int64_t GetDriverOffsetUs() const { return driver_offset_us_.load(std::memory_order_relaxed); }
+    int64_t GetDriverDelayUs() const { return driver_delay_us_.load(std::memory_order_relaxed); }
+    float GetDriverJitterUs() const { return driver_jitter_us_.load(std::memory_order_relaxed); }
+    bool GetDriverLocked() const { return driver_locked_.load(std::memory_order_relaxed); }
+    uint32_t GetDriverExchanges() const { return driver_exchanges_.load(std::memory_order_relaxed); }
+
 private:
     using Clock = std::chrono::steady_clock;
 
@@ -150,6 +157,19 @@ private:
                         errno, recv_errors, responses_sent_.load(std::memory_order_relaxed));
                 }
                 continue;
+            }
+
+            // Check magic to dispatch: feedback vs pdelay request
+            if (recv_len >= static_cast<ssize_t>(sizeof(imujoco::protocol::MJSyncFeedback))) {
+                auto* fb = reinterpret_cast<const imujoco::protocol::MJSyncFeedback*>(buffer);
+                if (imujoco::protocol::mj_sync_validate_feedback(fb)) {
+                    driver_offset_us_.store(fb->offset_us, std::memory_order_relaxed);
+                    driver_delay_us_.store(fb->delay_us, std::memory_order_relaxed);
+                    driver_jitter_us_.store(fb->jitter_us, std::memory_order_relaxed);
+                    driver_locked_.store(fb->locked != 0, std::memory_order_relaxed);
+                    driver_exchanges_.store(fb->exchanges, std::memory_order_relaxed);
+                    continue;
+                }
             }
 
             if (recv_len < static_cast<ssize_t>(sizeof(imujoco::protocol::MJPdelayRequest))) {
@@ -210,6 +230,13 @@ private:
     std::atomic<uint64_t> responses_sent_{0};
     std::atomic<int32_t> atomic_rate_ratio_ppm_{0};
     std::thread thread_;
+
+    // Driver-side feedback atomics (written from RunLoop, read from UI thread)
+    std::atomic<int64_t> driver_offset_us_{0};
+    std::atomic<int64_t> driver_delay_us_{0};
+    std::atomic<float> driver_jitter_us_{0.0f};
+    std::atomic<bool> driver_locked_{false};
+    std::atomic<uint32_t> driver_exchanges_{0};
 
     // Rate ratio state (accessed only from RunLoop thread)
     uint64_t prev_t1_us_ = 0;
