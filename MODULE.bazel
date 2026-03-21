@@ -60,6 +60,8 @@ git_override(
 git_override(
     module_name = "rules_apple",
     commit = "22f6a4d9391eccb3b80d636d5c984f203873d477",
+    patch_strip = 1,
+    patches = ["//third_party/patches:rules_apple_profile_finder.patch"],
     remote = "https://github.com/bazelbuild/rules_apple.git",
 )
 
