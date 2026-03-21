@@ -134,7 +134,9 @@ To deploy to a physical iOS/iPadOS device, set up code signing.
 profiles installed on your system (by Xcode) and matches them by profile name
 and team ID. As long as the bundle ID exists in the Apple Developer Portal and
 you provide the matching `TEAM_ID` locally, Bazel finds the pair automatically.
-You never need to copy profiles into the repo.
+You never need to copy profiles into the repo. For App Store distribution
+builds (`//imujoco/app:app_ios_appstore`), also install a distribution
+provisioning profile and set `APPSTORE_PROFILE_NAME` in `team_config.bzl`.
 
 1. **Create `team_config.bzl`** from the template:
 

@@ -7,7 +7,7 @@
 -        profile_name, profile_uuid, creation_date, actual_team_id = _profile_contents(profile)
 +        try:
 +            profile_name, profile_uuid, creation_date, actual_team_id = _profile_contents(profile)
-+        except Exception:
++        except (ValueError, TypeError):
 +            # Skip profiles that cannot be parsed (e.g. DriverKit profiles
 +            # with complex entitlement plist structures).
 +            continue
