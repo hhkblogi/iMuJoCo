@@ -152,20 +152,18 @@ struct PerformanceStatsBar: View {
             guard syncRunning else { return "SYNC off" }
             guard let s = syncStats else { return "SYNC :\(syncPort)" }
 
-            let status = s.driverLocked ? "locked" : (syncActive ? "syncing" : "idle")
-            var parts = ["SYNC \(status)"]
+            // Fixed-width fields to prevent bar width from jumping
+            let status = s.driverLocked ? "locked " : (syncActive ? "syncing" : "idle   ")
 
             if s.driverExchanges > 0 {
-                parts.append("delay=\(s.driverDelayUs)us")
-                parts.append("rate=\(s.serverRateRatioPpm)ppm")
-                parts.append("exch=\(s.driverExchanges)")
-                parts.append(String(format: "jitter=%.1fus", s.driverJitterUs))
+                return String(
+                    format: "SYNC %@  delay:%5lldus  rate:%+6dppm  exch:%4u  jitter:%5.1fus",
+                    status, s.driverDelayUs, s.serverRateRatioPpm,
+                    s.driverExchanges, s.driverJitterUs
+                )
             } else {
-                parts.append(":\(syncPort)")
-                parts.append("exch=\(s.responsesSent)")
+                return "SYNC \(status)  :\(syncPort)  exch=\(s.responsesSent)"
             }
-
-            return parts.joined(separator: "  ")
         }()
 
         return Text(text)

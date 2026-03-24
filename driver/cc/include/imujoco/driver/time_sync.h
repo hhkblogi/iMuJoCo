@@ -62,7 +62,7 @@ struct SimTimeAnchor {
 // PTPClockServo
 // ============================================================================
 
-/// PI clock servo with median filter and outlier rejection.
+/// PI clock servo with min-RTT filter, median filter, and outlier rejection.
 /// Computes the offset between driver and device clocks from peer-delay
 /// exchanges.
 class PTPClockServo {
@@ -77,6 +77,7 @@ public:
         int lock_window_size = 30;          // Lock window for jitter diagnostics (3s at 10Hz)
         double max_correction_us = 1000.0;  // Anti-windup clamp (µs)
         int num_offset_values = 10;         // Consecutive below-threshold for LOCKED_STABLE
+        int min_rtt_window = 8;             // Min-RTT filter window (NTP-style, ~0.8s at 10Hz)
     };
 
     PTPClockServo() = default;
@@ -108,6 +109,15 @@ private:
     int count_ = 0;
     double mean_ = 0.0;
     double m2_ = 0.0;
+
+    // Min-RTT filter (NTP clock filter algorithm)
+    // Selects the exchange with lowest RTT to reduce WiFi asymmetric delay bias.
+    struct RttSample {
+        int64_t raw_offset;
+        int64_t raw_delay;
+        int64_t rtt;
+    };
+    std::deque<RttSample> rtt_window_;
 
     // Median filter window
     std::deque<int64_t> median_buffer_;
@@ -172,6 +182,7 @@ public:
         uint16_t port = 9000;           // Fixed sync port
         uint32_t interval_ms = 100;     // Pdelay interval (10 Hz)
         uint32_t timeout_ms = 50;       // Recv timeout
+        uint32_t max_consecutive_timeouts = 30;  // Reset servo after this many (~3s at 10Hz)
     };
 
     /// Construct a sync client.

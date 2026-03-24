@@ -41,6 +41,22 @@ void PTPClockServo::ProcessExchange(const PdelayExchange& ex) {
 
     if (raw_delay < 0) raw_delay = 0;  // Clamp negative delay
 
+    // --- Min-RTT filter (NTP clock filter algorithm) ---
+    // WiFi delay is asymmetric: upstream ≠ downstream queuing.
+    // The sample with minimum RTT has the least total queuing, so its
+    // offset is closest to truth. Select it from a sliding window.
+    int64_t rtt = forward - backward;  // = 2 * one_way_delay
+    rtt_window_.push_back({raw_offset, raw_delay, rtt});
+    if (static_cast<int>(rtt_window_.size()) > config_.min_rtt_window) {
+        rtt_window_.pop_front();
+    }
+    if (rtt_window_.size() >= 2) {
+        auto best = std::min_element(rtt_window_.begin(), rtt_window_.end(),
+            [](const RttSample& a, const RttSample& b) { return a.rtt < b.rtt; });
+        raw_offset = best->raw_offset;
+        raw_delay = best->raw_delay;
+    }
+
     exchanges_++;
 
     // --- Outlier rejection (Welford online variance, 3-sigma) ---
@@ -160,7 +176,7 @@ ClockSyncState PTPClockServo::GetState() const {
             double d = static_cast<double>(v) - win_mean;
             sq_sum += d * d;
         }
-        state.jitter_us = std::sqrt(sq_sum / static_cast<double>(lock_window_.size()));
+        state.jitter_us = std::sqrt(sq_sum / static_cast<double>(lock_window_.size() - 1));
     } else {
         state.jitter_us = 0.0;
     }
@@ -184,6 +200,7 @@ void PTPClockServo::Reset() {
     count_ = 0;
     mean_ = 0.0;
     m2_ = 0.0;
+    rtt_window_.clear();
     median_buffer_.clear();
     lock_window_.clear();
     integral_ = 0.0;
@@ -287,6 +304,7 @@ void SyncClient::sync_thread_func() {
     uint64_t seq_mismatch_count = 0;
     uint64_t validate_fail_count = 0;
     auto last_log_time = Clock::now();
+    uint32_t consecutive_timeouts = 0;
 
     while (running_.load(std::memory_order_acquire)) {
         auto loop_start = Clock::now();
@@ -314,6 +332,7 @@ void SyncClient::sync_thread_func() {
         pfd.events = POLLIN;
 
         bool matched = false;
+        bool received_any = false;  // Any valid packet (even stale seq)
         int poll_result = poll(&pfd, 1, static_cast<int>(config_.timeout_ms));
         while (poll_result > 0) {
             struct sockaddr_in from_addr;
@@ -332,6 +351,7 @@ void SyncClient::sync_thread_func() {
                     validate_fail_count++;
                 } else if (resp->seq != req.seq) {
                     seq_mismatch_count++;
+                    received_any = true;
                 } else {
                     recv_count++;
                     matched = true;
@@ -360,6 +380,7 @@ void SyncClient::sync_thread_func() {
                                sizeof(target_addr));
                     }
 
+                    consecutive_timeouts = 0;
                     break;  // Got our match, done
                 }
             }
@@ -369,6 +390,26 @@ void SyncClient::sync_thread_func() {
         }
         if (poll_result == 0 && !matched) {
             poll_timeout_count++;
+
+            // Only count true no-data timeouts toward recovery threshold.
+            // Stale-seq responses mean the link is alive, just laggy.
+            if (!received_any) {
+                consecutive_timeouts++;
+            }
+
+            // If we've timed out too many times and the servo was locked,
+            // reset to allow clean reconvergence when connectivity returns.
+            if (config_.max_consecutive_timeouts > 0 &&
+                consecutive_timeouts >= config_.max_consecutive_timeouts) {
+                std::lock_guard<std::mutex> lock(servo_mutex_);
+                if (servo_.GetState().locked) {
+                    fprintf(stderr,
+                        "[SyncClient] %u consecutive timeouts while locked — resetting servo\n",
+                        consecutive_timeouts);
+                    servo_.Reset();
+                }
+                consecutive_timeouts = 0;
+            }
         } else if (poll_result < 0) {
             poll_error_count++;
         }

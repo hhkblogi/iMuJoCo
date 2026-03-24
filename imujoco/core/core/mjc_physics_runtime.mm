@@ -130,12 +130,6 @@ public:
         double target_sim_time = 0.0;
         uint64_t echo_token = 0;
         uint32_t sequence = 0;
-        // Driver-side sync feedback
-        int64_t sync_offset_us = 0;
-        int64_t sync_delay_us = 0;
-        float sync_jitter_us = 0.0f;
-        bool sync_locked = false;
-        uint32_t sync_exchanges = 0;
     };
 
     int ReceiveControl(double* ctrl_out, int max_ctrl, ControlMeta* meta_out) {
@@ -200,11 +194,6 @@ public:
             meta_out->target_sim_time = packet->target_sim_time();
             meta_out->echo_token = packet->echo_token();
             meta_out->sequence = packet->sequence();
-            meta_out->sync_offset_us = packet->sync_offset_us();
-            meta_out->sync_delay_us = packet->sync_delay_us();
-            meta_out->sync_jitter_us = packet->sync_jitter_us();
-            meta_out->sync_locked = packet->sync_locked();
-            meta_out->sync_exchanges = packet->sync_exchanges();
         }
 
         auto ctrl = packet->ctrl();
@@ -302,18 +291,6 @@ static SyncServer& GetGlobalSyncServer() {
     return server;
 }
 
-// Driver-side sync feedback (written from physics thread on control packet reception)
-struct DriverSyncFeedback {
-    std::atomic<int64_t> offset_us{0};
-    std::atomic<int64_t> delay_us{0};
-    std::atomic<float> jitter_us{0.0f};
-    std::atomic<bool> locked{false};
-    std::atomic<uint32_t> exchanges{0};
-};
-static DriverSyncFeedback& GetDriverSyncFeedback() {
-    static DriverSyncFeedback feedback;
-    return feedback;
-}
 
 static void EnsureSyncServerRunning() {
     auto& server = GetGlobalSyncServer();
@@ -996,14 +973,6 @@ private:
                                                               static_cast<int>(ctrl_buffer.size()),
                                                               &meta);
                     if (received < 0) break;
-
-                    // Store driver-side sync feedback for UI polling
-                    auto& fb = GetDriverSyncFeedback();
-                    fb.offset_us.store(meta.sync_offset_us, std::memory_order_relaxed);
-                    fb.delay_us.store(meta.sync_delay_us, std::memory_order_relaxed);
-                    fb.jitter_us.store(meta.sync_jitter_us, std::memory_order_relaxed);
-                    fb.locked.store(meta.sync_locked, std::memory_order_relaxed);
-                    fb.exchanges.store(meta.sync_exchanges, std::memory_order_relaxed);
 
                     last_ctrl_received_ = Clock::now();
                     ctrl_timed_out_ = false;

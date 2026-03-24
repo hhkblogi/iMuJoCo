@@ -186,6 +186,149 @@ TEST(PTPClockServoTest, Reset) {
     EXPECT_FALSE(state.locked);
 }
 
+TEST(PTPClockServoTest, JitterAfterConvergence) {
+    PTPClockServo::Config config;
+    config.kp = 0.7;
+    config.ki = 0.3;
+    config.min_samples_for_lock = 10;
+    config.lock_threshold_us = 1000.0;
+    PTPClockServo servo(config);
+
+    // 60 stable exchanges at offset = 2000µs, delay = 500µs
+    for (int i = 0; i < 60; i++) {
+        uint64_t t1 = 1000000 + i * 100000;
+        uint64_t t2 = t1 + 2500;  // offset + delay
+        uint64_t t3 = t2 + 50;
+        uint64_t t4 = t3 - 1500;  // offset - delay
+        servo.ProcessExchange({t1, t2, t3, t4});
+    }
+
+    auto state = servo.GetState();
+    EXPECT_TRUE(state.locked);
+    EXPECT_GE(state.jitter_us, 0.0);
+    EXPECT_LT(state.jitter_us, 100.0);
+}
+
+TEST(PTPClockServoTest, NegativeOffset) {
+    PTPClockServo::Config config;
+    config.kp = 0.7;
+    config.ki = 0.3;
+    config.min_samples_for_lock = 10;
+    config.lock_threshold_us = 1000.0;
+    PTPClockServo servo(config);
+
+    // offset = -3000µs, delay = 500µs
+    // forward = t2 - t1 = offset + delay = -2500
+    // backward = t3 - t4 = offset - delay = -3500
+    for (int i = 0; i < 50; i++) {
+        uint64_t t1 = 10000000 + i * 100000;
+        // t2 = t1 - 2500 (device is behind driver)
+        uint64_t t2 = t1 - 2500;
+        uint64_t t3 = t2 + 50;
+        // t4 = t3 + 3500 (backward path: driver clock is ahead)
+        uint64_t t4 = t3 + 3500;
+        servo.ProcessExchange({t1, t2, t3, t4});
+    }
+
+    auto state = servo.GetState();
+    EXPECT_TRUE(state.locked);
+    EXPECT_NEAR(state.offset_us, -3000, 500);
+
+    // Verify clock conversions: device = driver + offset
+    uint64_t driver_time = 20000000;
+    uint64_t device_time = servo.DriverToDeviceTime(driver_time);
+    EXPECT_LT(device_time, driver_time);  // Negative offset → device behind
+    uint64_t roundtrip = servo.DeviceToDriverTime(device_time);
+    EXPECT_EQ(roundtrip, driver_time);
+}
+
+TEST(PTPClockServoTest, RelockAfterUnlock) {
+    PTPClockServo::Config config;
+    config.kp = 0.7;
+    config.ki = 0.3;
+    config.min_samples_for_lock = 10;
+    config.lock_threshold_us = 1000.0;
+    config.num_offset_values = 5;
+    PTPClockServo servo(config);
+
+    // Phase 1: Converge at offset = 2000µs
+    for (int i = 0; i < 40; i++) {
+        uint64_t t1 = 1000000 + i * 100000;
+        uint64_t t2 = t1 + 2500;
+        uint64_t t3 = t2 + 50;
+        uint64_t t4 = t3 - 1500;
+        servo.ProcessExchange({t1, t2, t3, t4});
+    }
+    auto state1 = servo.GetState();
+    EXPECT_TRUE(state1.locked);
+    EXPECT_GE(state1.lock_count, 1);
+
+    // Phase 2: Inject step change to offset = 8000µs (should unlock)
+    for (int i = 0; i < 20; i++) {
+        uint64_t t1 = 5000000 + i * 100000;
+        uint64_t t2 = t1 + 8500;  // offset=8000, delay=500
+        uint64_t t3 = t2 + 50;
+        uint64_t t4 = t3 - 7500;
+        servo.ProcessExchange({t1, t2, t3, t4});
+    }
+    auto state2 = servo.GetState();
+    EXPECT_GE(state2.unlock_count, 1);
+
+    // Phase 3: Converge at new offset
+    for (int i = 0; i < 40; i++) {
+        uint64_t t1 = 7000000 + i * 100000;
+        uint64_t t2 = t1 + 8500;
+        uint64_t t3 = t2 + 50;
+        uint64_t t4 = t3 - 7500;
+        servo.ProcessExchange({t1, t2, t3, t4});
+    }
+    auto state3 = servo.GetState();
+    EXPECT_TRUE(state3.locked);
+    EXPECT_GE(state3.lock_count, 2);  // Re-locked
+}
+
+TEST(PTPClockServoTest, TimeoutRecoveryResetBehavior) {
+    PTPClockServo::Config config;
+    config.kp = 0.7;
+    config.ki = 0.3;
+    config.min_samples_for_lock = 10;
+    config.lock_threshold_us = 1000.0;
+    PTPClockServo servo(config);
+
+    // Converge at offset = 4000µs
+    for (int i = 0; i < 50; i++) {
+        uint64_t t1 = 1000000 + i * 100000;
+        uint64_t t2 = t1 + 4500;
+        uint64_t t3 = t2 + 50;
+        uint64_t t4 = t3 - 3500;
+        servo.ProcessExchange({t1, t2, t3, t4});
+    }
+    EXPECT_TRUE(servo.GetState().locked);
+    EXPECT_NEAR(servo.GetState().offset_us, 4000, 500);
+
+    // Simulate timeout recovery: reset the servo
+    servo.Reset();
+
+    // Verify clean state
+    auto state = servo.GetState();
+    EXPECT_FALSE(state.locked);
+    EXPECT_EQ(state.offset_us, 0);
+    EXPECT_EQ(state.exchanges, 0);
+    EXPECT_EQ(state.lock_count, 0);
+    EXPECT_EQ(state.unlock_count, 0);
+
+    // Reconverge at a different offset = 6000µs
+    for (int i = 0; i < 50; i++) {
+        uint64_t t1 = 10000000 + i * 100000;
+        uint64_t t2 = t1 + 6500;
+        uint64_t t3 = t2 + 50;
+        uint64_t t4 = t3 - 5500;
+        servo.ProcessExchange({t1, t2, t3, t4});
+    }
+    EXPECT_TRUE(servo.GetState().locked);
+    EXPECT_NEAR(servo.GetState().offset_us, 6000, 500);
+}
+
 // ============================================================================
 // SimTimeClock Tests
 // ============================================================================

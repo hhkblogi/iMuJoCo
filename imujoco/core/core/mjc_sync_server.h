@@ -86,6 +86,20 @@ public:
 
         responses_sent_.store(0, std::memory_order_relaxed);
 
+        // Reset rate-ratio state so a restart doesn't use stale deltas
+        prev_t1_us_ = 0;
+        prev_t2_us_ = 0;
+        smoothed_rate_ratio_ppm_ = 0.0;
+        rate_ratio_ppm_ = 0;
+        atomic_rate_ratio_ppm_.store(0, std::memory_order_relaxed);
+
+        // Reset driver feedback atomics
+        driver_offset_us_.store(0, std::memory_order_relaxed);
+        driver_delay_us_.store(0, std::memory_order_relaxed);
+        driver_jitter_us_milli_.store(0, std::memory_order_relaxed);
+        driver_locked_.store(false, std::memory_order_relaxed);
+        driver_exchanges_.store(0, std::memory_order_relaxed);
+
         if (socket_fd_ >= 0) {
             close(socket_fd_);
             socket_fd_ = -1;
@@ -101,7 +115,7 @@ public:
     // Driver-side feedback (received via MJSyncFeedback messages)
     int64_t GetDriverOffsetUs() const { return driver_offset_us_.load(std::memory_order_relaxed); }
     int64_t GetDriverDelayUs() const { return driver_delay_us_.load(std::memory_order_relaxed); }
-    float GetDriverJitterUs() const { return driver_jitter_us_.load(std::memory_order_relaxed); }
+    float GetDriverJitterUs() const { return static_cast<float>(driver_jitter_us_milli_.load(std::memory_order_relaxed)) / 1000.0f; }
     bool GetDriverLocked() const { return driver_locked_.load(std::memory_order_relaxed); }
     uint32_t GetDriverExchanges() const { return driver_exchanges_.load(std::memory_order_relaxed); }
 
@@ -120,6 +134,8 @@ private:
         uint8_t buffer[64];  // Enough for MJPdelayRequest (18 bytes)
         uint64_t poll_errors = 0;
         uint64_t recv_errors = 0;
+        uint64_t last_feedback_us = 0;
+        bool feedback_stale = true;  // Start stale until first feedback arrives
 
         while (running_.load(std::memory_order_acquire)) {
             // Poll with 100ms timeout to allow clean shutdown
@@ -137,7 +153,22 @@ private:
                 }
                 continue;
             }
-            if (poll_result == 0) continue;  // Timeout, normal
+            if (poll_result == 0) {
+                // Check for stale driver feedback (no feedback for 5s)
+                if (!feedback_stale && last_feedback_us > 0) {
+                    uint64_t now = NowUs();
+                    if (now - last_feedback_us > 5'000'000) {
+                        driver_offset_us_.store(0, std::memory_order_relaxed);
+                        driver_delay_us_.store(0, std::memory_order_relaxed);
+                        driver_jitter_us_milli_.store(0, std::memory_order_relaxed);
+                        driver_locked_.store(false, std::memory_order_relaxed);
+                        driver_exchanges_.store(0, std::memory_order_relaxed);
+                        feedback_stale = true;
+                        os_log_info(OS_LOG_DEFAULT, "SyncServer: driver feedback stale, cleared metrics");
+                    }
+                }
+                continue;
+            }
 
             struct sockaddr_in client_addr;
             socklen_t addr_len = sizeof(client_addr);
@@ -165,9 +196,11 @@ private:
                 if (imujoco::protocol::mj_sync_validate_feedback(fb)) {
                     driver_offset_us_.store(fb->offset_us, std::memory_order_relaxed);
                     driver_delay_us_.store(fb->delay_us, std::memory_order_relaxed);
-                    driver_jitter_us_.store(fb->jitter_us, std::memory_order_relaxed);
+                    driver_jitter_us_milli_.store(static_cast<int32_t>(fb->jitter_us * 1000.0f), std::memory_order_relaxed);
                     driver_locked_.store(fb->locked != 0, std::memory_order_relaxed);
                     driver_exchanges_.store(fb->exchanges, std::memory_order_relaxed);
+                    last_feedback_us = t2;
+                    feedback_stale = false;
                     continue;
                 }
             }
@@ -234,7 +267,7 @@ private:
     // Driver-side feedback atomics (written from RunLoop, read from UI thread)
     std::atomic<int64_t> driver_offset_us_{0};
     std::atomic<int64_t> driver_delay_us_{0};
-    std::atomic<float> driver_jitter_us_{0.0f};
+    std::atomic<int32_t> driver_jitter_us_milli_{0};
     std::atomic<bool> driver_locked_{false};
     std::atomic<uint32_t> driver_exchanges_{0};
 
