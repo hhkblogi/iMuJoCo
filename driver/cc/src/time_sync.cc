@@ -264,6 +264,11 @@ bool SyncClient::Start() {
     socket_fd_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (socket_fd_ < 0) return false;
 
+    // Allow rapid socket reuse after Stop() — prevents bind failures
+    // when restarting the client quickly (e.g., back-to-back benchmark runs).
+    int opt = 1;
+    setsockopt(socket_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
     running_.store(true, std::memory_order_release);
     thread_ = std::thread(&SyncClient::sync_thread_func, this);
     return true;

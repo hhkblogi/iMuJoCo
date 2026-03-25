@@ -135,6 +135,7 @@ private:
         uint64_t poll_errors = 0;
         uint64_t recv_errors = 0;
         uint64_t last_feedback_us = 0;
+        uint64_t last_response_us = 0;
         bool feedback_stale = true;  // Start stale until first feedback arrives
 
         while (running_.load(std::memory_order_acquire)) {
@@ -154,10 +155,13 @@ private:
                 continue;
             }
             if (poll_result == 0) {
-                // Check for stale driver feedback (no feedback for 5s)
-                if (!feedback_stale && last_feedback_us > 0) {
+                // Check for stale driver connection (no activity for 5s).
+                // Use whichever timestamp is more recent: feedback or response.
+                uint64_t last_activity = last_feedback_us > last_response_us
+                                       ? last_feedback_us : last_response_us;
+                if (!feedback_stale && last_activity > 0) {
                     uint64_t now = NowUs();
-                    if (now - last_feedback_us > 5'000'000) {
+                    if (now - last_activity > 5'000'000) {
                         driver_offset_us_.store(0, std::memory_order_relaxed);
                         driver_delay_us_.store(0, std::memory_order_relaxed);
                         driver_jitter_us_milli_.store(0, std::memory_order_relaxed);
@@ -243,6 +247,8 @@ private:
             ssize_t sent = sendto(socket_fd_, &resp, sizeof(resp), 0,
                    reinterpret_cast<struct sockaddr*>(&client_addr), addr_len);
             if (sent > 0) {
+                last_response_us = NowUs();
+                feedback_stale = false;  // A driver is connected
                 auto count = responses_sent_.fetch_add(1, std::memory_order_relaxed) + 1;
                 if (count == 1 || (count % 600) == 0) {
                     os_log_info(OS_LOG_DEFAULT,

@@ -143,9 +143,9 @@ struct PerformanceStatsBar: View {
     private var syncStatusLine: some View {
         let color: Color = {
             if !syncRunning { return .gray }
-            if let s = syncStats, s.driverLocked { return .green }
+            if syncActive, let s = syncStats, s.driverLocked { return .green }
             if syncActive { return .white }
-            return .white.opacity(0.6)
+            return .white.opacity(0.4)
         }()
 
         let text: String = {
@@ -153,16 +153,18 @@ struct PerformanceStatsBar: View {
             guard let s = syncStats else { return "SYNC :\(syncPort)" }
 
             // Fixed-width fields to prevent bar width from jumping
-            let status = s.driverLocked ? "locked " : (syncActive ? "syncing" : "idle   ")
+            // syncActive = responses still being sent; driverLocked = last feedback said locked.
+            // Must require syncActive to show "locked" — stale driverLocked persists after disconnect.
+            let status = (s.driverLocked && syncActive) ? "locked " : (syncActive ? "syncing" : "idle   ")
 
-            if s.driverExchanges > 0 {
+            if syncActive && s.driverExchanges > 0 {
                 return String(
                     format: "SYNC %@  delay:%5lldus  rate:%+6dppm  exch:%4u  jitter:%5.1fus",
                     status, s.driverDelayUs, s.serverRateRatioPpm,
                     s.driverExchanges, s.driverJitterUs
                 )
             } else {
-                return "SYNC \(status)  :\(syncPort)  exch=\(s.responsesSent)"
+                return "SYNC \(status)  :\(syncPort)"
             }
         }()
 
