@@ -179,7 +179,7 @@ class SyncClient {
 public:
     struct Config {
         std::string host = "127.0.0.1";
-        uint16_t port = 9000;           // Fixed sync port
+        uint16_t port = 10000;           // Dedicated sync port
         uint32_t interval_ms = 100;     // Pdelay interval (10 Hz)
         uint32_t timeout_ms = 50;       // Recv timeout
         uint32_t max_consecutive_timeouts = 30;  // Reset servo after this many (~3s at 10Hz)

@@ -19,6 +19,7 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <poll.h>
+#include <pthread.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -132,19 +133,24 @@ private:
     /// Main responder loop — runs on dedicated thread.
     void RunLoop() {
         uint8_t buffer[64];  // Enough for MJPdelayRequest (18 bytes)
+        // Request high-priority scheduling from iOS. QOS_CLASS_USER_INTERACTIVE
+        // tells the OS this thread serves real-time user interaction and should
+        // not be throttled when the app is idle.
+        pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+
         uint64_t poll_errors = 0;
         uint64_t recv_errors = 0;
-        uint64_t last_feedback_us = 0;
-        uint64_t last_response_us = 0;
-        bool feedback_stale = true;  // Start stale until first feedback arrives
+        uint64_t last_activity_us = 0;
+        bool has_driver = false;
 
         while (running_.load(std::memory_order_acquire)) {
-            // Poll with 100ms timeout to allow clean shutdown
+            // 10ms poll timeout: responsive to requests (10x per client interval),
+            // fast shutdown check, minimal CPU (~100 syscalls/s).
             struct pollfd pfd;
             pfd.fd = socket_fd_;
             pfd.events = POLLIN;
 
-            int poll_result = poll(&pfd, 1, 100);
+            int poll_result = poll(&pfd, 1, 10);
             if (poll_result < 0) {
                 poll_errors++;
                 if (poll_errors <= 5 || (poll_errors % 100) == 0) {
@@ -155,19 +161,16 @@ private:
                 continue;
             }
             if (poll_result == 0) {
-                // Check for stale driver connection (no activity for 5s).
-                // Use whichever timestamp is more recent: feedback or response.
-                uint64_t last_activity = last_feedback_us > last_response_us
-                                       ? last_feedback_us : last_response_us;
-                if (!feedback_stale && last_activity > 0) {
+                // Check for stale driver (no activity for 5s)
+                if (has_driver && last_activity_us > 0) {
                     uint64_t now = NowUs();
-                    if (now - last_activity > 5'000'000) {
+                    if (now - last_activity_us > 5'000'000) {
                         driver_offset_us_.store(0, std::memory_order_relaxed);
                         driver_delay_us_.store(0, std::memory_order_relaxed);
                         driver_jitter_us_milli_.store(0, std::memory_order_relaxed);
                         driver_locked_.store(false, std::memory_order_relaxed);
                         driver_exchanges_.store(0, std::memory_order_relaxed);
-                        feedback_stale = true;
+                        has_driver = false;
                         os_log_info(OS_LOG_DEFAULT, "SyncServer: driver feedback stale, cleared metrics");
                     }
                 }
@@ -203,8 +206,8 @@ private:
                     driver_jitter_us_milli_.store(static_cast<int32_t>(fb->jitter_us * 1000.0f), std::memory_order_relaxed);
                     driver_locked_.store(fb->locked != 0, std::memory_order_relaxed);
                     driver_exchanges_.store(fb->exchanges, std::memory_order_relaxed);
-                    last_feedback_us = t2;
-                    feedback_stale = false;
+                    last_activity_us = t2;
+                    has_driver = true;
                     continue;
                 }
             }
@@ -247,8 +250,8 @@ private:
             ssize_t sent = sendto(socket_fd_, &resp, sizeof(resp), 0,
                    reinterpret_cast<struct sockaddr*>(&client_addr), addr_len);
             if (sent > 0) {
-                last_response_us = NowUs();
-                feedback_stale = false;  // A driver is connected
+                last_activity_us = NowUs();
+                has_driver = true;
                 auto count = responses_sent_.fetch_add(1, std::memory_order_relaxed) + 1;
                 if (count == 1 || (count % 600) == 0) {
                     os_log_info(OS_LOG_DEFAULT,

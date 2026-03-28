@@ -6,17 +6,17 @@ device (iPad/iPhone). Validates stability for teleoperation with rich
 diagnostics covering: convergence, stability, adaptability, and latency.
 
 Usage:
-    # Sync-only mode (no control connection, just PTP):
-    bazel run //driver:time_sync_benchmark -- --host 192.168.1.42 --port 0
+    # Sync-only mode (default, no control connection, just PTP):
+    bazel run //driver:time_sync_benchmark -- --host 192.168.1.42
 
-    # Full mode (with state subscription):
-    bazel run //driver:time_sync_benchmark -- --host 192.168.1.42 --port 9001
+    # Full mode (with state subscription via control port):
+    bazel run //driver:time_sync_benchmark -- --host 192.168.1.42 --control-port 9000
 
     # Short test:
-    bazel run //driver:time_sync_benchmark -- --host 192.168.1.42 --port 0 --duration 1
+    bazel run //driver:time_sync_benchmark -- --host 192.168.1.42 --duration 1
 
     # With CSV/JSON output:
-    bazel run //driver:time_sync_benchmark -- --host 192.168.1.42 --port 0 --csv sync.csv --json report.json
+    bazel run //driver:time_sync_benchmark -- --host 192.168.1.42 --csv sync.csv --json report.json
 
 Prerequisites:
     Load a model on the device and start simulation.
@@ -555,23 +555,25 @@ def main():
     parser = argparse.ArgumentParser(
         description="PTP Time Sync Benchmark — 30-Minute Diagnostic Suite")
     parser.add_argument("--host", required=True, help="Device IP address")
-    parser.add_argument("--port", type=int, default=9001,
-                        help="Control port (default: 9001). 0 = sync-only mode")
+    parser.add_argument("--control-port", default="none",
+                        help="Control port (default: none = sync-only mode)")
     parser.add_argument("--duration", type=float, default=30.0,
                         help="Test duration in minutes (default: 30)")
     parser.add_argument("--csv", default=None,
                         help="Write raw samples CSV to this path")
     parser.add_argument("--json", default=None,
                         help="Write structured JSON report to this path")
-    parser.add_argument("--sync-port", type=int, default=9000,
-                        help="Sync port (default: 9000)")
+    parser.add_argument("--sync-port", type=int, default=10000,
+                        help="Sync port (default: 10000)")
     parser.add_argument("--interval", type=int, default=100,
                         help="Sync sample interval in ms (default: 100)")
     args = parser.parse_args()
 
+    control_port = 0 if args.control_port.lower() == "none" else int(args.control_port)
+
     return run_benchmark(
         host=args.host,
-        port=args.port,
+        port=control_port,
         duration_min=args.duration,
         csv_path=args.csv,
         json_path=args.json,

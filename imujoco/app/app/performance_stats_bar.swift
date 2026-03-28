@@ -141,8 +141,16 @@ struct PerformanceStatsBar: View {
     // MARK: - Sync Status Line
 
     private var syncStatusLine: some View {
+        // Lock Failed: servo has had enough exchanges to converge but hasn't locked.
+        // 30 exchanges = full lock window (3s at 10Hz) — if still not locked, something is wrong.
+        let lockFailed: Bool = {
+            guard syncActive, let s = syncStats else { return false }
+            return !s.driverLocked && s.driverExchanges > 30
+        }()
+
         let color: Color = {
             if !syncRunning { return .gray }
+            if lockFailed { return .red }
             if syncActive, let s = syncStats, s.driverLocked { return .green }
             if syncActive { return .white }
             return .white.opacity(0.4)
@@ -152,19 +160,27 @@ struct PerformanceStatsBar: View {
             guard syncRunning else { return "SYNC off" }
             guard let s = syncStats else { return "SYNC :\(syncPort)" }
 
-            // Fixed-width fields to prevent bar width from jumping
+            // Fixed-width fields to prevent bar width from jumping.
             // syncActive = responses still being sent; driverLocked = last feedback said locked.
-            // Must require syncActive to show "locked" — stale driverLocked persists after disconnect.
-            let status = (s.driverLocked && syncActive) ? "locked " : (syncActive ? "syncing" : "idle   ")
+            let status: String
+            if !syncActive {
+                status = "Idle       "
+            } else if s.driverLocked {
+                status = "Locked     "
+            } else if lockFailed {
+                status = "Lock Failed"
+            } else {
+                status = "Syncing    "
+            }
 
             if syncActive && s.driverExchanges > 0 {
+                let delayMs = Double(s.driverDelayUs) / 1000.0
                 return String(
-                    format: "SYNC %@  delay:%5lldus  rate:%+6dppm  exch:%4u  jitter:%5.1fus",
-                    status, s.driverDelayUs, s.serverRateRatioPpm,
-                    s.driverExchanges, s.driverJitterUs
+                    format: "Sync Status: %@  Delay: %5.1f ms  Rate: %+6d ppm  Jitter: %5.1f us",
+                    status, delayMs, s.serverRateRatioPpm, s.driverJitterUs
                 )
             } else {
-                return "SYNC \(status)  :\(syncPort)"
+                return "Sync Status: \(status)  :\(syncPort)"
             }
         }()
 

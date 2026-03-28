@@ -70,7 +70,7 @@ inline uint16_t mj_sync_crc16(const void* data, size_t len) {
 // Wire protocol constants
 // ============================================================================
 
-static constexpr uint16_t MJ_SYNC_PORT        = 9000;        // Fixed sync port for all instances
+static constexpr uint16_t MJ_SYNC_PORT        = 10000;        // Dedicated sync port (separate from control port 9000)
 static constexpr uint32_t MJ_SYNC_MAGIC_REQ  = 0x4D4A5351;  // "MJSQ"
 static constexpr uint32_t MJ_SYNC_MAGIC_RESP = 0x4D4A5352;  // "MJSR"
 static constexpr uint32_t MJ_SYNC_MAGIC_FB   = 0x4D4A5346;  // "MJSF" — driver feedback

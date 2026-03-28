@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <sys/time.h>
 
 // Network includes
 #include <arpa/inet.h>
@@ -26,6 +27,15 @@ static uint64_t NowUs() {
             Clock::now().time_since_epoch()).count());
 }
 
+/// Wall-clock microseconds (gettimeofday). Same clock domain as SO_TIMESTAMP
+/// kernel receive timestamps, enabling accurate t4 for late-arriving responses.
+static uint64_t WallUs() {
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    return static_cast<uint64_t>(tv.tv_sec) * 1'000'000 +
+           static_cast<uint64_t>(tv.tv_usec);
+}
+
 // ============================================================================
 // PTPClockServo
 // ============================================================================
@@ -40,6 +50,10 @@ void PTPClockServo::ProcessExchange(const PdelayExchange& ex) {
     int64_t raw_delay  = (forward - backward) / 2;
 
     if (raw_delay < 0) raw_delay = 0;  // Clamp negative delay
+
+    // Reject exchanges with unreasonable delay (>50ms one-way).
+    // Safety net for corrupted timestamps or extreme outliers.
+    if (raw_delay > 50'000) return;
 
     // --- Min-RTT filter (NTP clock filter algorithm) ---
     // WiFi delay is asymmetric: upstream ≠ downstream queuing.
@@ -264,10 +278,14 @@ bool SyncClient::Start() {
     socket_fd_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (socket_fd_ < 0) return false;
 
-    // Allow rapid socket reuse after Stop() — prevents bind failures
-    // when restarting the client quickly (e.g., back-to-back benchmark runs).
+    // Allow rapid socket reuse after Stop()
     int opt = 1;
     setsockopt(socket_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    // Enable kernel receive timestamps. SO_TIMESTAMP uses the wall clock
+    // (gettimeofday), same domain as WallUs() used for t1. This gives
+    // accurate t4 even for prev-seq responses read one cycle late.
+    setsockopt(socket_fd_, SOL_SOCKET, SO_TIMESTAMP, &opt, sizeof(opt));
 
     running_.store(true, std::memory_order_release);
     thread_ = std::thread(&SyncClient::sync_thread_func, this);
@@ -298,6 +316,7 @@ void SyncClient::sync_thread_func() {
     }
 
     uint8_t recv_buf[64];  // Enough for MJPdelayResponse (42 bytes)
+    char cmsg_buf[CMSG_SPACE(sizeof(struct timeval))];
 
     // Diagnostic counters
     uint64_t send_count = 0;
@@ -314,8 +333,8 @@ void SyncClient::sync_thread_func() {
     while (running_.load(std::memory_order_acquire)) {
         auto loop_start = Clock::now();
 
-        // Build and send request
-        uint64_t t1 = NowUs();
+        // Build and send request (wall clock for t1, matches SO_TIMESTAMP for t4)
+        uint64_t t1 = WallUs();
         imujoco::protocol::MJPdelayRequest req;
         req.seq = seq_++;
         req.t1_us = t1;
@@ -330,23 +349,46 @@ void SyncClient::sync_thread_func() {
             send_error_count++;
         }
 
-        // Wait for response — drain stale responses to find current seq.
-        // A single WiFi hiccup can put us one-behind permanently if we don't drain.
+        // Poll for responses. Drain all available packets, preferring
+        // current seq but falling back to prev-seq if no exact match.
+        // Prev-seq responses have inflated t4 (~50ms extra delay) since
+        // we read them one cycle late, but they still prove connectivity
+        // and keep the servo fed when current-seq consistently misses.
         struct pollfd pfd;
         pfd.fd = socket_fd_;
         pfd.events = POLLIN;
 
         bool matched = false;
-        bool received_any = false;  // Any valid packet (even stale seq)
+        bool received_any = false;
+        // Stash best prev-seq response in case current seq never arrives
+        bool have_prev = false;
+        PdelayExchange prev_exchange;
+        int32_t prev_rate_ratio = 0;
+
         int poll_result = poll(&pfd, 1, static_cast<int>(config_.timeout_ms));
         while (poll_result > 0) {
+            // Use recvmsg to extract kernel receive timestamp (SO_TIMESTAMP)
             struct sockaddr_in from_addr;
-            socklen_t from_len = sizeof(from_addr);
-            ssize_t recv_len = recvfrom(socket_fd_, recv_buf, sizeof(recv_buf), 0,
-                                        reinterpret_cast<struct sockaddr*>(&from_addr),
-                                        &from_len);
+            struct iovec iov = { recv_buf, sizeof(recv_buf) };
+            struct msghdr msg = {};
+            msg.msg_name = &from_addr;
+            msg.msg_namelen = sizeof(from_addr);
+            msg.msg_iov = &iov;
+            msg.msg_iovlen = 1;
+            msg.msg_control = cmsg_buf;
+            msg.msg_controllen = sizeof(cmsg_buf);
 
-            uint64_t t4 = NowUs();
+            ssize_t recv_len = recvmsg(socket_fd_, &msg, 0);
+            uint64_t t4 = WallUs();  // fallback
+            for (struct cmsghdr* cm = CMSG_FIRSTHDR(&msg);
+                 cm != nullptr; cm = CMSG_NXTHDR(&msg, cm)) {
+                if (cm->cmsg_level == SOL_SOCKET && cm->cmsg_type == SCM_TIMESTAMP) {
+                    auto* tv = reinterpret_cast<struct timeval*>(CMSG_DATA(cm));
+                    t4 = static_cast<uint64_t>(tv->tv_sec) * 1'000'000 +
+                         static_cast<uint64_t>(tv->tv_usec);
+                    break;
+                }
+            }
 
             if (recv_len < 0) {
                 recv_error_count++;
@@ -354,10 +396,8 @@ void SyncClient::sync_thread_func() {
                 auto* resp = reinterpret_cast<const imujoco::protocol::MJPdelayResponse*>(recv_buf);
                 if (!imujoco::protocol::mj_sync_validate_response(resp)) {
                     validate_fail_count++;
-                } else if (resp->seq != req.seq) {
-                    seq_mismatch_count++;
-                    received_any = true;
-                } else {
+                } else if (resp->seq == req.seq) {
+                    // Exact match — use immediately
                     recv_count++;
                     matched = true;
                     PdelayExchange exchange;
@@ -387,23 +427,39 @@ void SyncClient::sync_thread_func() {
 
                     consecutive_timeouts = 0;
                     break;  // Got our match, done
+                } else if (req.seq > 0 && resp->seq == req.seq - 1) {
+                    // Previous seq — stash as fallback. SO_TIMESTAMP gives
+                    // accurate kernel t4 even though we read it late.
+                    have_prev = true;
+                    prev_exchange = {resp->t1_us, resp->t2_us, resp->t3_us, t4};
+                    prev_rate_ratio = resp->rate_ratio_ppm;
+                    received_any = true;
+                } else {
+                    seq_mismatch_count++;
+                    received_any = true;
                 }
             }
 
-            // Non-blocking check for more stale data
+            // Non-blocking check for more data
             poll_result = poll(&pfd, 1, 0);
+        }
+
+        // If no current-seq match, use prev-seq fallback
+        if (!matched && have_prev) {
+            recv_count++;
+            matched = true;
+            std::lock_guard<std::mutex> lock(servo_mutex_);
+            servo_.ProcessExchange(prev_exchange);
+            servo_.UpdateRateRatio(prev_rate_ratio);
+            consecutive_timeouts = 0;
         }
         if (poll_result == 0 && !matched) {
             poll_timeout_count++;
 
-            // Only count true no-data timeouts toward recovery threshold.
-            // Stale-seq responses mean the link is alive, just laggy.
             if (!received_any) {
                 consecutive_timeouts++;
             }
 
-            // If we've timed out too many times and the servo was locked,
-            // reset to allow clean reconvergence when connectivity returns.
             if (config_.max_consecutive_timeouts > 0 &&
                 consecutive_timeouts >= config_.max_consecutive_timeouts) {
                 std::lock_guard<std::mutex> lock(servo_mutex_);

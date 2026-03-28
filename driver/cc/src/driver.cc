@@ -30,7 +30,7 @@ Driver::Driver(const DriverConfig& config)
     if (config_.sync_interval_ms > 0) {
         SyncClient::Config sync_config;
         sync_config.host = config_.host;
-        sync_config.port = config_.sync_port > 0 ? config_.sync_port : 9000;
+        sync_config.port = config_.sync_port > 0 ? config_.sync_port : 10000;
         sync_config.interval_ms = config_.sync_interval_ms;
         sync_client_ = std::make_unique<SyncClient>(clock_servo_, sync_mutex_,
                                                      sync_config);
