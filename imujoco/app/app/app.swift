@@ -1,4 +1,5 @@
 import SwiftUI
+import core
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -41,6 +42,9 @@ struct MuJoCoApp: App {
         #if os(iOS)
         SimulationGridManager.registerBackgroundTask()
         #endif
+
+        // Start sync server at launch — available before any model is loaded
+        startSyncServer()
     }
 
     var body: some Scene {

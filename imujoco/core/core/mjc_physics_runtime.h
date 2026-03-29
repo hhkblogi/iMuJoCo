@@ -340,6 +340,30 @@ const MJLightInstance* MJFrameDataGetLights(const MJFrameData* frame);
 /// Get MuJoCo version number (e.g., 340 for version 3.4.0)
 int32_t MJGetVersion();
 
+// MARK: - Sync Server Stats
+
+/// Stats from the process-wide gPTP sync server + driver feedback (observable from Swift)
+struct MJSyncServerStats {
+    // Server-side (iPad)
+    bool isRunning = false;
+    uint64_t responsesSent = 0;
+    uint16_t port = 0;
+    int32_t serverRateRatioPpm = 0;
+    // Driver-side feedback (from control packets)
+    bool driverLocked = false;
+    int64_t driverOffsetUs = 0;
+    int64_t driverDelayUs = 0;
+    float driverJitterUs = 0.0f;
+    uint32_t driverExchanges = 0;
+};
+
+/// Get current sync server stats (thread-safe, lock-free)
+MJSyncServerStats MJGetSyncServerStats();
+
+/// Start the process-wide sync server if not already running.
+/// Safe to call multiple times — only the first call binds the socket.
+void MJStartSyncServer();
+
 // MARK: - Forward Declarations
 
 class MJSimulationRuntimeImpl;

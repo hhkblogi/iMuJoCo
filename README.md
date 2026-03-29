@@ -242,9 +242,45 @@ bazel build //schema:core_schemas
 **Bazel version mismatch:**
 This project requires Bazel 9. Use [Bazelisk](https://github.com/bazelbuild/bazelisk) for automatic version management.
 
-## Work in Progress
+## Time Synchronization
 
-- **Network time sync** — Clock synchronization between iMuJoCo on-device and the driver client across Wi-Fi, for accurate latency measurement and coordinated replay
+iMuJoCo includes gPTP-inspired clock synchronization between the driver (Mac/Python) and the device (iPad) over WiFi. This enables accurate latency measurement, simulation time prediction, and coordinated replay.
+
+### How it works
+
+The driver (downstream) and device (upstream) exchange UDP peer-delay packets at 10 Hz on a dedicated port (10000). Each exchange produces four timestamps (t1-t4) from which clock offset and network delay are computed. A PI servo with min-RTT filtering converges the offset to sub-millisecond accuracy.
+
+```
+Driver (Mac)                              Device (iPad)
+  SyncClient (10Hz)                         SyncServer (port 10000)
+       |--- PdelayRequest (t1) ------------>|
+       |<-- PdelayResponse (t2, t3) --------|
+       |                                     |
+  PTPClockServo                          Rate ratio computation
+  (min-RTT + median + PI)                UI feedback display
+```
+
+### Key features
+
+- **Sub-millisecond accuracy** over WiFi (~1.8ms delay, ~1.2ms offset jitter)
+- **99.9% lock ratio** sustained over 1-hour test (2s lock time)
+- **SO_TIMESTAMP kernel timestamps** for accurate receive timing on overlapping responses
+- **Min-RTT filter** (NTP-style) to reduce WiFi asymmetric delay bias
+- **PI controller** with Welford outlier rejection and median filter
+- **Live metrics** on device status bar: lock state, delay, rate, jitter
+
+### Benchmark
+
+```bash
+# Sync-only test (30 seconds):
+bazel run //driver:time_sync_benchmark -- --host <device-ip> --duration 0.5
+
+# Full 30-minute diagnostic:
+bazel run //driver:time_sync_benchmark -- --host <device-ip>
+
+# With control port:
+bazel run //driver:time_sync_benchmark -- --host <device-ip> --control-port 9000
+```
 
 ## Contributing
 

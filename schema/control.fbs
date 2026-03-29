@@ -15,6 +15,21 @@ table ControlPacket {
   // Used for paced replay on the receiver side.
   // 0 (default) = apply immediately (legacy / backward-compatible behavior).
   host_timestamp_us: uint64;
+
+  // Time sync fields (appended for backward compatibility — default to 0)
+
+  // Target simulation time for this control (0.0 = use existing pacing)
+  target_sim_time: double;
+
+  // Opaque token echoed back in the corresponding StatePacket
+  echo_token: uint64;
+
+  // Driver-side clock sync feedback (piggybacked for device UI display)
+  sync_offset_us: int64;       // Device-driver clock offset (µs)
+  sync_delay_us: int64;        // One-way network delay estimate (µs)
+  sync_jitter_us: float;       // PI output jitter / lock quality (µs)
+  sync_locked: bool;           // Whether driver clock servo is locked
+  sync_exchanges: uint32;      // Total pdelay exchanges processed
 }
 
 root_type ControlPacket;
