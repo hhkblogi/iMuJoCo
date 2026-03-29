@@ -157,30 +157,30 @@ struct PerformanceStatsBar: View {
         }()
 
         let text: String = {
-            guard syncRunning else { return "SYNC off" }
-            guard let s = syncStats else { return "SYNC :\(syncPort)" }
+            guard syncRunning else { return "PTP off" }
+            guard let s = syncStats else { return "PTP :\(syncPort)" }
 
             // Fixed-width fields to prevent bar width from jumping.
             // syncActive = responses still being sent; driverLocked = last feedback said locked.
             let status: String
             if !syncActive {
-                status = "Idle       "
+                status = "Idle"
             } else if s.driverLocked {
-                status = "Locked     "
+                status = "Locked"
             } else if lockFailed {
                 status = "Lock Failed"
             } else {
-                status = "Syncing    "
+                status = "Syncing"
             }
 
             if syncActive && s.driverExchanges > 0 {
                 let delayMs = Double(s.driverDelayUs) / 1000.0
                 return String(
-                    format: "Sync Status: %@  Delay: %5.1f ms  Rate: %+6d ppm  Jitter: %5.1f us",
-                    status, delayMs, s.serverRateRatioPpm, s.driverJitterUs
+                    format: "PTP :%u  %@  Delay: %5.1f ms  Rate: %+6d ppm  Jitter: %5.1f us",
+                    syncPort, status, delayMs, s.serverRateRatioPpm, s.driverJitterUs
                 )
             } else {
-                return "Sync Status: \(status)  :\(syncPort)"
+                return "PTP :\(syncPort)  \(status)"
             }
         }()
 
