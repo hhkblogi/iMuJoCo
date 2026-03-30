@@ -43,6 +43,38 @@ table StatePacket {
 
   // Echo of control packet's echo_token (for round-trip correlation)
   echo_token: uint64;
+
+  // === Force data (opt-in via MJRuntimeConfig.sendForceData) ===
+
+  // Actuator forces at each joint (length = model.nv)
+  qfrc_actuator: [double];
+
+  // Gravity + Coriolis forces at each joint (length = model.nv)
+  qfrc_bias: [double];
+
+  // Internal body interaction forces (length = model.nbody * 6)
+  // Force/torque through the kinematic chain (parent->child)
+  // 6 values per body: (fx, fy, fz, tx, ty, tz) in world frame
+  cfrc_int: [double];
+
+  // External body forces (length = model.nbody * 6)
+  // Forces from contacts, applied forces, etc.
+  cfrc_ext: [double];
+
+  // === Contact information ===
+
+  // Number of active contacts this timestep
+  ncon: int32;
+
+  // Contact positions in world frame (length = ncon * 3)
+  contact_pos: [double];
+
+  // Contact normal forces (length = ncon)
+  contact_force: [double];
+
+  // Contact body pairs (length = ncon each)
+  contact_body1: [int32];
+  contact_body2: [int32];
 }
 
 root_type StatePacket;

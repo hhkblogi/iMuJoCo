@@ -56,6 +56,7 @@ struct MJRuntimeConfig {
     bool busyWait = false;          ///< Use busy wait for better timing (uses more CPU)
     uint16_t udpPort = 0;           ///< UDP port for network I/O (0 = default: 9000 + instanceIndex)
     uint32_t ctrlTimeoutMs = 500;   ///< ms without UDP packet before ctrl fallback (0 = disabled)
+    bool sendForceData = false;     ///< Include qfrc/cfrc/contact forces in StatePacket
 };
 
 /// Statistics from the physics runtime
