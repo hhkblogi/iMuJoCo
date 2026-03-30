@@ -181,7 +181,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         stop()
 
         // Create new runtime instance with port for UDP server
-        let rt = try MJRuntime(instanceIndex: Int32(id), udpPort: port, sendForceData: true)
+        let rt = try MJRuntime(instanceIndex: Int32(id), udpPort: port)
         try rt.loadModel(fromFile: path)
 
         await MainActor.run {
@@ -196,7 +196,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         stop()
 
         // Create new runtime instance with port for UDP server
-        let rt = try MJRuntime(instanceIndex: Int32(id), udpPort: port, sendForceData: true)
+        let rt = try MJRuntime(instanceIndex: Int32(id), udpPort: port)
         try rt.loadModel(fromXML: xml)
 
         await MainActor.run {
@@ -602,7 +602,7 @@ final class SimulationInstance: Identifiable, MJCRenderDataSource, MJCVideoDataS
         // Reload model if one was loaded
         if let path = savedPath {
             do {
-                let rt = try MJRuntime(instanceIndex: Int32(id), udpPort: port, sendForceData: true)
+                let rt = try MJRuntime(instanceIndex: Int32(id), udpPort: port)
                 try rt.loadModel(fromFile: path)
                 runtime = rt
                 modelPath = path

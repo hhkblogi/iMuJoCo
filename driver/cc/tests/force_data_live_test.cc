@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <mutex>
 #include <thread>
 
 using namespace imujoco::driver;
@@ -27,10 +28,14 @@ int main(int argc, char** argv) {
     }
 
     std::atomic<int> count{0};
+    std::mutex state_mutex;
     SimulationState last_state;
 
     auto sub_id = driver.Subscribe([&](const SimulationState& state) {
-        last_state = state;  // Copy the full state
+        {
+            std::lock_guard<std::mutex> lock(state_mutex);
+            last_state = state;  // Copy the full state
+        }
         count.fetch_add(1);
     });
 
@@ -53,7 +58,13 @@ int main(int argc, char** argv) {
     }
 
     // Verify force fields from last state
-    auto& s = last_state;
+    // Take a copy under the lock — callback thread may still be in-flight
+    // between the last count.fetch_add and our Unsubscribe above.
+    SimulationState s;
+    {
+        std::lock_guard<std::mutex> lock(state_mutex);
+        s = last_state;
+    }
     printf("seq=%u time=%.4f\n", s.sequence, s.time);
     printf("qpos[%zu] qvel[%zu] ctrl[%zu]\n",
            s.qpos.size(), s.qvel.size(), s.ctrl.size());

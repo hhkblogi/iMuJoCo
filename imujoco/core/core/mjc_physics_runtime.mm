@@ -244,6 +244,9 @@ public:
         int32_t ncon = 0;
 
         if (send_force_data) {
+            // const_cast is safe: SendState is called from the physics thread that
+            // owns model/data. mj_rnePostConstraint requires non-const pointers but
+            // our signature takes const to match the read-only call-site contract.
             mj_rnePostConstraint(const_cast<mjModel*>(model), const_cast<mjData*>(data));
 
             if (model->nv > 0) {
@@ -259,9 +262,14 @@ public:
 
             ncon = data->ncon;
             if (ncon > 0) {
-                std::vector<double> pos(ncon * 3);
-                std::vector<double> force(ncon);
-                std::vector<int32_t> body1(ncon), body2(ncon);
+                // thread_local buffers to avoid per-send heap allocations
+                thread_local std::vector<double> pos;
+                thread_local std::vector<double> force;
+                thread_local std::vector<int32_t> body1, body2;
+                pos.resize(ncon * 3);
+                force.resize(ncon);
+                body1.resize(ncon);
+                body2.resize(ncon);
 
                 for (int i = 0; i < ncon; i++) {
                     const mjContact& c = data->contact[i];
@@ -271,7 +279,9 @@ public:
 
                     mjtNum f[6];
                     mj_contactForce(model, data, i, f);
-                    force[i] = mju_norm3(f);
+                    // mj_contactForce returns [normal, tangent1, tangent2, ...torques]
+                    // in the contact frame — f[0] is the normal force magnitude.
+                    force[i] = f[0];
 
                     body1[i] = model->geom_bodyid[c.geom[0]];
                     body2[i] = model->geom_bodyid[c.geom[1]];
