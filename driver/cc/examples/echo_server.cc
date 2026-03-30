@@ -158,6 +158,22 @@ int main(int argc, char* argv[]) {
             std::cout << "]";
         }
 
+        // Force data
+        if (state->ncon() > 0 || (state->qfrc_bias() && state->qfrc_bias()->size() > 0)) {
+            std::cout << " ncon=" << state->ncon();
+            if (state->qfrc_actuator()) std::cout << " qfrc_act[" << state->qfrc_actuator()->size() << "]";
+            if (state->qfrc_bias()) std::cout << " qfrc_bias[" << state->qfrc_bias()->size() << "]";
+            if (state->cfrc_int()) std::cout << " cfrc_int[" << state->cfrc_int()->size() << "]";
+            if (state->cfrc_ext()) std::cout << " cfrc_ext[" << state->cfrc_ext()->size() << "]";
+            if (state->contact_force() && state->contact_force()->size() > 0) {
+                std::cout << " forces=[";
+                for (size_t i = 0; i < state->contact_force()->size() && i < 4; i++) {
+                    std::cout << (i > 0 ? ", " : "") << state->contact_force()->Get(i);
+                }
+                std::cout << "]";
+            }
+        }
+
         std::cout << std::endl;
     }
 

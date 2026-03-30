@@ -2,7 +2,9 @@
 // Unit tests for MuJoCo Driver
 
 #include "imujoco/driver/driver.h"
+#include "state_generated.h"
 
+#include <flatbuffers/flatbuffers.h>
 #include <gtest/gtest.h>
 
 #include <atomic>
@@ -165,6 +167,142 @@ TEST(DriverTest, ErrorCallback) {
     // Error callback is set but won't be called without actual errors
     EXPECT_FALSE(error_received);
 }
+
+// ============================================================================
+// Force Data / StatePacket Tests
+// ============================================================================
+
+// Default SimulationState has empty force fields
+TEST(DriverTest, ForceDataDefaults) {
+    SimulationState state;
+
+    EXPECT_TRUE(state.qfrc_actuator.empty());
+    EXPECT_TRUE(state.qfrc_bias.empty());
+    EXPECT_TRUE(state.cfrc_int.empty());
+    EXPECT_TRUE(state.cfrc_ext.empty());
+    EXPECT_EQ(state.ncon, 0);
+    EXPECT_TRUE(state.contact_pos.empty());
+    EXPECT_TRUE(state.contact_force.empty());
+    EXPECT_TRUE(state.contact_body1.empty());
+    EXPECT_TRUE(state.contact_body2.empty());
+}
+
+// Round-trip: serialize with force data, deserialize, verify all fields
+TEST(DriverTest, ForceDataRoundTrip) {
+    // Build a state with force data
+    SimulationState original;
+    original.sequence = 42;
+    original.time = 1.5;
+    original.qpos = {1.0, 2.0, 3.0};
+    original.qvel = {0.1, 0.2, 0.3};
+    original.ctrl = {10.0, 20.0};
+    original.step_index = 100;
+
+    // Force data (nv=3, nbody=2)
+    original.qfrc_actuator = {1.1, 2.2, 3.3};
+    original.qfrc_bias = {-9.8, 0.0, 0.0};
+    original.cfrc_int = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};  // 2 bodies * 6
+    original.cfrc_ext = {0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1};
+
+    // Contact data (ncon=2)
+    original.ncon = 2;
+    original.contact_pos = {0.0, 0.0, 0.0, 1.0, 1.0, 0.0};  // 2 contacts * 3
+    original.contact_force = {50.0, 30.0};
+    original.contact_body1 = {0, 0};
+    original.contact_body2 = {1, 1};
+
+    // Serialize via FlatBuffers Pack
+    flatbuffers::FlatBufferBuilder builder(1024);
+    auto offset = imujoco::schema::StatePacket::Pack(builder, &original);
+    builder.Finish(offset, imujoco::schema::StatePacketIdentifier());
+
+    // Verify buffer
+    auto buf = builder.GetBufferPointer();
+    auto size = builder.GetSize();
+    {
+        flatbuffers::Verifier verifier(buf, size);
+        ASSERT_TRUE(imujoco::schema::VerifyStatePacketBuffer(verifier));
+    }
+
+    // Deserialize
+    SimulationState deserialized;
+    auto packet = imujoco::schema::GetStatePacket(buf);
+    packet->UnPackTo(&deserialized);
+
+    // Verify old fields
+    EXPECT_EQ(deserialized.sequence, 42);
+    EXPECT_DOUBLE_EQ(deserialized.time, 1.5);
+    EXPECT_EQ(deserialized.qpos.size(), 3);
+    EXPECT_EQ(deserialized.step_index, 100);
+
+    // Verify force fields
+    ASSERT_EQ(deserialized.qfrc_actuator.size(), 3);
+    EXPECT_DOUBLE_EQ(deserialized.qfrc_actuator[0], 1.1);
+    EXPECT_DOUBLE_EQ(deserialized.qfrc_actuator[2], 3.3);
+
+    ASSERT_EQ(deserialized.qfrc_bias.size(), 3);
+    EXPECT_DOUBLE_EQ(deserialized.qfrc_bias[0], -9.8);
+
+    ASSERT_EQ(deserialized.cfrc_int.size(), 12);
+    EXPECT_DOUBLE_EQ(deserialized.cfrc_int[5], 6.0);
+
+    ASSERT_EQ(deserialized.cfrc_ext.size(), 12);
+    EXPECT_DOUBLE_EQ(deserialized.cfrc_ext[6], 1.0);
+
+    // Verify contact fields
+    EXPECT_EQ(deserialized.ncon, 2);
+    ASSERT_EQ(deserialized.contact_pos.size(), 6);
+    EXPECT_DOUBLE_EQ(deserialized.contact_pos[3], 1.0);
+    ASSERT_EQ(deserialized.contact_force.size(), 2);
+    EXPECT_DOUBLE_EQ(deserialized.contact_force[0], 50.0);
+    ASSERT_EQ(deserialized.contact_body1.size(), 2);
+    EXPECT_EQ(deserialized.contact_body1[0], 0);
+    ASSERT_EQ(deserialized.contact_body2.size(), 2);
+    EXPECT_EQ(deserialized.contact_body2[1], 1);
+}
+
+// Forward compat: new driver reads packet WITHOUT force data (sendForceData=false)
+TEST(DriverTest, ForceDataForwardCompat) {
+    // Build state with only old fields
+    SimulationState original;
+    original.sequence = 7;
+    original.time = 0.5;
+    original.qpos = {1.0, 2.0};
+    // Leave all force fields at defaults
+
+    flatbuffers::FlatBufferBuilder builder(512);
+    auto offset = imujoco::schema::StatePacket::Pack(builder, &original);
+    builder.Finish(offset, imujoco::schema::StatePacketIdentifier());
+
+    auto buf = builder.GetBufferPointer();
+    auto size = builder.GetSize();
+    {
+        flatbuffers::Verifier verifier(buf, size);
+        ASSERT_TRUE(imujoco::schema::VerifyStatePacketBuffer(verifier));
+    }
+
+    SimulationState deserialized;
+    imujoco::schema::GetStatePacket(buf)->UnPackTo(&deserialized);
+
+    // Old fields work
+    EXPECT_EQ(deserialized.sequence, 7);
+    EXPECT_EQ(deserialized.qpos.size(), 2);
+
+    // New fields default to empty/zero
+    EXPECT_TRUE(deserialized.qfrc_actuator.empty());
+    EXPECT_TRUE(deserialized.qfrc_bias.empty());
+    EXPECT_TRUE(deserialized.cfrc_int.empty());
+    EXPECT_TRUE(deserialized.cfrc_ext.empty());
+    EXPECT_EQ(deserialized.ncon, 0);
+    EXPECT_TRUE(deserialized.contact_pos.empty());
+    EXPECT_TRUE(deserialized.contact_force.empty());
+    EXPECT_TRUE(deserialized.contact_body1.empty());
+    EXPECT_TRUE(deserialized.contact_body2.empty());
+}
+
+// ============================================================================
+// Integration Tests
+// ============================================================================
 
 // Integration test placeholder - requires running iMuJoCo
 // This test is disabled by default

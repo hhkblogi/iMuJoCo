@@ -213,7 +213,7 @@ public:
 
     bool SendState(const mjModel* model, const mjData* data,
                    uint64_t step_index = 0, uint32_t accepted_ctrl_seq = 0,
-                   uint64_t echo_token = 0) {
+                   uint64_t echo_token = 0, bool send_force_data = false) {
         if (socket_fd_ < 0 || !has_client_ || !model || !data) {
             if (socket_fd_ < 0) os_log_debug(OS_LOG_DEFAULT, "SendState: socket not open");
             else if (!has_client_) os_log_debug(OS_LOG_DEFAULT, "SendState: no client");
@@ -232,6 +232,58 @@ public:
         if (model->nu > 0) ctrl_vec = fb_builder_.CreateVector(data->ctrl, model->nu);
         if (model->nsensordata > 0) sensor_vec = fb_builder_.CreateVector(data->sensordata, model->nsensordata);
 
+        // Force data (opt-in via sendForceData config)
+        flatbuffers::Offset<flatbuffers::Vector<double>> qfrc_actuator_vec = 0;
+        flatbuffers::Offset<flatbuffers::Vector<double>> qfrc_bias_vec = 0;
+        flatbuffers::Offset<flatbuffers::Vector<double>> cfrc_int_vec = 0;
+        flatbuffers::Offset<flatbuffers::Vector<double>> cfrc_ext_vec = 0;
+        flatbuffers::Offset<flatbuffers::Vector<double>> contact_pos_vec = 0;
+        flatbuffers::Offset<flatbuffers::Vector<double>> contact_force_vec = 0;
+        flatbuffers::Offset<flatbuffers::Vector<int32_t>> contact_body1_vec = 0;
+        flatbuffers::Offset<flatbuffers::Vector<int32_t>> contact_body2_vec = 0;
+        int32_t ncon = 0;
+
+        if (send_force_data) {
+            mj_rnePostConstraint(const_cast<mjModel*>(model), const_cast<mjData*>(data));
+
+            if (model->nv > 0) {
+                qfrc_actuator_vec = fb_builder_.CreateVector(data->qfrc_actuator, model->nv);
+                qfrc_bias_vec = fb_builder_.CreateVector(data->qfrc_bias, model->nv);
+            }
+            if (model->nbody > 0) {
+                cfrc_int_vec = fb_builder_.CreateVector(
+                    reinterpret_cast<const double*>(data->cfrc_int), model->nbody * 6);
+                cfrc_ext_vec = fb_builder_.CreateVector(
+                    reinterpret_cast<const double*>(data->cfrc_ext), model->nbody * 6);
+            }
+
+            ncon = data->ncon;
+            if (ncon > 0) {
+                std::vector<double> pos(ncon * 3);
+                std::vector<double> force(ncon);
+                std::vector<int32_t> body1(ncon), body2(ncon);
+
+                for (int i = 0; i < ncon; i++) {
+                    const mjContact& c = data->contact[i];
+                    pos[i * 3 + 0] = c.pos[0];
+                    pos[i * 3 + 1] = c.pos[1];
+                    pos[i * 3 + 2] = c.pos[2];
+
+                    mjtNum f[6];
+                    mj_contactForce(model, data, i, f);
+                    force[i] = mju_norm3(f);
+
+                    body1[i] = model->geom_bodyid[c.geom[0]];
+                    body2[i] = model->geom_bodyid[c.geom[1]];
+                }
+
+                contact_pos_vec = fb_builder_.CreateVector(pos);
+                contact_force_vec = fb_builder_.CreateVector(force);
+                contact_body1_vec = fb_builder_.CreateVector(body1);
+                contact_body2_vec = fb_builder_.CreateVector(body2);
+            }
+        }
+
         // Capture device wall-clock and compute timestep_us
         uint64_t device_wall_us = static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::microseconds>(
@@ -243,7 +295,11 @@ public:
             data->energy[0], data->energy[1],
             qpos_vec, qvel_vec, ctrl_vec, sensor_vec,
             step_index, accepted_ctrl_seq, device_wall_us,
-            timestep_us, echo_token
+            timestep_us, echo_token,
+            qfrc_actuator_vec, qfrc_bias_vec,
+            cfrc_int_vec, cfrc_ext_vec,
+            ncon, contact_pos_vec, contact_force_vec,
+            contact_body1_vec, contact_body2_vec
         );
 
         imujoco::schema::FinishStatePacketBuffer(fb_builder_, state_packet);
@@ -309,6 +365,7 @@ public:
         , busy_wait_(config.busyWait)
         , udp_port_(config.udpPort > 0 ? config.udpPort : MJ_DEFAULT_UDP_PORT + config.instanceIndex)
         , ctrl_timeout_ms_(config.ctrlTimeoutMs)
+        , send_force_data_(config.sendForceData)
         , realtime_factor_(1.0)
         , state_(MJRuntimeState::Inactive)
         , model_(nullptr)
@@ -1042,7 +1099,8 @@ private:
                     did_udp_step = true;
 
                     udp_server_.SendState(model_, data_, step_index_,
-                                          last_accepted_ctrl_seq_, last_echo_token_);
+                                          last_accepted_ctrl_seq_, last_echo_token_,
+                                          send_force_data_);
                 }
             }
 
@@ -1120,7 +1178,8 @@ private:
                     // clients that send empty ctrl still receive state.
                     if (udp_server_.HasClient()) {
                         udp_server_.SendState(model_, data_, step_index_,
-                                              last_accepted_ctrl_seq_, last_echo_token_);
+                                              last_accepted_ctrl_seq_, last_echo_token_,
+                                              send_force_data_);
                     }
                 }
             }
@@ -1248,6 +1307,7 @@ private:
     bool busy_wait_;
     uint16_t udp_port_;
     uint32_t ctrl_timeout_ms_;
+    bool send_force_data_;
     std::atomic<double> realtime_factor_;
     std::atomic<MJRuntimeState> state_;
 

@@ -131,10 +131,30 @@ or dispatch work to your own thread to avoid blocking state reception.
             "Model timestep in microseconds")
         .def_readwrite("echo_token", &SimulationState::echo_token,
             "Echo of control's echo_token")
+        // Force data (opt-in via sendForceData)
+        .def_readwrite("qfrc_actuator", &SimulationState::qfrc_actuator,
+            "Actuator forces at each joint (length = nv)")
+        .def_readwrite("qfrc_bias", &SimulationState::qfrc_bias,
+            "Gravity + Coriolis forces at each joint (length = nv)")
+        .def_readwrite("cfrc_int", &SimulationState::cfrc_int,
+            "Internal body forces (length = nbody * 6)")
+        .def_readwrite("cfrc_ext", &SimulationState::cfrc_ext,
+            "External body forces (length = nbody * 6)")
+        .def_readwrite("ncon", &SimulationState::ncon,
+            "Number of active contacts")
+        .def_readwrite("contact_pos", &SimulationState::contact_pos,
+            "Contact positions in world frame (length = ncon * 3)")
+        .def_readwrite("contact_force", &SimulationState::contact_force,
+            "Contact normal forces (length = ncon)")
+        .def_readwrite("contact_body1", &SimulationState::contact_body1,
+            "Contact body 1 IDs (length = ncon)")
+        .def_readwrite("contact_body2", &SimulationState::contact_body2,
+            "Contact body 2 IDs (length = ncon)")
         .def("__repr__", [](const SimulationState& s) {
             return "<SimulationState time=" + std::to_string(s.time) +
                    " qpos[" + std::to_string(s.qpos.size()) + "]" +
-                   " qvel[" + std::to_string(s.qvel.size()) + "]>";
+                   " qvel[" + std::to_string(s.qvel.size()) + "]" +
+                   " ncon=" + std::to_string(s.ncon) + ">";
         });
 
     // ControlCommand (schema::ControlPacketT)

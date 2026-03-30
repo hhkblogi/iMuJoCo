@@ -168,6 +168,26 @@ py_binary(
     deps = ["//driver/imujoco_driver"],
 )
 
+cc_binary(
+    name = "force_data_live_test",
+    srcs = ["cc/tests/force_data_live_test.cc"],
+    deps = [":mujoco_driver"],
+)
+
+py_binary(
+    name = "verify_force_data",
+    srcs = ["examples/verify_force_data.py"],
+    main = "examples/verify_force_data.py",
+    deps = ["//driver/imujoco_driver"],
+)
+
+py_binary(
+    name = "verify_force_data_minimal",
+    srcs = ["examples/verify_force_data_minimal.py"],
+    main = "examples/verify_force_data_minimal.py",
+    deps = ["//driver/imujoco_driver"],
+)
+
 # ============================================================================
 # QUIC Video Receiver (macOS SwiftUI app)
 # ============================================================================
