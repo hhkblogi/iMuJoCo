@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_paced_replay.py - Verify PacedReplay mode (Mode 2)
+test_paced_replay.py - Verify PacedReplay mode
 
 Proves: controls are applied at the original sender cadence, one step per packet.
 

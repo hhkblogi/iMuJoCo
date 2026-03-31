@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_ptp_scheduled.py - Verify PTPScheduled mode (Mode 4)
+test_ptp_scheduled.py - Verify PTPScheduled mode
 
 Proves: controls are applied at the scheduled simulation time, not when they arrive.
 

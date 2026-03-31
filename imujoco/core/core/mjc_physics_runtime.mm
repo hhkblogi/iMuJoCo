@@ -132,6 +132,11 @@ public:
         uint32_t sequence = 0;
         double expire_at_sim_time = -1.0;
         imujoco::schema::ExpiryPolicy expiry_policy = imujoco::schema::ExpiryPolicy::Default;
+        // Extended fields
+        std::vector<double> qfrc_applied;
+        std::vector<double> xfrc_applied;
+        std::vector<double> mocap_pos;
+        std::vector<double> mocap_quat;
     };
 
     int ReceiveControl(double* ctrl_out, int max_ctrl, ControlMeta* meta_out) {
@@ -243,10 +248,29 @@ public:
             meta_out->sequence = packet->sequence();
             meta_out->expire_at_sim_time = packet->expire_at_sim_time();
             meta_out->expiry_policy = packet->expiry_policy();
+
+            // Extract extended fields
+            auto copy_vec = [](const flatbuffers::Vector<double>* src, std::vector<double>& dst) {
+                if (src && src->size() > 0) {
+                    dst.assign(src->begin(), src->end());
+                } else {
+                    dst.clear();
+                }
+            };
+            copy_vec(packet->qfrc_applied(), meta_out->qfrc_applied);
+            copy_vec(packet->xfrc_applied(), meta_out->xfrc_applied);
+            copy_vec(packet->mocap_pos(), meta_out->mocap_pos);
+            copy_vec(packet->mocap_quat(), meta_out->mocap_quat);
         }
 
         auto ctrl = packet->ctrl();
-        if (!ctrl || ctrl->size() == 0) return 0;
+        // A packet with no ctrl but with extended fields is still valid
+        bool has_extended = false;
+        if (meta_out) {
+            has_extended = !meta_out->qfrc_applied.empty() || !meta_out->xfrc_applied.empty()
+                        || !meta_out->mocap_pos.empty() || !meta_out->mocap_quat.empty();
+        }
+        if ((!ctrl || ctrl->size() == 0) && !has_extended) return 0;
 
         int nu = static_cast<int>(ctrl->size());
         int copy_count = std::min(nu, max_ctrl);
@@ -428,7 +452,7 @@ public:
         , speed_changed_(false) {
 
         os_log_info(OS_LOG_DEFAULT, "Creating instance %d (SPMC queue, UDP port %u, mode %d)",
-                    config.instanceIndex, udp_port_, static_cast<int>(control_mode_));
+                    config.instanceIndex, udp_port_, static_cast<int>(control_mode_.load()));
 
         mjv_defaultCamera(&camera_);
         mjv_defaultOption(&option_);
@@ -627,6 +651,7 @@ public:
             scheduled_clear();
             ctrl_timed_out_ = false;
             last_ctrl_received_ = Clock::time_point{};
+            last_valid_ctrl_received_ = Clock::time_point{};
             // Reset time sync state
             step_index_ = 0;
             last_accepted_ctrl_seq_ = 0;
@@ -850,7 +875,17 @@ public:
     double GetRealtimeFactor() const { return realtime_factor_; }
 
     void SetControlMode(MJCControlMode mode) {
-        control_mode_ = mode;
+        auto prev = control_mode_.load(std::memory_order_relaxed);
+        control_mode_.store(mode, std::memory_order_release);
+        // Clear stale state from the previous mode to avoid replaying old controls
+        if (prev != mode) {
+            latest_ctrl_ = {};
+            guarded_ctrl_ = {};
+            ctrl_queue_.clear();
+            replay_anchor_host_us_ = 0;
+            replay_anchor_cpu_ = Clock::time_point{};
+            scheduled_clear();
+        }
         os_log_info(OS_LOG_DEFAULT, "Control mode changed to %d", static_cast<int>(mode));
     }
 
@@ -1106,6 +1141,9 @@ private:
 
             if (!model_ || !data_) continue;
 
+            // Load control mode once per iteration (atomic)
+            auto ctrl_mode = control_mode_.load(std::memory_order_acquire);
+
             // === UDP Receive: extract controls into mode-appropriate storage ===
             if (udp_server_.IsActive()) {
                 int packets_received = 0;
@@ -1120,15 +1158,25 @@ private:
                     ctrl_timed_out_ = false;
                     packets_received++;
 
-                    // Empty ctrl (received == 0) means "no change" — skip
-                    if (received <= 0) continue;
+                    // Empty ctrl with no extended fields means "no change" — skip
+                    bool has_extended = !meta.qfrc_applied.empty() || !meta.xfrc_applied.empty()
+                                     || !meta.mocap_pos.empty() || !meta.mocap_quat.empty();
+                    if (received <= 0 && !has_extended) continue;
 
-                    // Build a CtrlPayload from the received data
-                    // TODO: refactor ReceiveControl to also extract extended fields
+                    // Track last valid control for timeout purposes
+                    last_valid_ctrl_received_ = Clock::now();
+
+                    // Build a CtrlPayload from received data + extended fields
                     CtrlPayload payload;
-                    payload.ctrl.assign(ctrl_buffer.data(), ctrl_buffer.data() + std::min(received, model_->nu));
+                    if (received > 0) {
+                        payload.ctrl.assign(ctrl_buffer.data(), ctrl_buffer.data() + std::min(received, model_->nu));
+                    }
+                    payload.qfrc_applied = std::move(meta.qfrc_applied);
+                    payload.xfrc_applied = std::move(meta.xfrc_applied);
+                    payload.mocap_pos = std::move(meta.mocap_pos);
+                    payload.mocap_quat = std::move(meta.mocap_quat);
 
-                    switch (control_mode_) {
+                    switch (ctrl_mode) {
                         case MJCControlMode::Live: {
                             static_cast<CtrlPayload&>(latest_ctrl_) = std::move(payload);
                             latest_ctrl_.fresh = true;
@@ -1185,12 +1233,17 @@ private:
                                 // Push to ring buffer (sorted by monotonic arrival)
                                 scheduled_push_back(std::move(sc));
 
-                                // Rare: out-of-order → bubble backward to restore sorted order
+                                // Rare: out-of-order → bubble backward until sorted
                                 if (scheduled_count_ >= 2) {
-                                    size_t tail_idx = (scheduled_head_ + scheduled_count_ - 1) % kScheduledCapacity;
-                                    size_t prev_idx = (scheduled_head_ + scheduled_count_ - 2) % kScheduledCapacity;
-                                    if (scheduled_buf_[tail_idx].target_sim_time < scheduled_buf_[prev_idx].target_sim_time) {
-                                        std::swap(scheduled_buf_[tail_idx], scheduled_buf_[prev_idx]);
+                                    size_t idx = (scheduled_head_ + scheduled_count_ - 1) % kScheduledCapacity;
+                                    size_t remaining = scheduled_count_ - 1;
+                                    while (remaining > 0) {
+                                        size_t prev_idx = (idx + kScheduledCapacity - 1) % kScheduledCapacity;
+                                        if (scheduled_buf_[idx].target_sim_time >= scheduled_buf_[prev_idx].target_sim_time)
+                                            break;
+                                        std::swap(scheduled_buf_[idx], scheduled_buf_[prev_idx]);
+                                        idx = prev_idx;
+                                        --remaining;
                                     }
                                 }
                             }
@@ -1203,7 +1256,7 @@ private:
             // === Mode-specific control application and stepping ===
             bool did_paced_step = false;
 
-            switch (control_mode_) {
+            switch (ctrl_mode) {
                 case MJCControlMode::Live: {
                     // Apply latest control (zero-order hold)
                     if (latest_ctrl_.fresh) {
@@ -1270,6 +1323,7 @@ private:
                             ApplyCtrlToData(guarded_ctrl_);
                             guarded_ctrl_.fresh = false;
                             guarded_ctrl_.expired = false;
+                            guarded_ctrl_applied_time_ = Clock::now();
                         } else {
                             // Arrived already expired — discard
                             guarded_ctrl_.fresh = false;
@@ -1296,7 +1350,9 @@ private:
                                 break;
                             }
                             case MJCExpiryPolicy::ZeroAfterTimeout:
-                                // Let the existing timeout mechanism handle it
+                                // Start timeout countdown from expiry moment
+                                // (override last_ctrl_received_ so keepalives don't prevent zeroing)
+                                last_valid_ctrl_received_ = guarded_ctrl_applied_time_;
                                 break;
                             case MJCExpiryPolicy::HoldLastValid:
                                 // Values persist — do nothing
@@ -1339,10 +1395,14 @@ private:
                 }
             }
 
-            // === Ctrl Timeout: zero torque actuators if no packets received ===
+            // === Ctrl Timeout: zero torque actuators if no valid controls received ===
+            // Use last_valid_ctrl_received_ if set (for ZeroAfterTimeout expiry policy),
+            // otherwise fall back to last_ctrl_received_ (general packet timeout).
             if (ctrl_timeout_ms_ > 0 && !ctrl_timed_out_
                 && last_ctrl_received_.time_since_epoch().count() > 0) {
-                auto since_last = Clock::now() - last_ctrl_received_;
+                auto ref_time = (last_valid_ctrl_received_.time_since_epoch().count() > 0)
+                    ? last_valid_ctrl_received_ : last_ctrl_received_;
+                auto since_last = Clock::now() - ref_time;
                 if (since_last >= std::chrono::milliseconds(ctrl_timeout_ms_)) {
                     ctrl_timed_out_ = true;
                     int nu = model_->nu;
@@ -1556,28 +1616,38 @@ private:
     };
 
     // Apply a CtrlPayload to mjData fields
+    // Apply a CtrlPayload to mjData. Zero-then-write: fields not present in the
+    // payload are cleared to avoid stale forces/positions from previous packets.
+    // ctrl is only zeroed when the payload has ctrl data (empty ctrl = "no change").
     void ApplyCtrlToData(const CtrlPayload& payload) {
         int nu = model_->nu;
-        int copy_count = std::min(static_cast<int>(payload.ctrl.size()), nu);
-        for (int i = 0; i < copy_count; i++)
-            data_->ctrl[i] = payload.ctrl[i];
+        if (!payload.ctrl.empty()) {
+            std::fill(data_->ctrl, data_->ctrl + nu, 0.0);
+            int copy_count = std::min(static_cast<int>(payload.ctrl.size()), nu);
+            for (int i = 0; i < copy_count; i++)
+                data_->ctrl[i] = payload.ctrl[i];
+        }
 
         int nv = model_->nv;
-        copy_count = std::min(static_cast<int>(payload.qfrc_applied.size()), nv);
+        std::fill(data_->qfrc_applied, data_->qfrc_applied + nv, 0.0);
+        int copy_count = std::min(static_cast<int>(payload.qfrc_applied.size()), nv);
         for (int i = 0; i < copy_count; i++)
             data_->qfrc_applied[i] = payload.qfrc_applied[i];
 
         int nxfrc = 6 * model_->nbody;
+        std::fill(data_->xfrc_applied, data_->xfrc_applied + nxfrc, 0.0);
         copy_count = std::min(static_cast<int>(payload.xfrc_applied.size()), nxfrc);
         for (int i = 0; i < copy_count; i++)
             data_->xfrc_applied[i] = payload.xfrc_applied[i];
 
         int nmocap3 = 3 * model_->nmocap;
+        std::fill(data_->mocap_pos, data_->mocap_pos + nmocap3, 0.0);
         copy_count = std::min(static_cast<int>(payload.mocap_pos.size()), nmocap3);
         for (int i = 0; i < copy_count; i++)
             data_->mocap_pos[i] = payload.mocap_pos[i];
 
         int nmocap4 = 4 * model_->nmocap;
+        std::fill(data_->mocap_quat, data_->mocap_quat + nmocap4, 0.0);
         copy_count = std::min(static_cast<int>(payload.mocap_quat.size()), nmocap4);
         for (int i = 0; i < copy_count; i++)
             data_->mocap_quat[i] = payload.mocap_quat[i];
@@ -1590,7 +1660,7 @@ private:
     uint16_t udp_port_;
     uint32_t ctrl_timeout_ms_;
     bool send_force_data_;
-    MJCControlMode control_mode_;
+    std::atomic<MJCControlMode> control_mode_;
     MJCExpiryPolicy default_expiry_policy_;
     std::atomic<double> realtime_factor_;
     std::atomic<MJRuntimeState> state_;
@@ -1617,6 +1687,7 @@ private:
     // Ctrl timeout state (physics thread only)
     std::vector<bool> actuator_zero_on_timeout_;   // per-actuator: true = zero on timeout
     Clock::time_point last_ctrl_received_{};       // last time a UDP ctrl packet arrived
+    Clock::time_point last_valid_ctrl_received_{}; // last time a non-empty control was applied (for ZeroAfterTimeout)
     bool ctrl_timed_out_ = false;                  // true when timeout has fired
 
     // Live mode state
@@ -1629,6 +1700,7 @@ private:
 
     // SimTimeGuarded mode state
     GuardedCtrl guarded_ctrl_;
+    Clock::time_point guarded_ctrl_applied_time_{};  // when the guarded control was last applied
 
     // PTPScheduled mode: fixed-size ring buffer of future controls
     struct ScheduledCtrl : CtrlPayload {

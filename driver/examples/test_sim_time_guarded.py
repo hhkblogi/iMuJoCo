@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-test_sim_time_guarded.py - Verify SimTimeGuarded mode (Mode 3)
+test_sim_time_guarded.py - Verify SimTimeGuarded mode
 
 Proves: expired controls are rejected, expiry policies work correctly.
 
