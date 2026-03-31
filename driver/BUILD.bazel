@@ -183,6 +183,13 @@ py_binary(
 )
 
 py_binary(
+    name = "test_5min_all_modes_py",
+    srcs = ["examples/test_5min_all_modes.py"],
+    main = "examples/test_5min_all_modes.py",
+    deps = ["//driver/imujoco_driver"],
+)
+
+py_binary(
     name = "car_driver",
     srcs = ["examples/car_driver.py"],
     main = "examples/car_driver.py",
