@@ -29,14 +29,17 @@ MODEL_NAME = "Humanoid (Supine)"
 def _find_grpc_tester() -> str:
     """Find the grpc_tester binary."""
     import os
-    # Try common locations
+    import shutil
+    # Try workspace-relative locations first, then PATH
     for path in [
         os.path.join(os.environ.get("BUILD_WORKSPACE_DIRECTORY", ""), "bazel-bin/driver/grpc_tester"),
         "bazel-bin/driver/grpc_tester",
-        os.path.expanduser("~/ws-imujoco/imujoco-dev-01/bazel-bin/driver/grpc_tester"),
     ]:
         if os.path.isfile(path):
             return path
+    which = shutil.which("grpc_tester")
+    if which:
+        return which
     return "bazel-bin/driver/grpc_tester"  # fallback
 
 

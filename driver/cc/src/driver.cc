@@ -30,6 +30,8 @@ Driver::Driver(const DriverConfig& config)
     if (config_.sync_interval_ms > 0) {
         SyncClient::Config sync_config;
         sync_config.host = config_.host;
+        // Default sync port 10001 matches instance 1 on the app side
+        // (MJ_SYNC_PORT + instanceIndex, where instances are 1-based).
         sync_config.port = config_.sync_port > 0 ? config_.sync_port : 10001;
         sync_config.interval_ms = config_.sync_interval_ms;
         sync_client_ = std::make_unique<SyncClient>(clock_servo_, sync_mutex_,

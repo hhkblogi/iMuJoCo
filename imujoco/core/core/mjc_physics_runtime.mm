@@ -350,7 +350,9 @@ private:
 // Used by WaitForFrame() to maintain per-thread-per-instance state.
 static std::atomic<uint64_t> g_next_instance_id{1};
 
-// Helper: compute sync port for a given instance (1-indexed)
+// Helper: compute sync port for a given instance (1-indexed).
+// In the app, instanceIndex is 1-based (instances 1-4), so ports map to
+// 10001-10004.  The function itself works with any non-negative value.
 static uint16_t SyncPortForInstance(int32_t instanceIndex) {
     return imujoco::protocol::MJ_SYNC_PORT + static_cast<uint16_t>(instanceIndex);
 }

@@ -564,7 +564,7 @@ def main():
     parser.add_argument("--json", default=None,
                         help="Write structured JSON report to this path")
     parser.add_argument("--sync-port", type=int, default=10001,
-                        help="Sync port (default: 10000)")
+                        help="Sync port (default: 10001)")
     parser.add_argument("--interval", type=int, default=100,
                         help="Sync sample interval in ms (default: 100)")
     args = parser.parse_args()

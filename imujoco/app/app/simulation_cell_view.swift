@@ -585,7 +585,7 @@ struct SimulationCellView: View {
                 label = "PTP :\(s.port) Locked"
             } else if s.driverExchanges > 30 {
                 label = "PTP :\(s.port) Failed"
-            } else if s.responsesSent > 0 {
+            } else if s.driverExchanges > 0 {
                 label = "PTP :\(s.port) Syncing"
             } else {
                 label = "PTP :\(s.port) Idle"

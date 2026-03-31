@@ -99,7 +99,13 @@ struct PerformanceStatsBar: View {
                     grpcActive = currentRpc != lastGrpcRpcCount
                     lastGrpcRpcCount = currentRpc
                     syncRunning = syncStats?.isRunning ?? false
-                    syncPort = syncStats?.port ?? 0
+                    let newPort = syncStats?.port ?? 0
+                    if newPort != syncPort {
+                        // Rolling view switched instances — reset so the first
+                        // tick doesn't false-trigger syncActive with a stale count.
+                        lastSyncResponsesSent = syncStats?.responsesSent ?? 0
+                    }
+                    syncPort = newPort
                     syncActive = syncStats != nil && syncStats!.responsesSent != lastSyncResponsesSent
                     lastSyncResponsesSent = syncStats?.responsesSent ?? 0
                     self.syncStats = syncStats
