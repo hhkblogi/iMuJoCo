@@ -182,6 +182,13 @@ py_binary(
 )
 
 py_binary(
+    name = "verify_multi_sync",
+    srcs = ["examples/verify_multi_sync.py"],
+    main = "examples/verify_multi_sync.py",
+    deps = ["//driver/imujoco_driver"],
+)
+
+py_binary(
     name = "verify_force_data_minimal",
     srcs = ["examples/verify_force_data_minimal.py"],
     main = "examples/verify_force_data_minimal.py",

@@ -56,13 +56,6 @@ public struct MJRuntimeStatistics {
     }
 }
 
-// MARK: - Sync Server
-
-/// Start the process-wide sync server (safe to call multiple times).
-public func startSyncServer() {
-    MJStartSyncServer()
-}
-
 // MARK: - Sync Server Stats
 
 public struct MJSyncStats {
@@ -78,19 +71,16 @@ public struct MJSyncStats {
     public let driverJitterUs: Float
     public let driverExchanges: UInt32
 
-    public static func current() -> MJSyncStats {
-        let cpp = MJGetSyncServerStats()
-        return MJSyncStats(
-            isRunning: cpp.isRunning,
-            responsesSent: cpp.responsesSent,
-            port: cpp.port,
-            serverRateRatioPpm: cpp.serverRateRatioPpm,
-            driverLocked: cpp.driverLocked,
-            driverOffsetUs: cpp.driverOffsetUs,
-            driverDelayUs: cpp.driverDelayUs,
-            driverJitterUs: cpp.driverJitterUs,
-            driverExchanges: cpp.driverExchanges
-        )
+    public init(from cpp: MJSyncServerStats) {
+        self.isRunning = cpp.isRunning
+        self.responsesSent = cpp.responsesSent
+        self.port = cpp.port
+        self.serverRateRatioPpm = cpp.serverRateRatioPpm
+        self.driverLocked = cpp.driverLocked
+        self.driverOffsetUs = cpp.driverOffsetUs
+        self.driverDelayUs = cpp.driverDelayUs
+        self.driverJitterUs = cpp.driverJitterUs
+        self.driverExchanges = cpp.driverExchanges
     }
 }
 
@@ -236,6 +226,11 @@ public final class MJRuntime {
     /// Get simulation statistics
     public var stats: MJRuntimeStatistics {
         MJRuntimeStatistics(from: runtime.getStats())
+    }
+
+    /// Get sync server statistics for this instance
+    public var syncStats: MJSyncStats {
+        MJSyncStats(from: runtime.getSyncStats())
     }
 
     /// Current simulation time

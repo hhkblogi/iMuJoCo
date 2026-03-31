@@ -19,6 +19,8 @@ struct PerformanceStatsBar: View {
     @State private var syncPort: UInt16 = 0
     @State private var syncRunning: Bool = false
     @State private var syncStats: MJSyncStats?
+    @State private var syncRollingIndex: Int = 0
+    @State private var syncRollingTick: Int = 0
 
     private static let metalDevice = MTLCreateSystemDefaultDevice()
 
@@ -74,18 +76,35 @@ struct PerformanceStatsBar: View {
                 let cpu = processCPUUsage()
                 let gpuMem = Double(Self.metalDevice?.currentAllocatedSize ?? 0) / (1024 * 1024)
                 let currentRpc = grpcRpcCount()
-                let syncStats = MJSyncStats.current()
+                // Collect active sync instances and rotate every 5s (10 ticks)
+                let activeSyncInstances = instances.filter {
+                    $0.state == .running && $0.runtime?.syncStats.isRunning == true
+                }
+                let tick = syncRollingTick + 1
+                let rollingIdx: Int
+                if activeSyncInstances.isEmpty {
+                    rollingIdx = 0
+                } else {
+                    rollingIdx = (tick % 10 == 0)
+                        ? (syncRollingIndex + 1) % activeSyncInstances.count
+                        : syncRollingIndex % max(activeSyncInstances.count, 1)
+                }
+                let syncStats = activeSyncInstances.isEmpty
+                    ? nil
+                    : activeSyncInstances[rollingIdx].runtime?.syncStats
                 await MainActor.run {
                     memoryMB = mem
                     cpuUsage = cpu
                     gpuMemoryMB = gpuMem
                     grpcActive = currentRpc != lastGrpcRpcCount
                     lastGrpcRpcCount = currentRpc
-                    syncRunning = syncStats.isRunning
-                    syncPort = syncStats.port
-                    syncActive = syncStats.responsesSent != lastSyncResponsesSent
-                    lastSyncResponsesSent = syncStats.responsesSent
+                    syncRunning = syncStats?.isRunning ?? false
+                    syncPort = syncStats?.port ?? 0
+                    syncActive = syncStats != nil && syncStats!.responsesSent != lastSyncResponsesSent
+                    lastSyncResponsesSent = syncStats?.responsesSent ?? 0
                     self.syncStats = syncStats
+                    syncRollingTick = tick
+                    syncRollingIndex = rollingIdx
                 }
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }

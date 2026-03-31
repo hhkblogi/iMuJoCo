@@ -460,6 +460,8 @@ struct SimulationCellView: View {
                                 .font(.system(size: 9))
                                 .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
                         }
+                        // Per-instance PTP sync status
+                        syncStatusBadge
                         Text(formatSimulationTime(instance.simulationTime))
                             .font(.system(size: 8, weight: .medium, design: .monospaced))
                             .foregroundColor(overlayTextColor(brightness: brightness).opacity(0.8))
@@ -570,6 +572,32 @@ struct SimulationCellView: View {
             }
         }
         #endif
+    }
+
+    // MARK: - Sync Status Badge
+
+    private var syncStatusBadge: some View {
+        let sync = instance.runtime?.syncStats
+        let label: String
+        let color: Color
+        if let s = sync, s.isRunning {
+            if s.driverLocked {
+                label = "PTP :\(s.port) Locked"
+            } else if s.driverExchanges > 30 {
+                label = "PTP :\(s.port) Failed"
+            } else if s.responsesSent > 0 {
+                label = "PTP :\(s.port) Syncing"
+            } else {
+                label = "PTP :\(s.port) Idle"
+            }
+            color = overlaySecondaryTextColor(brightness: brightness)
+        } else {
+            label = ""
+            color = .clear
+        }
+        return Text(label)
+            .font(.system(size: 8, weight: .medium, design: .monospaced))
+            .foregroundColor(color)
     }
 
     // MARK: - Performance Metrics View
