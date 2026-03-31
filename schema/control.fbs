@@ -1,8 +1,16 @@
 // control.fbs
 // Control packet: driver → iMuJoCo
-// Sends actuator control values to the simulation
+// Sends actuator control values and optional direct force/position injection
 
 namespace imujoco.schema;
+
+// What happens when a SimTimeGuarded control expires
+enum ExpiryPolicy : byte {
+  Default = 0,         // Use simulation-side config default
+  ZeroImmediate = 1,   // Zero all actuators immediately on expiry
+  ZeroAfterTimeout = 2, // Use per-actuator timeout policy (existing mechanism)
+  HoldLastValid = 3    // Hold the last successfully applied values
+}
 
 table ControlPacket {
   // Packet sequence number (for ordering/debugging)
@@ -12,7 +20,7 @@ table ControlPacket {
   ctrl: [double];
 
   // Sender's monotonic clock in microseconds (unspecified epoch, for relative timing).
-  // Used for paced replay on the receiver side.
+  // Used for paced replay on the receiver side (PacedReplay mode).
   // 0 (default) = apply immediately (legacy / backward-compatible behavior).
   host_timestamp_us: uint64;
 
@@ -30,6 +38,34 @@ table ControlPacket {
   sync_jitter_us: float;       // PI output jitter / lock quality (µs)
   sync_locked: bool;           // Whether driver clock servo is locked
   sync_exchanges: uint32;      // Total pdelay exchanges processed
+
+  // --- Extended control fields (all optional, backward-compatible) ---
+
+  // Generalized forces applied directly to joints (length = model.nv).
+  // Bypasses MuJoCo actuator model — written to d->qfrc_applied.
+  qfrc_applied: [double];
+
+  // Cartesian forces/torques applied to bodies (length = 6 * model.nbody).
+  // Each body gets [fx, fy, fz, tx, ty, tz] — written to d->xfrc_applied.
+  xfrc_applied: [double];
+
+  // Mocap body positions (length = 3 * model.nmocap).
+  // Each mocap body gets [x, y, z] — written to d->mocap_pos.
+  mocap_pos: [double];
+
+  // Mocap body quaternions (length = 4 * model.nmocap).
+  // Each mocap body gets [w, x, y, z] — written to d->mocap_quat.
+  mocap_quat: [double];
+
+  // --- SimTimeGuarded mode fields ---
+
+  // Simulation time after which this control is stale (SimTimeGuarded mode).
+  // -1.0 (default) = no expiry / not applicable.
+  expire_at_sim_time: double = -1.0;
+
+  // What to do when this control expires.
+  // Default = use simulation-side MJCExpiryPolicy config.
+  expiry_policy: ExpiryPolicy = Default;
 }
 
 root_type ControlPacket;

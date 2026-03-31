@@ -61,10 +61,14 @@ struct DriverConfig {
     // Auto-start receiving on connect (default: true)
     bool auto_start_receiving = true;
 
+    // PTP time sync (opt-in). Set to true to create a SyncClient for
+    // PTPScheduled mode. When false, no sync thread or socket is created.
+    bool enable_sync = false;
+
     // Sync port (0 = derive from control port: port + 1000)
     uint16_t sync_port = 0;
 
-    // Sync exchange interval in ms (0 = disable sync)
+    // Sync exchange interval in ms (100 = typical)
     uint32_t sync_interval_ms = 100;
 };
 

@@ -291,6 +291,33 @@ public:
         return status.ok() && resp.success();
     }
 
+    // --- Control mode ---
+
+    bool SetControlMode(int id, const std::string& mode_str) {
+        SetControlModeRequest req;
+        req.set_instance_id(id);
+
+        ControlMode mode = CONTROL_MODE_LIVE;
+        if (mode_str == "live" || mode_str == "0") mode = CONTROL_MODE_LIVE;
+        else if (mode_str == "paced_replay" || mode_str == "1") mode = CONTROL_MODE_PACED_REPLAY;
+        else if (mode_str == "sim_time_guarded" || mode_str == "2") mode = CONTROL_MODE_SIM_TIME_GUARDED;
+        else if (mode_str == "ptp_scheduled" || mode_str == "3") mode = CONTROL_MODE_PTP_SCHEDULED;
+        else {
+            std::cerr << "  Unknown mode: " << mode_str
+                      << " (use: live, paced_replay, sim_time_guarded, ptp_scheduled)\n";
+            return false;
+        }
+
+        req.set_mode(mode);
+        ControlResponse resp;
+        ClientContext ctx;
+        SetDeadline(ctx);
+
+        Status status = stub_->SetControlMode(&ctx, req, &resp);
+        PrintControlResponse("SetControlMode(" + mode_str + ")", status, resp);
+        return status.ok() && resp.success();
+    }
+
     // --- State query ---
 
     bool GetState(int id) {
@@ -543,6 +570,8 @@ int main(int argc, char* argv[]) {
         ok = tester.Step(instance);
     } else if (command == "state") {
         ok = tester.GetState(instance);
+    } else if (command == "set_mode") {
+        ok = tester.SetControlMode(instance, model);
     } else if (command == "smoke") {
         ok = tester.RunSmokeTest(instance, model);
     } else if (command == "race") {

@@ -130,6 +130,8 @@ public:
         double target_sim_time = 0.0;
         uint64_t echo_token = 0;
         uint32_t sequence = 0;
+        double expire_at_sim_time = -1.0;
+        imujoco::schema::ExpiryPolicy expiry_policy = imujoco::schema::ExpiryPolicy::Default;
     };
 
     int ReceiveControl(double* ctrl_out, int max_ctrl, ControlMeta* meta_out) {
@@ -175,6 +177,51 @@ public:
                                   ctrl_out, max_ctrl, meta_out);
     }
 
+    // Extended control data extracted from a ControlPacket
+    struct ParsedControl {
+        std::vector<double> ctrl;
+        std::vector<double> qfrc_applied;
+        std::vector<double> xfrc_applied;
+        std::vector<double> mocap_pos;
+        std::vector<double> mocap_quat;
+        uint64_t host_timestamp_us = 0;
+        double expire_at_sim_time = -1.0;
+        imujoco::schema::ExpiryPolicy expiry_policy = imujoco::schema::ExpiryPolicy::Default;
+    };
+
+    // Parse a FlatBuffers ControlPacket and extract all fields.
+    // Returns true on success, false on invalid buffer.
+    bool ParseControlPacketFull(const uint8_t* data, size_t size, ParsedControl& out) {
+        flatbuffers::Verifier verifier(data, size);
+        if (!imujoco::schema::VerifyControlPacketBuffer(verifier)) {
+            os_log_error(OS_LOG_DEFAULT, "Invalid FlatBuffers ControlPacket buffer");
+            return false;
+        }
+
+        auto packet = imujoco::schema::GetControlPacket(data);
+        packets_received_++;
+
+        out.host_timestamp_us = packet->host_timestamp_us();
+        out.expire_at_sim_time = packet->expire_at_sim_time();
+        out.expiry_policy = packet->expiry_policy();
+
+        auto copy_vec = [](const flatbuffers::Vector<double>* src, std::vector<double>& dst) {
+            if (src && src->size() > 0) {
+                dst.assign(src->begin(), src->end());
+            } else {
+                dst.clear();
+            }
+        };
+
+        copy_vec(packet->ctrl(), out.ctrl);
+        copy_vec(packet->qfrc_applied(), out.qfrc_applied);
+        copy_vec(packet->xfrc_applied(), out.xfrc_applied);
+        copy_vec(packet->mocap_pos(), out.mocap_pos);
+        copy_vec(packet->mocap_quat(), out.mocap_quat);
+
+        return true;
+    }
+
     int ParseControlPacket(const uint8_t* data, size_t size,
                            double* ctrl_out, int max_ctrl,
                            ControlMeta* meta_out) {
@@ -194,6 +241,8 @@ public:
             meta_out->target_sim_time = packet->target_sim_time();
             meta_out->echo_token = packet->echo_token();
             meta_out->sequence = packet->sequence();
+            meta_out->expire_at_sim_time = packet->expire_at_sim_time();
+            meta_out->expiry_policy = packet->expiry_policy();
         }
 
         auto ctrl = packet->ctrl();
@@ -369,6 +418,8 @@ public:
         , udp_port_(config.udpPort > 0 ? config.udpPort : MJ_DEFAULT_UDP_PORT + config.instanceIndex)
         , ctrl_timeout_ms_(config.ctrlTimeoutMs)
         , send_force_data_(config.sendForceData)
+        , control_mode_(config.controlMode)
+        , default_expiry_policy_(config.defaultExpiryPolicy)
         , realtime_factor_(1.0)
         , state_(MJRuntimeState::Inactive)
         , model_(nullptr)
@@ -376,8 +427,8 @@ public:
         , exit_requested_(false)
         , speed_changed_(false) {
 
-        os_log_info(OS_LOG_DEFAULT, "Creating instance %d (SPMC queue, UDP port %u)",
-                    config.instanceIndex, udp_port_);
+        os_log_info(OS_LOG_DEFAULT, "Creating instance %d (SPMC queue, UDP port %u, mode %d)",
+                    config.instanceIndex, udp_port_, static_cast<int>(control_mode_));
 
         mjv_defaultCamera(&camera_);
         mjv_defaultOption(&option_);
@@ -567,10 +618,13 @@ public:
             }
             mj_forward(model_, data_);
             speed_changed_ = true;
-            // Clear replay state
+            // Clear all control state
             ctrl_queue_.clear();
             replay_anchor_host_us_ = 0;
             replay_anchor_cpu_ = Clock::time_point{};
+            latest_ctrl_ = {};
+            guarded_ctrl_ = {};
+            scheduled_clear();
             ctrl_timed_out_ = false;
             last_ctrl_received_ = Clock::time_point{};
             // Reset time sync state
@@ -794,6 +848,11 @@ public:
         speed_changed_ = true;
     }
     double GetRealtimeFactor() const { return realtime_factor_; }
+
+    void SetControlMode(MJCControlMode mode) {
+        control_mode_ = mode;
+        os_log_info(OS_LOG_DEFAULT, "Control mode changed to %d", static_cast<int>(mode));
+    }
 
     // Legacy access
     const mjvScene* GetScene() const { return &scene_; }
@@ -1047,7 +1106,7 @@ private:
 
             if (!model_ || !data_) continue;
 
-            // === UDP Receive: buffer incoming controls ===
+            // === UDP Receive: extract controls into mode-appropriate storage ===
             if (udp_server_.IsActive()) {
                 int packets_received = 0;
                 while (packets_received < kMaxPacketsPerLoop) {
@@ -1061,72 +1120,222 @@ private:
                     ctrl_timed_out_ = false;
                     packets_received++;
 
-                    // Empty ctrl (received == 0) means "no change" — don't enqueue
-                    if (received > 0) {
-                        int nu = model_->nu;
-                        int copy_count = std::min(received, nu);
-                        TimestampedCtrl tc;
-                        tc.host_timestamp_us = meta.host_timestamp_us;
-                        tc.target_sim_time = meta.target_sim_time;
-                        tc.echo_token = meta.echo_token;
-                        tc.sequence = meta.sequence;
-                        tc.ctrl.assign(ctrl_buffer.data(), ctrl_buffer.data() + copy_count);
-                        ctrl_queue_.push_back(std::move(tc));
+                    // Empty ctrl (received == 0) means "no change" — skip
+                    if (received <= 0) continue;
+
+                    // Build a CtrlPayload from the received data
+                    // TODO: refactor ReceiveControl to also extract extended fields
+                    CtrlPayload payload;
+                    payload.ctrl.assign(ctrl_buffer.data(), ctrl_buffer.data() + std::min(received, model_->nu));
+
+                    switch (control_mode_) {
+                        case MJCControlMode::Live: {
+                            static_cast<CtrlPayload&>(latest_ctrl_) = std::move(payload);
+                            latest_ctrl_.fresh = true;
+                            break;
+                        }
+                        case MJCControlMode::PacedReplay: {
+                            TimestampedCtrl tc;
+                            static_cast<CtrlPayload&>(tc) = std::move(payload);
+                            tc.host_timestamp_us = meta.host_timestamp_us;
+                            tc.target_sim_time = meta.target_sim_time;
+                            tc.echo_token = meta.echo_token;
+                            tc.sequence = meta.sequence;
+                            ctrl_queue_.push_back(std::move(tc));
+                            break;
+                        }
+                        case MJCControlMode::SimTimeGuarded: {
+                            static_cast<CtrlPayload&>(guarded_ctrl_) = std::move(payload);
+                            guarded_ctrl_.expire_at_sim_time = meta.expire_at_sim_time;
+                            // Resolve expiry policy: packet override or simulation default
+                            if (meta.expiry_policy != imujoco::schema::ExpiryPolicy::Default) {
+                                switch (meta.expiry_policy) {
+                                    case imujoco::schema::ExpiryPolicy::ZeroImmediate:
+                                        guarded_ctrl_.expiry_policy = MJCExpiryPolicy::ZeroImmediate;
+                                        break;
+                                    case imujoco::schema::ExpiryPolicy::ZeroAfterTimeout:
+                                        guarded_ctrl_.expiry_policy = MJCExpiryPolicy::ZeroAfterTimeout;
+                                        break;
+                                    case imujoco::schema::ExpiryPolicy::HoldLastValid:
+                                        guarded_ctrl_.expiry_policy = MJCExpiryPolicy::HoldLastValid;
+                                        break;
+                                    default:
+                                        guarded_ctrl_.expiry_policy = default_expiry_policy_;
+                                        break;
+                                }
+                            } else {
+                                guarded_ctrl_.expiry_policy = default_expiry_policy_;
+                            }
+                            guarded_ctrl_.fresh = true;
+                            guarded_ctrl_.expired = false;
+                            break;
+                        }
+                        case MJCControlMode::PTPScheduled: {
+                            ScheduledCtrl sc;
+                            static_cast<CtrlPayload&>(sc) = std::move(payload);
+                            sc.target_sim_time = meta.target_sim_time;
+                            sc.sequence = meta.sequence;
+                            sc.echo_token = meta.echo_token;
+
+                            if (sc.target_sim_time <= 0.0) {
+                                // No target time → apply immediately (Live fallback)
+                                static_cast<CtrlPayload&>(latest_ctrl_) = std::move(static_cast<CtrlPayload&>(sc));
+                                latest_ctrl_.fresh = true;
+                            } else {
+                                // Push to ring buffer (sorted by monotonic arrival)
+                                scheduled_push_back(std::move(sc));
+
+                                // Rare: out-of-order → bubble backward to restore sorted order
+                                if (scheduled_count_ >= 2) {
+                                    size_t tail_idx = (scheduled_head_ + scheduled_count_ - 1) % kScheduledCapacity;
+                                    size_t prev_idx = (scheduled_head_ + scheduled_count_ - 2) % kScheduledCapacity;
+                                    if (scheduled_buf_[tail_idx].target_sim_time < scheduled_buf_[prev_idx].target_sim_time) {
+                                        std::swap(scheduled_buf_[tail_idx], scheduled_buf_[prev_idx]);
+                                    }
+                                }
+                            }
+                            break;
+                        }
                     }
                 }
             }
 
-            // === Paced Replay: apply buffered controls at original cadence ===
-            bool did_udp_step = false;
-            if (!ctrl_queue_.empty()) {
-                auto& next = ctrl_queue_.front();
+            // === Mode-specific control application and stepping ===
+            bool did_paced_step = false;
 
-                bool should_apply = false;
-                if (next.host_timestamp_us == 0) {
-                    // Legacy packet (no timestamp) — apply immediately
-                    should_apply = true;
-                } else {
-                    if (replay_anchor_host_us_ == 0) {
-                        // First timestamped packet in batch — set anchor
-                        replay_anchor_cpu_ = Clock::now();
-                        replay_anchor_host_us_ = next.host_timestamp_us;
+            switch (control_mode_) {
+                case MJCControlMode::Live: {
+                    // Apply latest control (zero-order hold)
+                    if (latest_ctrl_.fresh) {
+                        ApplyCtrlToData(latest_ctrl_);
+                        latest_ctrl_.fresh = false;
                     }
-                    if (next.host_timestamp_us <= replay_anchor_host_us_) {
-                        // Out-of-order or backwards timestamp — apply immediately
-                        should_apply = true;
-                    } else {
-                        uint64_t delta_us = next.host_timestamp_us - replay_anchor_host_us_;
-                        auto elapsed = Clock::now() - replay_anchor_cpu_;
-                        if (elapsed >= std::chrono::microseconds(delta_us)) {
-                            should_apply = true;
-                        }
-                    }
+                    break;
                 }
 
-                if (should_apply) {
-                    int nu = model_->nu;
-                    int copy_count = std::min(static_cast<int>(next.ctrl.size()), nu);
-                    for (int i = 0; i < copy_count; i++) {
-                        data_->ctrl[i] = next.ctrl[i];
+                case MJCControlMode::PacedReplay: {
+                    // Paced replay: apply buffered controls at original cadence
+                    if (!ctrl_queue_.empty()) {
+                        auto& next = ctrl_queue_.front();
+
+                        bool should_apply = false;
+                        if (next.host_timestamp_us == 0) {
+                            should_apply = true;
+                        } else {
+                            if (replay_anchor_host_us_ == 0) {
+                                replay_anchor_cpu_ = Clock::now();
+                                replay_anchor_host_us_ = next.host_timestamp_us;
+                            }
+                            if (next.host_timestamp_us <= replay_anchor_host_us_) {
+                                should_apply = true;
+                            } else {
+                                uint64_t delta_us = next.host_timestamp_us - replay_anchor_host_us_;
+                                auto elapsed = Clock::now() - replay_anchor_cpu_;
+                                if (elapsed >= std::chrono::microseconds(delta_us)) {
+                                    should_apply = true;
+                                }
+                            }
+                        }
+
+                        if (should_apply) {
+                            ApplyCtrlToData(next);
+                            last_accepted_ctrl_seq_ = next.sequence;
+                            last_echo_token_ = next.echo_token;
+                            ctrl_queue_.pop_front();
+
+                            if (ctrl_queue_.empty()) {
+                                replay_anchor_host_us_ = 0;
+                            }
+
+                            mj_step(model_, data_);
+                            step_index_++;
+                            step_count++;
+                            steps_since_last_frame++;
+                            did_paced_step = true;
+
+                            udp_server_.SendState(model_, data_, step_index_,
+                                                  last_accepted_ctrl_seq_, last_echo_token_,
+                                                  send_force_data_);
+                        }
                     }
-                    last_accepted_ctrl_seq_ = next.sequence;
-                    last_echo_token_ = next.echo_token;
-                    ctrl_queue_.pop_front();
+                    break;
+                }
 
-                    // Reset anchor when queue drains
-                    if (ctrl_queue_.empty()) {
-                        replay_anchor_host_us_ = 0;
+                case MJCControlMode::SimTimeGuarded: {
+                    // Apply guarded control if fresh and not expired
+                    if (guarded_ctrl_.fresh) {
+                        bool no_expiry = guarded_ctrl_.expire_at_sim_time < 0.0;
+                        bool still_valid = no_expiry || data_->time <= guarded_ctrl_.expire_at_sim_time;
+                        if (still_valid) {
+                            ApplyCtrlToData(guarded_ctrl_);
+                            guarded_ctrl_.fresh = false;
+                            guarded_ctrl_.expired = false;
+                        } else {
+                            // Arrived already expired — discard
+                            guarded_ctrl_.fresh = false;
+                            guarded_ctrl_.expired = true;
+                        }
                     }
 
-                    mj_step(model_, data_);
-                    step_index_++;
-                    step_count++;
-                    steps_since_last_frame++;
-                    did_udp_step = true;
+                    // Check for expiry of previously applied control
+                    if (!guarded_ctrl_.expired && guarded_ctrl_.expire_at_sim_time >= 0.0
+                        && data_->time > guarded_ctrl_.expire_at_sim_time) {
+                        guarded_ctrl_.expired = true;
 
-                    udp_server_.SendState(model_, data_, step_index_,
-                                          last_accepted_ctrl_seq_, last_echo_token_,
-                                          send_force_data_);
+                        switch (guarded_ctrl_.expiry_policy) {
+                            case MJCExpiryPolicy::ZeroImmediate: {
+                                int nu = model_->nu;
+                                for (int i = 0; i < nu; i++)
+                                    data_->ctrl[i] = 0.0;
+                                int nv = model_->nv;
+                                for (int i = 0; i < nv; i++)
+                                    data_->qfrc_applied[i] = 0.0;
+                                int nxfrc = 6 * model_->nbody;
+                                for (int i = 0; i < nxfrc; i++)
+                                    data_->xfrc_applied[i] = 0.0;
+                                break;
+                            }
+                            case MJCExpiryPolicy::ZeroAfterTimeout:
+                                // Let the existing timeout mechanism handle it
+                                break;
+                            case MJCExpiryPolicy::HoldLastValid:
+                                // Values persist — do nothing
+                                break;
+                        }
+                    }
+                    break;
+                }
+
+                case MJCControlMode::PTPScheduled: {
+                    // Pop all due controls from sorted ring buffer.
+                    // Apply the latest one (highest target_sim_time <= d->time).
+                    while (scheduled_count_ > 0) {
+                        auto& front = scheduled_front();
+                        if (front.target_sim_time > data_->time) break;  // Not yet due
+
+                        // Check if next is also due (this one is superseded)
+                        if (scheduled_count_ > 1) {
+                            size_t next_idx = (scheduled_head_ + 1) % kScheduledCapacity;
+                            if (scheduled_buf_[next_idx].target_sim_time <= data_->time) {
+                                scheduled_pop_front();  // Superseded, discard
+                                continue;
+                            }
+                        }
+
+                        // Latest due control — apply it
+                        ApplyCtrlToData(front);
+                        last_accepted_ctrl_seq_ = front.sequence;
+                        last_echo_token_ = front.echo_token;
+                        scheduled_pop_front();
+                        break;
+                    }
+
+                    // Also check Live latch (for controls with target_sim_time=0)
+                    if (latest_ctrl_.fresh) {
+                        ApplyCtrlToData(latest_ctrl_);
+                        latest_ctrl_.fresh = false;
+                    }
+                    break;
                 }
             }
 
@@ -1142,21 +1351,22 @@ private:
                             data_->ctrl[i] = 0.0;
                         }
                     }
-                    // Clear any stale queued controls
+                    // Clear all mode-specific state
                     ctrl_queue_.clear();
                     replay_anchor_host_us_ = 0;
                     replay_anchor_cpu_ = Clock::time_point{};
+                    latest_ctrl_ = {};
+                    guarded_ctrl_ = {};
+                    scheduled_clear();
                     os_log_info(OS_LOG_DEFAULT, "Ctrl timeout: zeroed actuators after %ums",
                                 ctrl_timeout_ms_);
                 }
             }
 
-            // Note: no resync after UDP steps — they consume time from the
-            // real-time budget so total step rate stays at the expected real-time
-            // rate regardless of driver packet rate.
-
-            // === Real-time Physics Loop (when no UDP packets) ===
-            if (!did_udp_step) {
+            // === Real-time Physics Stepping ===
+            // In Live and SimTimeGuarded modes: always step at native rate.
+            // In PacedReplay mode: only step if no paced step was taken (preserves lock-step).
+            if (!did_paced_step) {
                 bool stepped = false;
                 const auto start_cpu = Clock::now();
                 const auto elapsed_cpu = start_cpu - sync_cpu;
@@ -1199,9 +1409,6 @@ private:
 
                 if (stepped) {
                     steps_since_last_frame++;
-                    // Send state to connected client even when stepping in
-                    // real-time mode (not only on UDP-driven steps). This lets
-                    // clients that send empty ctrl still receive state.
                     if (udp_server_.HasClient()) {
                         udp_server_.SendState(model_, data_, step_index_,
                                               last_accepted_ctrl_seq_, last_echo_token_,
@@ -1318,14 +1525,63 @@ private:
         ring_buffer_.end_write();
     }
 
-    // Timestamped control entry for paced replay queue
-    struct TimestampedCtrl {
+    // Shared control payload (used by all modes)
+    struct CtrlPayload {
+        std::vector<double> ctrl;
+        std::vector<double> qfrc_applied;
+        std::vector<double> xfrc_applied;
+        std::vector<double> mocap_pos;
+        std::vector<double> mocap_quat;
+    };
+
+    // For Live mode: latest-value latch (physics thread only, no lock needed)
+    struct LatestCtrl : CtrlPayload {
+        bool fresh = false;
+    };
+
+    // For PacedReplay mode: timestamped queue entry
+    struct TimestampedCtrl : CtrlPayload {
         uint64_t host_timestamp_us = 0;  // 0 = apply immediately (legacy)
         double target_sim_time = 0.0;
         uint64_t echo_token = 0;
         uint32_t sequence = 0;
-        std::vector<double> ctrl;
     };
+
+    // For SimTimeGuarded mode: latest-value latch with expiry
+    struct GuardedCtrl : CtrlPayload {
+        double expire_at_sim_time = -1.0;     // -1.0 = no expiry
+        MJCExpiryPolicy expiry_policy = MJCExpiryPolicy::ZeroAfterTimeout;
+        bool fresh = false;
+        bool expired = false;                  // set true once sim time passes deadline
+    };
+
+    // Apply a CtrlPayload to mjData fields
+    void ApplyCtrlToData(const CtrlPayload& payload) {
+        int nu = model_->nu;
+        int copy_count = std::min(static_cast<int>(payload.ctrl.size()), nu);
+        for (int i = 0; i < copy_count; i++)
+            data_->ctrl[i] = payload.ctrl[i];
+
+        int nv = model_->nv;
+        copy_count = std::min(static_cast<int>(payload.qfrc_applied.size()), nv);
+        for (int i = 0; i < copy_count; i++)
+            data_->qfrc_applied[i] = payload.qfrc_applied[i];
+
+        int nxfrc = 6 * model_->nbody;
+        copy_count = std::min(static_cast<int>(payload.xfrc_applied.size()), nxfrc);
+        for (int i = 0; i < copy_count; i++)
+            data_->xfrc_applied[i] = payload.xfrc_applied[i];
+
+        int nmocap3 = 3 * model_->nmocap;
+        copy_count = std::min(static_cast<int>(payload.mocap_pos.size()), nmocap3);
+        for (int i = 0; i < copy_count; i++)
+            data_->mocap_pos[i] = payload.mocap_pos[i];
+
+        int nmocap4 = 4 * model_->nmocap;
+        copy_count = std::min(static_cast<int>(payload.mocap_quat.size()), nmocap4);
+        for (int i = 0; i < copy_count; i++)
+            data_->mocap_quat[i] = payload.mocap_quat[i];
+    }
 
     const uint64_t unique_id_;  // Monotonic ID for per-thread state keying (survives address reuse)
     int32_t instance_index_;
@@ -1334,6 +1590,8 @@ private:
     uint16_t udp_port_;
     uint32_t ctrl_timeout_ms_;
     bool send_force_data_;
+    MJCControlMode control_mode_;
+    MJCExpiryPolicy default_expiry_policy_;
     std::atomic<double> realtime_factor_;
     std::atomic<MJRuntimeState> state_;
 
@@ -1356,13 +1614,54 @@ private:
     // from a previous run detect the generation change and return nullptr.
     std::atomic<uint64_t> epoch_{0};
 
-    // Ctrl timeout and paced replay state (physics thread only)
+    // Ctrl timeout state (physics thread only)
     std::vector<bool> actuator_zero_on_timeout_;   // per-actuator: true = zero on timeout
     Clock::time_point last_ctrl_received_{};       // last time a UDP ctrl packet arrived
     bool ctrl_timed_out_ = false;                  // true when timeout has fired
+
+    // Live mode state
+    LatestCtrl latest_ctrl_;
+
+    // PacedReplay mode state
     std::deque<TimestampedCtrl> ctrl_queue_;        // buffered controls awaiting replay
     Clock::time_point replay_anchor_cpu_{};         // wall-clock anchor for paced replay
     uint64_t replay_anchor_host_us_ = 0;           // host timestamp anchor (0 = no anchor)
+
+    // SimTimeGuarded mode state
+    GuardedCtrl guarded_ctrl_;
+
+    // PTPScheduled mode: fixed-size ring buffer of future controls
+    struct ScheduledCtrl : CtrlPayload {
+        double target_sim_time = 0.0;  // When to apply (d->time >= this)
+        uint32_t sequence = 0;         // For ordering/echo
+        uint64_t echo_token = 0;      // Echo back in state
+    };
+
+    static constexpr size_t kScheduledCapacity = 64;
+    std::array<ScheduledCtrl, kScheduledCapacity> scheduled_buf_;
+    size_t scheduled_head_ = 0;
+    size_t scheduled_count_ = 0;
+
+    ScheduledCtrl& scheduled_front() { return scheduled_buf_[scheduled_head_]; }
+
+    void scheduled_pop_front() {
+        scheduled_buf_[scheduled_head_] = {};
+        scheduled_head_ = (scheduled_head_ + 1) % kScheduledCapacity;
+        scheduled_count_--;
+    }
+
+    void scheduled_push_back(ScheduledCtrl&& item) {
+        if (scheduled_count_ >= kScheduledCapacity) {
+            scheduled_pop_front();  // Drop oldest when full
+        }
+        size_t tail = (scheduled_head_ + scheduled_count_) % kScheduledCapacity;
+        scheduled_buf_[tail] = std::move(item);
+        scheduled_count_++;
+    }
+
+    void scheduled_clear() {
+        while (scheduled_count_ > 0) scheduled_pop_front();
+    }
 
     // Time sync state (physics thread only)
     uint64_t step_index_ = 0;                       // monotonic step counter
@@ -1497,6 +1796,7 @@ double MJSimulationRuntime::getCameraLookatZ() const { return impl_->GetCameraLo
 void MJSimulationRuntime::setTimestep(double v) { impl_->SetTimestep(v); }
 void MJSimulationRuntime::setRealtimeFactor(double v) { impl_->SetRealtimeFactor(v); }
 double MJSimulationRuntime::getRealtimeFactor() const { return impl_->GetRealtimeFactor(); }
+void MJSimulationRuntime::setControlMode(MJCControlMode mode) { impl_->SetControlMode(mode); }
 
 const mjvScene* MJSimulationRuntime::getScene() const { return impl_->GetScene(); }
 mjvCamera* MJSimulationRuntime::getCamera() { return impl_->GetCamera(); }

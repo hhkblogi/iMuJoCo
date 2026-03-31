@@ -29,6 +29,7 @@ enum MJGrpcOp : int32_t {
     MJ_GRPC_OP_RESET = 2,
     MJ_GRPC_OP_STEP = 3,
     MJ_GRPC_OP_RESET_TO_KEYFRAME = 4,
+    MJ_GRPC_OP_SET_CONTROL_MODE = 5,
 };
 
 // MARK: - Physics State Struct (for GetState callback)

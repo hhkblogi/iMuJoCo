@@ -82,6 +82,98 @@ TEST(DriverTest, ControlCommand) {
     EXPECT_EQ(cmd.ctrl.size(), 3);
 }
 
+// Test ControlCommand extended fields and defaults
+TEST(DriverTest, ControlCommandExtendedFields) {
+    ControlCommand cmd;
+
+    // Verify new fields exist and have correct defaults
+    EXPECT_TRUE(cmd.qfrc_applied.empty());
+    EXPECT_TRUE(cmd.xfrc_applied.empty());
+    EXPECT_TRUE(cmd.mocap_pos.empty());
+    EXPECT_TRUE(cmd.mocap_quat.empty());
+    EXPECT_DOUBLE_EQ(cmd.expire_at_sim_time, -1.0);
+    EXPECT_EQ(cmd.expiry_policy, schema::ExpiryPolicy::Default);
+
+    // Verify fields can be set
+    cmd.qfrc_applied = {10.0, 20.0, 30.0};
+    cmd.xfrc_applied = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+    cmd.mocap_pos = {0.1, 0.2, 0.3};
+    cmd.mocap_quat = {1.0, 0.0, 0.0, 0.0};
+    cmd.expire_at_sim_time = 1.5;
+    cmd.expiry_policy = schema::ExpiryPolicy::ZeroImmediate;
+
+    EXPECT_EQ(cmd.qfrc_applied.size(), 3);
+    EXPECT_EQ(cmd.xfrc_applied.size(), 6);
+    EXPECT_EQ(cmd.mocap_pos.size(), 3);
+    EXPECT_EQ(cmd.mocap_quat.size(), 4);
+    EXPECT_DOUBLE_EQ(cmd.expire_at_sim_time, 1.5);
+    EXPECT_EQ(cmd.expiry_policy, schema::ExpiryPolicy::ZeroImmediate);
+}
+
+// Test ControlCommand FlatBuffers round-trip with extended fields
+TEST(DriverTest, ControlCommandRoundTrip) {
+    ControlCommand cmd;
+    cmd.sequence = 42;
+    cmd.ctrl = {1.0, 2.0, 3.0};
+    cmd.qfrc_applied = {10.0, 20.0};
+    cmd.xfrc_applied = {0.1, 0.2, 0.3, 0.4, 0.5, 0.6};
+    cmd.mocap_pos = {1.0, 2.0, 3.0};
+    cmd.mocap_quat = {1.0, 0.0, 0.0, 0.0};
+    cmd.expire_at_sim_time = 2.5;
+    cmd.expiry_policy = schema::ExpiryPolicy::HoldLastValid;
+    cmd.host_timestamp_us = 123456;
+
+    // Serialize
+    flatbuffers::FlatBufferBuilder builder(256);
+    auto offset = schema::ControlPacket::Pack(builder, &cmd);
+    schema::FinishControlPacketBuffer(builder, offset);
+
+    // Deserialize
+    auto packet = schema::GetControlPacket(builder.GetBufferPointer());
+    EXPECT_EQ(packet->sequence(), 42);
+    EXPECT_EQ(packet->ctrl()->size(), 3);
+    EXPECT_DOUBLE_EQ(packet->ctrl()->Get(0), 1.0);
+
+    ASSERT_NE(packet->qfrc_applied(), nullptr);
+    EXPECT_EQ(packet->qfrc_applied()->size(), 2);
+    EXPECT_DOUBLE_EQ(packet->qfrc_applied()->Get(0), 10.0);
+
+    ASSERT_NE(packet->xfrc_applied(), nullptr);
+    EXPECT_EQ(packet->xfrc_applied()->size(), 6);
+
+    ASSERT_NE(packet->mocap_pos(), nullptr);
+    EXPECT_EQ(packet->mocap_pos()->size(), 3);
+
+    ASSERT_NE(packet->mocap_quat(), nullptr);
+    EXPECT_EQ(packet->mocap_quat()->size(), 4);
+    EXPECT_DOUBLE_EQ(packet->mocap_quat()->Get(0), 1.0);
+
+    EXPECT_DOUBLE_EQ(packet->expire_at_sim_time(), 2.5);
+    EXPECT_EQ(packet->expiry_policy(), schema::ExpiryPolicy::HoldLastValid);
+    EXPECT_EQ(packet->host_timestamp_us(), 123456);
+}
+
+// Test backward compatibility: old-style packet with only ctrl
+TEST(DriverTest, ControlCommandBackwardCompat) {
+    ControlCommand cmd;
+    cmd.ctrl = {1.0, 2.0};
+
+    // Serialize with only ctrl set (other fields empty/default)
+    flatbuffers::FlatBufferBuilder builder(256);
+    auto offset = schema::ControlPacket::Pack(builder, &cmd);
+    schema::FinishControlPacketBuffer(builder, offset);
+
+    // Deserialize and verify defaults
+    auto packet = schema::GetControlPacket(builder.GetBufferPointer());
+    EXPECT_EQ(packet->ctrl()->size(), 2);
+    EXPECT_EQ(packet->qfrc_applied(), nullptr);
+    EXPECT_EQ(packet->xfrc_applied(), nullptr);
+    EXPECT_EQ(packet->mocap_pos(), nullptr);
+    EXPECT_EQ(packet->mocap_quat(), nullptr);
+    EXPECT_DOUBLE_EQ(packet->expire_at_sim_time(), -1.0);
+    EXPECT_EQ(packet->expiry_policy(), schema::ExpiryPolicy::Default);
+}
+
 // Test subscriber management
 TEST(DriverTest, SubscriberManagement) {
     Driver driver;

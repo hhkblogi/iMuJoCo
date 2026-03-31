@@ -219,4 +219,102 @@ using namespace imujoco::schema;
     XCTAssertTrue(VerifyControlPacketBuffer(verifier), @"Buffer should verify successfully");
 }
 
+#pragma mark - Extended ControlPacket Tests
+
+- (void)test_control_packet_extended_fields {
+    flatbuffers::FlatBufferBuilder builder(512);
+
+    std::vector<double> ctrl = {1.0, 2.0, 3.0};
+    std::vector<double> qfrc = {10.0, 20.0};
+    std::vector<double> xfrc = {0.1, 0.2, 0.3, 0.4, 0.5, 0.6};
+    std::vector<double> mpos = {1.0, 2.0, 3.0};
+    std::vector<double> mquat = {1.0, 0.0, 0.0, 0.0};
+
+    auto ctrl_vec = builder.CreateVector(ctrl);
+    auto qfrc_vec = builder.CreateVector(qfrc);
+    auto xfrc_vec = builder.CreateVector(xfrc);
+    auto mpos_vec = builder.CreateVector(mpos);
+    auto mquat_vec = builder.CreateVector(mquat);
+
+    auto control = CreateControlPacket(builder,
+        42,          // sequence
+        ctrl_vec,    // ctrl
+        123456,      // host_timestamp_us
+        qfrc_vec,    // qfrc_applied
+        xfrc_vec,    // xfrc_applied
+        mpos_vec,    // mocap_pos
+        mquat_vec,   // mocap_quat
+        2.5,         // expire_at_sim_time
+        ExpiryPolicy::HoldLastValid  // expiry_policy
+    );
+    builder.Finish(control, ControlPacketIdentifier());
+
+    auto buf = builder.GetBufferPointer();
+    auto packet = GetControlPacket(buf);
+
+    // Verify all fields
+    XCTAssertEqual(packet->sequence(), 42u);
+    XCTAssertEqual(packet->host_timestamp_us(), 123456ull);
+    XCTAssertEqualWithAccuracy(packet->expire_at_sim_time(), 2.5, 0.0001);
+    XCTAssertEqual(packet->expiry_policy(), ExpiryPolicy::HoldLastValid);
+
+    XCTAssertEqual(packet->ctrl()->size(), 3u);
+    XCTAssertEqualWithAccuracy(packet->ctrl()->Get(0), 1.0, 0.0001);
+
+    XCTAssertEqual(packet->qfrc_applied()->size(), 2u);
+    XCTAssertEqualWithAccuracy(packet->qfrc_applied()->Get(0), 10.0, 0.0001);
+
+    XCTAssertEqual(packet->xfrc_applied()->size(), 6u);
+    XCTAssertEqual(packet->mocap_pos()->size(), 3u);
+    XCTAssertEqual(packet->mocap_quat()->size(), 4u);
+    XCTAssertEqualWithAccuracy(packet->mocap_quat()->Get(0), 1.0, 0.0001);
+
+    // Verify buffer integrity
+    flatbuffers::Verifier verifier(buf, builder.GetSize());
+    XCTAssertTrue(VerifyControlPacketBuffer(verifier), @"Extended buffer should verify");
+}
+
+- (void)test_control_packet_backward_compat {
+    // Old-style packet with only ctrl — new fields should be null/default
+    flatbuffers::FlatBufferBuilder builder(128);
+
+    std::vector<double> ctrl = {0.5, 0.6};
+    auto ctrl_vec = builder.CreateVector(ctrl);
+
+    auto control = CreateControlPacket(builder, 1, ctrl_vec);
+    builder.Finish(control, ControlPacketIdentifier());
+
+    auto buf = builder.GetBufferPointer();
+    auto packet = GetControlPacket(buf);
+
+    XCTAssertEqual(packet->ctrl()->size(), 2u);
+    XCTAssertTrue(packet->qfrc_applied() == nullptr, @"Should be null for old-style packet");
+    XCTAssertTrue(packet->xfrc_applied() == nullptr, @"Should be null for old-style packet");
+    XCTAssertTrue(packet->mocap_pos() == nullptr, @"Should be null for old-style packet");
+    XCTAssertTrue(packet->mocap_quat() == nullptr, @"Should be null for old-style packet");
+    XCTAssertEqualWithAccuracy(packet->expire_at_sim_time(), -1.0, 0.0001);
+    XCTAssertEqual(packet->expiry_policy(), ExpiryPolicy::Default);
+}
+
+- (void)test_expiry_policy_enum {
+    // Verify all enum values serialize correctly
+    flatbuffers::FlatBufferBuilder builder(128);
+    auto empty = builder.CreateVector(std::vector<double>{});
+
+    auto policies = {ExpiryPolicy::Default, ExpiryPolicy::ZeroImmediate,
+                     ExpiryPolicy::ZeroAfterTimeout, ExpiryPolicy::HoldLastValid};
+
+    for (auto policy : policies) {
+        builder.Clear();
+        auto empty_vec = builder.CreateVector(std::vector<double>{});
+        auto control = CreateControlPacket(builder,
+            0, empty_vec, 0, 0, 0, 0, 0, -1.0, policy);
+        builder.Finish(control);
+
+        auto packet = GetControlPacket(builder.GetBufferPointer());
+        XCTAssertEqual(packet->expiry_policy(), policy,
+            @"ExpiryPolicy %d should round-trip", static_cast<int>(policy));
+    }
+}
+
 @end

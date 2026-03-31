@@ -148,6 +148,41 @@ py_binary(
 )
 
 py_binary(
+    name = "test_control_modes_py",
+    srcs = ["examples/test_control_modes.py"],
+    main = "examples/test_control_modes.py",
+    deps = ["//driver/imujoco_driver"],
+)
+
+py_binary(
+    name = "test_rate_decoupling_py",
+    srcs = ["examples/test_rate_decoupling.py"],
+    main = "examples/test_rate_decoupling.py",
+    deps = ["//driver/imujoco_driver"],
+)
+
+py_binary(
+    name = "test_paced_replay_py",
+    srcs = ["examples/test_paced_replay.py"],
+    main = "examples/test_paced_replay.py",
+    deps = ["//driver/imujoco_driver"],
+)
+
+py_binary(
+    name = "test_sim_time_guarded_py",
+    srcs = ["examples/test_sim_time_guarded.py"],
+    main = "examples/test_sim_time_guarded.py",
+    deps = ["//driver/imujoco_driver"],
+)
+
+py_binary(
+    name = "test_ptp_scheduled_py",
+    srcs = ["examples/test_ptp_scheduled.py"],
+    main = "examples/test_ptp_scheduled.py",
+    deps = ["//driver/imujoco_driver"],
+)
+
+py_binary(
     name = "car_driver",
     srcs = ["examples/car_driver.py"],
     main = "examples/car_driver.py",
