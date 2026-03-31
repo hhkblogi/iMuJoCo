@@ -354,6 +354,7 @@ static std::atomic<uint64_t> g_next_instance_id{1};
 // In the app, instanceIndex is 1-based (instances 1-4), so ports map to
 // 10001-10004.  The function itself works with any non-negative value.
 static uint16_t SyncPortForInstance(int32_t instanceIndex) {
+    if (instanceIndex < 0) instanceIndex = 0;
     return imujoco::protocol::MJ_SYNC_PORT + static_cast<uint16_t>(instanceIndex);
 }
 
@@ -395,7 +396,11 @@ public:
         {
             auto bind_ip = imujoco::GetLocalBindAddress();
             uint16_t sync_port = SyncPortForInstance(config.instanceIndex);
-            sync_server_.Start(sync_port, bind_ip);
+            if (!sync_server_.Start(sync_port, bind_ip)) {
+                os_log_error(OS_LOG_DEFAULT,
+                    "Instance %d: sync server failed to start on port %u",
+                    config.instanceIndex, sync_port);
+            }
         }
 
         os_log_info(OS_LOG_DEFAULT, "Instance %d ready", config.instanceIndex);

@@ -2,6 +2,7 @@
 // Individual cell view for simulation grid
 
 import SwiftUI
+import core
 import render
 import video
 
@@ -576,28 +577,20 @@ struct SimulationCellView: View {
 
     // MARK: - Sync Status Badge
 
+    @ViewBuilder
     private var syncStatusBadge: some View {
-        let sync = instance.runtime?.syncStats
-        let label: String
-        let color: Color
-        if let s = sync, s.isRunning {
-            if s.driverLocked {
-                label = "PTP :\(s.port) Locked"
-            } else if s.driverExchanges > 30 {
-                label = "PTP :\(s.port) Failed"
-            } else if s.driverExchanges > 0 {
-                label = "PTP :\(s.port) Syncing"
-            } else {
-                label = "PTP :\(s.port) Idle"
-            }
-            color = overlaySecondaryTextColor(brightness: brightness)
-        } else {
-            label = ""
-            color = .clear
+        if let s = instance.runtime?.syncStats, s.isRunning {
+            Text(syncLabel(s))
+                .font(.system(size: 8, weight: .medium, design: .monospaced))
+                .foregroundColor(overlaySecondaryTextColor(brightness: brightness))
         }
-        return Text(label)
-            .font(.system(size: 8, weight: .medium, design: .monospaced))
-            .foregroundColor(color)
+    }
+
+    private func syncLabel(_ s: MJSyncStats) -> String {
+        if s.driverLocked { return "PTP :\(s.port) Locked" }
+        if s.driverExchanges > 30 { return "PTP :\(s.port) Failed" }
+        if s.driverExchanges > 0 { return "PTP :\(s.port) Syncing" }
+        return "PTP :\(s.port) Idle"
     }
 
     // MARK: - Performance Metrics View

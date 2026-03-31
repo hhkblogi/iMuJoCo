@@ -76,33 +76,33 @@ struct PerformanceStatsBar: View {
                 let cpu = processCPUUsage()
                 let gpuMem = Double(Self.metalDevice?.currentAllocatedSize ?? 0) / (1024 * 1024)
                 let currentRpc = grpcRpcCount()
-                // Collect active sync instances and rotate every 5s (10 ticks)
-                let activeSyncInstances = instances.filter {
-                    $0.state == .running && $0.runtime?.syncStats.isRunning == true
-                }
-                let tick = syncRollingTick + 1
-                let rollingIdx: Int
-                if activeSyncInstances.isEmpty {
-                    rollingIdx = 0
-                } else {
-                    rollingIdx = (tick % 10 == 0)
-                        ? (syncRollingIndex + 1) % activeSyncInstances.count
-                        : syncRollingIndex % max(activeSyncInstances.count, 1)
-                }
-                let syncStats = activeSyncInstances.isEmpty
-                    ? nil
-                    : activeSyncInstances[rollingIdx].runtime?.syncStats
                 await MainActor.run {
                     memoryMB = mem
                     cpuUsage = cpu
                     gpuMemoryMB = gpuMem
                     grpcActive = currentRpc != lastGrpcRpcCount
                     lastGrpcRpcCount = currentRpc
+
+                    // Rotate through active sync instances every 5s (10 ticks).
+                    // All @State reads/writes are on MainActor to avoid data races.
+                    let activeSyncInstances = instances.filter {
+                        $0.state == .running && $0.runtime?.syncStats.isRunning == true
+                    }
+                    let tick = syncRollingTick + 1
+                    let rollingIdx: Int
+                    if activeSyncInstances.isEmpty {
+                        rollingIdx = 0
+                    } else {
+                        rollingIdx = (tick % 10 == 0)
+                            ? (syncRollingIndex + 1) % activeSyncInstances.count
+                            : syncRollingIndex % max(activeSyncInstances.count, 1)
+                    }
+                    let syncStats = activeSyncInstances.isEmpty
+                        ? nil
+                        : activeSyncInstances[rollingIdx].runtime?.syncStats
                     syncRunning = syncStats?.isRunning ?? false
                     let newPort = syncStats?.port ?? 0
                     if newPort != syncPort {
-                        // Rolling view switched instances — reset so the first
-                        // tick doesn't false-trigger syncActive with a stale count.
                         lastSyncResponsesSent = syncStats?.responsesSent ?? 0
                     }
                     syncPort = newPort
