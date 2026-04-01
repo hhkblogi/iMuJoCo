@@ -43,8 +43,7 @@ struct MuJoCoApp: App {
         SimulationGridManager.registerBackgroundTask()
         #endif
 
-        // Start sync server at launch — available before any model is loaded
-        startSyncServer()
+        // Sync server is now per-instance — started when runtime is created
     }
 
     var body: some Scene {

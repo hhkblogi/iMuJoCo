@@ -350,20 +350,13 @@ private:
 // Used by WaitForFrame() to maintain per-thread-per-instance state.
 static std::atomic<uint64_t> g_next_instance_id{1};
 
-// Process-wide sync server singleton — starts on first runtime creation, never stops.
-// Independent of model load/unload and individual runtime lifetimes.
-static SyncServer& GetGlobalSyncServer() {
-    static SyncServer server;
-    return server;
-}
-
-
-static void EnsureSyncServerRunning() {
-    auto& server = GetGlobalSyncServer();
-    if (!server.IsRunning()) {
-        auto bind_ip = imujoco::GetLocalBindAddress();
-        server.Start(imujoco::protocol::MJ_SYNC_PORT, bind_ip);
-    }
+// Helper: compute sync port for a given instance (1-indexed).
+// In the app, instanceIndex is 1-based (instances 1-4), so ports map to
+// 10001-10004.  The function itself works with any non-negative value.
+static uint16_t SyncPortForInstance(int32_t instanceIndex) {
+    if (instanceIndex < 0) instanceIndex = 0;
+    if (instanceIndex > 100) instanceIndex = 100;  // prevent uint16_t overflow
+    return imujoco::protocol::MJ_SYNC_PORT + static_cast<uint16_t>(instanceIndex);
 }
 
 class MJSimulationRuntimeImpl {
@@ -400,8 +393,17 @@ public:
         camera_.lookat[1] = 0;
         camera_.lookat[2] = 0.5;
 
-        // Start process-wide sync server (first runtime wins, survives all load/unload cycles)
-        EnsureSyncServerRunning();
+        // Start per-instance sync server. Derive port from the UDP control port
+        // (+1000) so it tracks any udpPort override, not just instanceIndex.
+        {
+            auto bind_ip = imujoco::GetLocalBindAddress();
+            uint16_t sync_port = udp_port_ + 1000;
+            if (!sync_server_.Start(sync_port, bind_ip)) {
+                os_log_error(OS_LOG_DEFAULT,
+                    "Instance %d: sync server failed to start on port %u",
+                    config.instanceIndex, sync_port);
+            }
+        }
 
         os_log_info(OS_LOG_DEFAULT, "Instance %d ready", config.instanceIndex);
     }
@@ -620,6 +622,20 @@ public:
         stats.packetsReceived = udp_server_.GetPacketsReceived();
         stats.packetsSent = udp_server_.GetPacketsSent();
         stats.hasClient = udp_server_.HasClient();
+        return stats;
+    }
+
+    MJSyncServerStats GetSyncStats() const {
+        MJSyncServerStats stats;
+        stats.isRunning = sync_server_.IsRunning();
+        stats.responsesSent = sync_server_.GetResponsesSent();
+        stats.port = sync_server_.GetPort();
+        stats.serverRateRatioPpm = sync_server_.GetRateRatioPpm();
+        stats.driverLocked = sync_server_.GetDriverLocked();
+        stats.driverOffsetUs = sync_server_.GetDriverOffsetUs();
+        stats.driverDelayUs = sync_server_.GetDriverDelayUs();
+        stats.driverJitterUs = sync_server_.GetDriverJitterUs();
+        stats.driverExchanges = sync_server_.GetDriverExchanges();
         return stats;
     }
 
@@ -1331,6 +1347,7 @@ private:
 
     imujoco::SpmcQueue<MJFrameDataStorage, kFrameQueueCapacity> ring_buffer_;
     UDPServer udp_server_;
+    SyncServer sync_server_;
 
     std::thread physics_thread_;
     std::atomic<bool> exit_requested_;
@@ -1367,26 +1384,7 @@ int32_t MJGetVersion() {
     return mj_version();
 }
 
-MJSyncServerStats MJGetSyncServerStats() {
-    auto& server = GetGlobalSyncServer();
-    MJSyncServerStats stats;
-    // Server-side
-    stats.isRunning = server.IsRunning();
-    stats.responsesSent = server.GetResponsesSent();
-    stats.port = server.GetPort();
-    stats.serverRateRatioPpm = server.GetRateRatioPpm();
-    // Driver-side feedback (received via sync protocol, not control packets)
-    stats.driverLocked = server.GetDriverLocked();
-    stats.driverOffsetUs = server.GetDriverOffsetUs();
-    stats.driverDelayUs = server.GetDriverDelayUs();
-    stats.driverJitterUs = server.GetDriverJitterUs();
-    stats.driverExchanges = server.GetDriverExchanges();
-    return stats;
-}
-
-void MJStartSyncServer() {
-    EnsureSyncServerRunning();
-}
+MJSyncServerStats MJSimulationRuntime::getSyncStats() const { return impl_->GetSyncStats(); }
 
 // MARK: - MJFrameData Free Functions
 

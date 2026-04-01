@@ -19,6 +19,8 @@ struct PerformanceStatsBar: View {
     @State private var syncPort: UInt16 = 0
     @State private var syncRunning: Bool = false
     @State private var syncStats: MJSyncStats?
+    @State private var syncRollingIndex: Int = 0
+    @State private var syncRollingTick: Int = 0
 
     private static let metalDevice = MTLCreateSystemDefaultDevice()
 
@@ -74,18 +76,44 @@ struct PerformanceStatsBar: View {
                 let cpu = processCPUUsage()
                 let gpuMem = Double(Self.metalDevice?.currentAllocatedSize ?? 0) / (1024 * 1024)
                 let currentRpc = grpcRpcCount()
-                let syncStats = MJSyncStats.current()
                 await MainActor.run {
                     memoryMB = mem
                     cpuUsage = cpu
                     gpuMemoryMB = gpuMem
                     grpcActive = currentRpc != lastGrpcRpcCount
                     lastGrpcRpcCount = currentRpc
-                    syncRunning = syncStats.isRunning
-                    syncPort = syncStats.port
-                    syncActive = syncStats.responsesSent != lastSyncResponsesSent
-                    lastSyncResponsesSent = syncStats.responsesSent
+
+                    // Rotate through active sync instances every 5s (10 ticks).
+                    // All @State reads/writes are on MainActor to avoid data races.
+                    // Snapshot syncStats once per instance into tuples to avoid
+                    // repeated Swift-C++ interop calls within this tick.
+                    let activeSyncInstances: [(instance: SimulationInstance, stats: MJSyncStats)] = instances.compactMap { inst in
+                        guard inst.state == .running, let stats = inst.runtime?.syncStats, stats.isRunning else { return nil }
+                        return (inst, stats)
+                    }
+                    let tick = syncRollingTick + 1
+                    let rollingIdx: Int
+                    if activeSyncInstances.isEmpty {
+                        rollingIdx = 0
+                    } else {
+                        rollingIdx = (tick % 10 == 0)
+                            ? (syncRollingIndex + 1) % activeSyncInstances.count
+                            : syncRollingIndex % max(activeSyncInstances.count, 1)
+                    }
+                    let syncStats: MJSyncStats? = activeSyncInstances.isEmpty
+                        ? nil
+                        : activeSyncInstances[rollingIdx].stats
+                    syncRunning = syncStats?.isRunning ?? false
+                    let newPort = syncStats?.port ?? 0
+                    if newPort != syncPort {
+                        lastSyncResponsesSent = syncStats?.responsesSent ?? 0
+                    }
+                    syncPort = newPort
+                    syncActive = syncStats != nil && syncStats!.responsesSent != lastSyncResponsesSent
+                    lastSyncResponsesSent = syncStats?.responsesSent ?? 0
                     self.syncStats = syncStats
+                    syncRollingTick = tick
+                    syncRollingIndex = rollingIdx
                 }
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }
