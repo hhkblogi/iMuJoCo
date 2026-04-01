@@ -225,7 +225,9 @@ public:
             has_extended = !meta_out->qfrc_applied.empty() || !meta_out->xfrc_applied.empty()
                         || !meta_out->mocap_pos.empty() || !meta_out->mocap_quat.empty();
         }
-        if ((!ctrl || ctrl->size() == 0) && !has_extended) return 0;
+        bool has_scalar_meta = (packet->expire_at_sim_time() != -1.0)
+                             || (packet->expiry_policy() != imujoco::schema::ExpiryPolicy::Default);
+        if ((!ctrl || ctrl->size() == 0) && !has_extended && !has_scalar_meta) return 0;
 
         int nu = ctrl ? static_cast<int>(ctrl->size()) : 0;
         int copy_count = std::min(nu, max_ctrl);
@@ -1343,6 +1345,8 @@ private:
                         ApplyCtrlToData(front);
                         last_accepted_ctrl_seq_ = front.sequence;
                         last_echo_token_ = front.echo_token;
+                        last_valid_ctrl_received_ = Clock::now();
+                        ctrl_timed_out_ = false;
                         scheduled_pop_front();
                         break;
                     }
@@ -1357,9 +1361,9 @@ private:
             }
 
             // === Ctrl Timeout: zero torque actuators if no valid controls received ===
-            // Use last_valid_ctrl_received_ if set (for ZeroAfterTimeout expiry policy),
-            // otherwise fall back to last_ctrl_received_ (general packet timeout).
-            if (ctrl_timeout_ms_ > 0 && !ctrl_timed_out_
+            // Suppress timeout in PTPScheduled mode while future controls are queued.
+            bool suppress_timeout = (ctrl_mode == MJCControlMode::PTPScheduled && scheduled_count_ > 0);
+            if (ctrl_timeout_ms_ > 0 && !ctrl_timed_out_ && !suppress_timeout
                 && last_ctrl_received_.time_since_epoch().count() > 0) {
                 auto ref_time = (last_valid_ctrl_received_.time_since_epoch().count() > 0)
                     ? last_valid_ctrl_received_ : last_ctrl_received_;
@@ -1590,50 +1594,55 @@ private:
         bool expired = false;                  // set true once sim time passes deadline
     };
 
-    // Apply a CtrlPayload to mjData fields
-    // Apply a CtrlPayload to mjData. Zero-then-write: fields not present in the
-    // payload are cleared to avoid stale forces/positions from previous packets.
-    // ctrl is only zeroed when the payload has ctrl data (empty ctrl = "no change").
+    // Apply a CtrlPayload to mjData. Empty fields = "no change" (zero-order hold).
+    // Only fields present in the payload are written; absent fields are untouched.
     void ApplyCtrlToData(const CtrlPayload& payload) {
-        int nu = model_->nu;
-        if (!payload.ctrl.empty()) {
+        if (!payload.ctrl.empty() && model_->nu > 0) {
+            int nu = model_->nu;
             std::fill(data_->ctrl, data_->ctrl + nu, 0.0);
             int copy_count = std::min(static_cast<int>(payload.ctrl.size()), nu);
             for (int i = 0; i < copy_count; i++)
                 data_->ctrl[i] = payload.ctrl[i];
         }
 
-        int nv = model_->nv;
-        std::fill(data_->qfrc_applied, data_->qfrc_applied + nv, 0.0);
-        int copy_count = std::min(static_cast<int>(payload.qfrc_applied.size()), nv);
-        for (int i = 0; i < copy_count; i++)
-            data_->qfrc_applied[i] = payload.qfrc_applied[i];
+        if (!payload.qfrc_applied.empty() && model_->nv > 0) {
+            int nv = model_->nv;
+            std::fill(data_->qfrc_applied, data_->qfrc_applied + nv, 0.0);
+            int copy_count = std::min(static_cast<int>(payload.qfrc_applied.size()), nv);
+            for (int i = 0; i < copy_count; i++)
+                data_->qfrc_applied[i] = payload.qfrc_applied[i];
+        }
 
-        int nxfrc = 6 * model_->nbody;
-        std::fill(data_->xfrc_applied, data_->xfrc_applied + nxfrc, 0.0);
-        copy_count = std::min(static_cast<int>(payload.xfrc_applied.size()), nxfrc);
-        for (int i = 0; i < copy_count; i++)
-            data_->xfrc_applied[i] = payload.xfrc_applied[i];
+        if (!payload.xfrc_applied.empty() && model_->nbody > 0) {
+            int nxfrc = 6 * model_->nbody;
+            std::fill(data_->xfrc_applied, data_->xfrc_applied + nxfrc, 0.0);
+            int copy_count = std::min(static_cast<int>(payload.xfrc_applied.size()), nxfrc);
+            for (int i = 0; i < copy_count; i++)
+                data_->xfrc_applied[i] = payload.xfrc_applied[i];
+        }
 
         if (model_->nmocap > 0) {
-            int nmocap3 = 3 * model_->nmocap;
-            std::fill(data_->mocap_pos, data_->mocap_pos + nmocap3, 0.0);
-            copy_count = std::min(static_cast<int>(payload.mocap_pos.size()), nmocap3);
-            for (int i = 0; i < copy_count; i++)
-                data_->mocap_pos[i] = payload.mocap_pos[i];
-
-            // Reset mocap quaternions to identity (w=1,x=0,y=0,z=0), not zero
-            // (MuJoCo requires unit quaternions; all-zero is invalid)
-            for (int m = 0; m < model_->nmocap; m++) {
-                data_->mocap_quat[4 * m] = 1.0;
-                data_->mocap_quat[4 * m + 1] = 0.0;
-                data_->mocap_quat[4 * m + 2] = 0.0;
-                data_->mocap_quat[4 * m + 3] = 0.0;
+            if (!payload.mocap_pos.empty()) {
+                int nmocap3 = 3 * model_->nmocap;
+                std::fill(data_->mocap_pos, data_->mocap_pos + nmocap3, 0.0);
+                int copy_count = std::min(static_cast<int>(payload.mocap_pos.size()), nmocap3);
+                for (int i = 0; i < copy_count; i++)
+                    data_->mocap_pos[i] = payload.mocap_pos[i];
             }
-            int nmocap4 = 4 * model_->nmocap;
-            copy_count = std::min(static_cast<int>(payload.mocap_quat.size()), nmocap4);
-            for (int i = 0; i < copy_count; i++)
-                data_->mocap_quat[i] = payload.mocap_quat[i];
+
+            if (!payload.mocap_quat.empty()) {
+                // Reset to identity first (MuJoCo requires unit quaternions)
+                for (int m = 0; m < model_->nmocap; m++) {
+                    data_->mocap_quat[4 * m] = 1.0;
+                    data_->mocap_quat[4 * m + 1] = 0.0;
+                    data_->mocap_quat[4 * m + 2] = 0.0;
+                    data_->mocap_quat[4 * m + 3] = 0.0;
+                }
+                int nmocap4 = 4 * model_->nmocap;
+                int copy_count = std::min(static_cast<int>(payload.mocap_quat.size()), nmocap4);
+                for (int i = 0; i < copy_count; i++)
+                    data_->mocap_quat[i] = payload.mocap_quat[i];
+            }
         }
     }
 

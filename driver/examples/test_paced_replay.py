@@ -2,7 +2,8 @@
 """
 test_paced_replay.py - Verify PacedReplay mode
 
-Proves: controls are applied at the original sender cadence, one step per packet.
+Proves: controls are applied at the original sender cadence, while the simulation
+still runs at its native stepping rate.
 
 Prerequisites:
   - iMuJoCo app running with controlMode = PacedReplay (MJCControlMode::PacedReplay)
