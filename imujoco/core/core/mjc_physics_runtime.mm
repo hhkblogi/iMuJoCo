@@ -1116,6 +1116,10 @@ private:
                                         || (meta.expiry_policy != imujoco::schema::ExpiryPolicy::Default);
                     if (received <= 0 && !has_extended && !has_scalar_meta) continue;
 
+                    // Track whether this packet carries actual control data
+                    // (not just scalar metadata like expiry fields)
+                    bool has_ctrl_data = received > 0 || has_extended;
+
                     // Build a CtrlPayload from received data + extended fields
                     CtrlPayload payload;
                     if (received > 0) {
@@ -1130,7 +1134,9 @@ private:
                         case MJCControlMode::Live: {
                             static_cast<CtrlPayload&>(latest_ctrl_) = std::move(payload);
                             latest_ctrl_.fresh = true;
-                            last_valid_ctrl_received_ = Clock::now();
+                            if (has_ctrl_data) {
+                                last_valid_ctrl_received_ = Clock::now();
+                            }
                             last_accepted_ctrl_seq_ = meta.sequence;
                             last_echo_token_ = meta.echo_token;
                             break;
@@ -1143,7 +1149,9 @@ private:
                             tc.echo_token = meta.echo_token;
                             tc.sequence = meta.sequence;
                             ctrl_queue_.push_back(std::move(tc));
-                            last_valid_ctrl_received_ = Clock::now();
+                            if (has_ctrl_data) {
+                                last_valid_ctrl_received_ = Clock::now();
+                            }
                             break;
                         }
                         case MJCControlMode::SimTimeGuarded: {
@@ -1185,7 +1193,9 @@ private:
                                 // No target time → apply immediately (Live fallback)
                                 static_cast<CtrlPayload&>(latest_ctrl_) = std::move(static_cast<CtrlPayload&>(sc));
                                 latest_ctrl_.fresh = true;
-                                last_valid_ctrl_received_ = Clock::now();
+                                if (has_ctrl_data) {
+                                    last_valid_ctrl_received_ = Clock::now();
+                                }
                                 last_accepted_ctrl_seq_ = sc.sequence;
                                 last_echo_token_ = sc.echo_token;
                             } else {
@@ -1264,6 +1274,7 @@ private:
                             step_count++;
                             steps_since_last_frame++;
                             did_paced_step = true;
+                            last_valid_ctrl_received_ = Clock::now();
 
                             udp_server_.SendState(model_, data_, step_index_,
                                                   last_accepted_ctrl_seq_, last_echo_token_,
@@ -1363,7 +1374,8 @@ private:
 
             // === Ctrl Timeout: zero torque actuators if no valid controls received ===
             // Suppress timeout in PTPScheduled mode while future controls are queued.
-            bool suppress_timeout = (ctrl_mode == MJCControlMode::PTPScheduled && scheduled_count_ > 0);
+            bool suppress_timeout = (ctrl_mode == MJCControlMode::PTPScheduled && scheduled_count_ > 0)
+                                 || (ctrl_mode == MJCControlMode::PacedReplay && !ctrl_queue_.empty());
             if (ctrl_timeout_ms_ > 0 && !ctrl_timed_out_ && !suppress_timeout
                 && last_ctrl_received_.time_since_epoch().count() > 0) {
                 auto ref_time = (last_valid_ctrl_received_.time_since_epoch().count() > 0)
@@ -1598,7 +1610,9 @@ private:
     };
 
     // Apply a CtrlPayload to mjData. Empty fields = "no change" (zero-order hold).
-    // Present fields are zero-filled then overwritten (partial vectors zero the remainder).
+    // Present fields are zero-filled then overwritten: if the payload vector is shorter
+    // than the model dimension, trailing entries are zeroed. Callers should send
+    // full-length vectors to avoid implicit zeroing of unspecified entries.
     void ApplyCtrlToData(const CtrlPayload& payload) {
         if (!payload.ctrl.empty() && model_->nu > 0) {
             int nu = model_->nu;
