@@ -70,7 +70,7 @@ struct MJRuntimeConfig {
     double targetFPS = 60.0;        ///< Target simulation FPS
     bool busyWait = false;          ///< Use busy wait for better timing (uses more CPU)
     uint16_t udpPort = 0;           ///< UDP port for network I/O (0 = default: 9000 + instanceIndex)
-    uint32_t ctrlTimeoutMs = 500;   ///< ms without UDP packet before ctrl fallback (0 = disabled)
+    uint32_t ctrlTimeoutMs = 500;   ///< ms since last valid (non-empty) control before ctrl fallback (0 = disabled)
     bool sendForceData = false;     ///< Include qfrc/cfrc/contact forces in StatePacket
     MJCControlMode controlMode = MJCControlMode::Live;  ///< Control input mode
     MJCExpiryPolicy defaultExpiryPolicy = MJCExpiryPolicy::ZeroAfterTimeout;  ///< Default expiry policy for SimTimeGuarded mode

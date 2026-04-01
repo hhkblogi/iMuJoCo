@@ -74,10 +74,11 @@ def test_scheduled_future_control(driver):
     time.sleep(0.05)
     state_before = get_latest_state(driver)
 
-    # Wait past the target time, sending keepalives to prevent ctrl timeout
+    # Wait past the target time, sending non-empty keepalives to prevent ctrl timeout
+    # (empty ctrl no longer resets the valid-ctrl timer)
     wait_end = time.time() + 0.5
     while time.time() < wait_end:
-        driver.send_control([])  # Empty ctrl = keepalive, no ctrl change
+        driver.send_control([0.11])  # Repeat baseline to keep timeout alive
         time.sleep(0.05)
 
     state_after = get_latest_state(driver)

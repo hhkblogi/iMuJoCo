@@ -26,12 +26,15 @@ from imujoco_driver import Driver, DriverConfig, ControlCommand
 
 def find_grpc_tester():
     """Find the grpc_tester binary."""
-    # Try common locations
-    candidates = [
+    # Try workspace-relative paths; use GRPC_TESTER_PATH env var for explicit override
+    env_path = os.environ.get("GRPC_TESTER_PATH")
+    candidates = []
+    if env_path:
+        candidates.append(os.path.expanduser(env_path))
+    candidates.extend([
         os.path.join(os.environ.get("BUILD_WORKSPACE_DIRECTORY", ""), "bazel-bin/driver/grpc_tester"),
         "bazel-bin/driver/grpc_tester",
-        os.path.expanduser("~/ws-imujoco/imujoco-dev-02/bazel-bin/driver/grpc_tester"),
-    ]
+    ])
     for path in candidates:
         if path and os.path.isfile(path):
             return path

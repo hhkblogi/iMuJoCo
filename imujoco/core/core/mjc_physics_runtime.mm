@@ -272,7 +272,7 @@ public:
         }
         if ((!ctrl || ctrl->size() == 0) && !has_extended) return 0;
 
-        int nu = static_cast<int>(ctrl->size());
+        int nu = ctrl ? static_cast<int>(ctrl->size()) : 0;
         int copy_count = std::min(nu, max_ctrl);
 
         if (copy_count > 0 && ctrl_out != nullptr) {
@@ -875,17 +875,10 @@ public:
     double GetRealtimeFactor() const { return realtime_factor_; }
 
     void SetControlMode(MJCControlMode mode) {
-        auto prev = control_mode_.load(std::memory_order_relaxed);
         control_mode_.store(mode, std::memory_order_release);
-        // Clear stale state from the previous mode to avoid replaying old controls
-        if (prev != mode) {
-            latest_ctrl_ = {};
-            guarded_ctrl_ = {};
-            ctrl_queue_.clear();
-            replay_anchor_host_us_ = 0;
-            replay_anchor_cpu_ = Clock::time_point{};
-            scheduled_clear();
-        }
+        // Signal the physics thread to clear stale mode-specific state.
+        // The actual clearing happens in PhysicsLoop to avoid data races.
+        mode_changed_.store(true, std::memory_order_release);
         os_log_info(OS_LOG_DEFAULT, "Control mode changed to %d", static_cast<int>(mode));
     }
 
@@ -1144,6 +1137,16 @@ private:
             // Load control mode once per iteration (atomic)
             auto ctrl_mode = control_mode_.load(std::memory_order_acquire);
 
+            // Clear stale state if mode was changed from another thread
+            if (mode_changed_.exchange(false, std::memory_order_acquire)) {
+                latest_ctrl_ = {};
+                guarded_ctrl_ = {};
+                ctrl_queue_.clear();
+                replay_anchor_host_us_ = 0;
+                replay_anchor_cpu_ = Clock::time_point{};
+                scheduled_clear();
+            }
+
             // === UDP Receive: extract controls into mode-appropriate storage ===
             if (udp_server_.IsActive()) {
                 int packets_received = 0;
@@ -1338,15 +1341,13 @@ private:
 
                         switch (guarded_ctrl_.expiry_policy) {
                             case MJCExpiryPolicy::ZeroImmediate: {
-                                int nu = model_->nu;
-                                for (int i = 0; i < nu; i++)
-                                    data_->ctrl[i] = 0.0;
-                                int nv = model_->nv;
-                                for (int i = 0; i < nv; i++)
-                                    data_->qfrc_applied[i] = 0.0;
-                                int nxfrc = 6 * model_->nbody;
-                                for (int i = 0; i < nxfrc; i++)
-                                    data_->xfrc_applied[i] = 0.0;
+                                std::fill_n(data_->ctrl, model_->nu, 0.0);
+                                std::fill_n(data_->qfrc_applied, model_->nv, 0.0);
+                                std::fill_n(data_->xfrc_applied, 6 * model_->nbody, 0.0);
+                                if (model_->nmocap > 0) {
+                                    std::fill_n(data_->mocap_pos, 3 * model_->nmocap, 0.0);
+                                    std::fill_n(data_->mocap_quat, 4 * model_->nmocap, 0.0);
+                                }
                                 break;
                             }
                             case MJCExpiryPolicy::ZeroAfterTimeout:
@@ -1410,6 +1411,15 @@ private:
                         if (actuator_zero_on_timeout_[i]) {
                             data_->ctrl[i] = 0.0;
                         }
+                    }
+                    // Also clear extended injected control signals
+                    if (model_->nv > 0)
+                        std::fill_n(data_->qfrc_applied, model_->nv, 0.0);
+                    if (model_->nbody > 0)
+                        std::fill_n(data_->xfrc_applied, 6 * model_->nbody, 0.0);
+                    if (model_->nmocap > 0) {
+                        std::fill_n(data_->mocap_pos, 3 * model_->nmocap, 0.0);
+                        std::fill_n(data_->mocap_quat, 4 * model_->nmocap, 0.0);
                     }
                     // Clear all mode-specific state
                     ctrl_queue_.clear();
@@ -1661,6 +1671,7 @@ private:
     uint32_t ctrl_timeout_ms_;
     bool send_force_data_;
     std::atomic<MJCControlMode> control_mode_;
+    std::atomic<bool> mode_changed_{false};
     MJCExpiryPolicy default_expiry_policy_;
     std::atomic<double> realtime_factor_;
     std::atomic<MJRuntimeState> state_;

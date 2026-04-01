@@ -299,7 +299,6 @@ using namespace imujoco::schema;
 - (void)test_expiry_policy_enum {
     // Verify all enum values serialize correctly
     flatbuffers::FlatBufferBuilder builder(128);
-    auto empty = builder.CreateVector(std::vector<double>{});
 
     auto policies = {ExpiryPolicy::Default, ExpiryPolicy::ZeroImmediate,
                      ExpiryPolicy::ZeroAfterTimeout, ExpiryPolicy::HoldLastValid};
