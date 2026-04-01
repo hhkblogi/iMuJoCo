@@ -1178,6 +1178,7 @@ private:
                             }
                             guarded_ctrl_.sequence = meta.sequence;
                             guarded_ctrl_.echo_token = meta.echo_token;
+                            guarded_ctrl_.has_ctrl_data = has_ctrl_data;
                             guarded_ctrl_.fresh = true;
                             guarded_ctrl_.expired = false;
                             break;
@@ -1188,6 +1189,7 @@ private:
                             sc.target_sim_time = meta.target_sim_time;
                             sc.sequence = meta.sequence;
                             sc.echo_token = meta.echo_token;
+                            sc.has_ctrl_data = has_ctrl_data;
 
                             if (sc.target_sim_time <= 0.0) {
                                 // No target time → apply immediately (Live fallback)
@@ -1205,14 +1207,14 @@ private:
                                 // Rare: out-of-order → bubble backward until sorted
                                 if (scheduled_count_ >= 2) {
                                     size_t idx = (scheduled_head_ + scheduled_count_ - 1) % kScheduledCapacity;
-                                    size_t remaining = scheduled_count_ - 1;
-                                    while (remaining > 0) {
+                                    // Bubble backward within [head, head+count) only
+                                    for (size_t i = 1; i < scheduled_count_; i++) {
+                                        if (idx == scheduled_head_) break;  // reached front
                                         size_t prev_idx = (idx + kScheduledCapacity - 1) % kScheduledCapacity;
                                         if (scheduled_buf_[idx].target_sim_time >= scheduled_buf_[prev_idx].target_sim_time)
                                             break;
                                         std::swap(scheduled_buf_[idx], scheduled_buf_[prev_idx]);
                                         idx = prev_idx;
-                                        --remaining;
                                     }
                                 }
                             }
@@ -1294,7 +1296,9 @@ private:
                             guarded_ctrl_.fresh = false;
                             guarded_ctrl_.expired = false;
                             guarded_ctrl_applied_time_ = Clock::now();
-                            last_valid_ctrl_received_ = guarded_ctrl_applied_time_;
+                            if (guarded_ctrl_.has_ctrl_data) {
+                                last_valid_ctrl_received_ = guarded_ctrl_applied_time_;
+                            }
                             last_accepted_ctrl_seq_ = guarded_ctrl_.sequence;
                             last_echo_token_ = guarded_ctrl_.echo_token;
                         } else {
@@ -1357,8 +1361,10 @@ private:
                         ApplyCtrlToData(front);
                         last_accepted_ctrl_seq_ = front.sequence;
                         last_echo_token_ = front.echo_token;
-                        last_valid_ctrl_received_ = Clock::now();
-                        ctrl_timed_out_ = false;
+                        if (front.has_ctrl_data) {
+                            last_valid_ctrl_received_ = Clock::now();
+                            ctrl_timed_out_ = false;
+                        }
                         scheduled_pop_front();
                         break;
                     }
@@ -1605,6 +1611,7 @@ private:
         MJCExpiryPolicy expiry_policy = MJCExpiryPolicy::ZeroAfterTimeout;
         uint32_t sequence = 0;
         uint64_t echo_token = 0;
+        bool has_ctrl_data = false;            // true if ctrl or extended vectors present
         bool fresh = false;
         bool expired = false;                  // set true once sim time passes deadline
     };
@@ -1718,6 +1725,7 @@ private:
         double target_sim_time = 0.0;  // When to apply (d->time >= this)
         uint32_t sequence = 0;         // For ordering/echo
         uint64_t echo_token = 0;      // Echo back in state
+        bool has_ctrl_data = false;    // true if ctrl or extended vectors present
     };
 
     static constexpr size_t kScheduledCapacity = 64;
