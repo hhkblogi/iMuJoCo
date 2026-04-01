@@ -32,18 +32,10 @@ jobs:
             bazel-${{ runner.os }}-
 
       - name: Create stub team_config.bzl
-        run: |
-          cat > imujoco/app/team_config.bzl << 'STUB'
-          # Stub for CI — no real signing credentials
-          TEAM_ID = "XXXXXXXXXX"
-          DEV_PROFILE_NAME = ""
-          APPSTORE_PROFILE_NAME = ""
-          STUB
+        run: cp imujoco/app/team_config.bzl.template imujoco/app/team_config.bzl
 
-      - name: Build (driver + core + protocol)
-        run: |
-          bazel build //driver/... //imujoco/core/... //protocol/... //schema/...
+      - name: Build (driver, core, protocol, schema)
+        run: bazel build //driver/... //imujoco/core/... //protocol/... //schema/...
 
-      - name: Run tests
-        run: |
-          bazel test //driver/... //imujoco/core/... --test_output=errors
+      - name: Run tests (driver, core)
+        run: bazel test //driver/... //imujoco/core/... --test_output=errors
