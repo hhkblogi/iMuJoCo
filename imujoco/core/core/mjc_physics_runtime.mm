@@ -1393,11 +1393,9 @@ private:
 
             // === Ctrl Timeout: zero torque actuators if no valid controls received ===
             // Suppress timeout in PTPScheduled mode while future controls are queued.
-            bool suppress_timeout = (ctrl_mode == MJCControlMode::PTPScheduled && scheduled_count_ > 0)
-                                 || (ctrl_mode == MJCControlMode::PacedReplay && !ctrl_queue_.empty());
             // Timeout is based strictly on last_valid_ctrl_received_ (non-empty control).
-            // Empty/metadata-only packets do not prevent timeout from firing.
-            if (ctrl_timeout_ms_ > 0 && !ctrl_timed_out_ && !suppress_timeout
+            // Empty/metadata-only packets and queued entries do not prevent timeout.
+            if (ctrl_timeout_ms_ > 0 && !ctrl_timed_out_
                 && last_valid_ctrl_received_.time_since_epoch().count() > 0) {
                 auto since_last = Clock::now() - last_valid_ctrl_received_;
                 if (since_last >= std::chrono::milliseconds(ctrl_timeout_ms_)) {
@@ -1701,7 +1699,7 @@ private:
     // Ctrl timeout state (physics thread only)
     std::vector<bool> actuator_zero_on_timeout_;   // per-actuator: true = zero on timeout
     Clock::time_point last_ctrl_received_{};       // last time a UDP ctrl packet arrived
-    Clock::time_point last_valid_ctrl_received_{}; // last time a non-empty control was applied (for ZeroAfterTimeout)
+    Clock::time_point last_valid_ctrl_received_{}; // last time a non-empty control was received or applied (for timeout)
     bool ctrl_timed_out_ = false;                  // true when timeout has fired
 
     // Live mode state
