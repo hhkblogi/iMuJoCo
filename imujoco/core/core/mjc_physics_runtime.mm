@@ -1131,6 +1131,8 @@ private:
                             static_cast<CtrlPayload&>(latest_ctrl_) = std::move(payload);
                             latest_ctrl_.fresh = true;
                             last_valid_ctrl_received_ = Clock::now();
+                            last_accepted_ctrl_seq_ = meta.sequence;
+                            last_echo_token_ = meta.echo_token;
                             break;
                         }
                         case MJCControlMode::PacedReplay: {
@@ -1166,6 +1168,8 @@ private:
                             } else {
                                 guarded_ctrl_.expiry_policy = default_expiry_policy_;
                             }
+                            guarded_ctrl_.sequence = meta.sequence;
+                            guarded_ctrl_.echo_token = meta.echo_token;
                             guarded_ctrl_.fresh = true;
                             guarded_ctrl_.expired = false;
                             break;
@@ -1182,6 +1186,8 @@ private:
                                 static_cast<CtrlPayload&>(latest_ctrl_) = std::move(static_cast<CtrlPayload&>(sc));
                                 latest_ctrl_.fresh = true;
                                 last_valid_ctrl_received_ = Clock::now();
+                                last_accepted_ctrl_seq_ = sc.sequence;
+                                last_echo_token_ = sc.echo_token;
                             } else {
                                 // Push to ring buffer (sorted by monotonic arrival)
                                 scheduled_push_back(std::move(sc));
@@ -1278,6 +1284,8 @@ private:
                             guarded_ctrl_.expired = false;
                             guarded_ctrl_applied_time_ = Clock::now();
                             last_valid_ctrl_received_ = guarded_ctrl_applied_time_;
+                            last_accepted_ctrl_seq_ = guarded_ctrl_.sequence;
+                            last_echo_token_ = guarded_ctrl_.echo_token;
                         } else {
                             // Arrived already expired — discard
                             guarded_ctrl_.fresh = false;
@@ -1583,6 +1591,8 @@ private:
     struct GuardedCtrl : CtrlPayload {
         double expire_at_sim_time = -1.0;     // -1.0 = no expiry
         MJCExpiryPolicy expiry_policy = MJCExpiryPolicy::ZeroAfterTimeout;
+        uint32_t sequence = 0;
+        uint64_t echo_token = 0;
         bool fresh = false;
         bool expired = false;                  // set true once sim time passes deadline
     };

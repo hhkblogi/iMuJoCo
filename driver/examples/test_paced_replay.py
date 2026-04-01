@@ -120,11 +120,15 @@ def test_timestamp_cadence(driver, n_controls=50, send_rate=100.0):
 
 def test_legacy_no_timestamp(driver):
     """
-    Test 2: Send controls with host_timestamp_us = 0 (legacy).
-    Verify immediate application (no pacing delay).
+    Test 2: Send controls via send_control(list) — the simple API auto-fills
+    host_timestamp_us, so all controls get paced. Verify controls flow and
+    states are received.
+
+    Note: Driver.SendControl auto-fills host_timestamp_us when 0, so we cannot
+    test the legacy ts=0 path from Python without a raw UDP send.
     """
     print(f"\n{'='*60}")
-    print(f"TEST 2: Legacy mode (host_timestamp_us = 0)")
+    print(f"TEST 2: Simple API control flow")
     print(f"{'='*60}")
 
     states = []
@@ -139,13 +143,10 @@ def test_legacy_no_timestamp(driver):
     with state_lock:
         states.clear()
 
-    # Send 10 controls with ts=0 (should apply immediately)
+    # Send 10 controls via simple list API
     start = time.time()
     for i in range(10):
-        cmd = ControlCommand()
-        cmd.ctrl = [float(i) * 0.1]
-        cmd.host_timestamp_us = 0  # Legacy: apply immediately
-        driver.send_control(cmd)
+        driver.send_control([float(i) * 0.1])
         time.sleep(0.02)
 
     time.sleep(0.3)
@@ -160,12 +161,11 @@ def test_legacy_no_timestamp(driver):
     print(f"    States received: {n_states}")
     print(f"    Elapsed:         {elapsed:.2f}s")
 
-    # With ts=0, each ctrl should apply immediately → ~10 states in <1s
     passed = n_states >= 5
     if passed:
-        print(f"  PASS: Legacy controls applied without pacing delay")
+        print(f"  PASS: Controls accepted, states flowing")
     else:
-        print(f"  FAIL: Too few states ({n_states}) — legacy mode may not work")
+        print(f"  FAIL: Too few states ({n_states})")
 
     return passed
 
@@ -190,7 +190,7 @@ def main():
 
     results = {}
     results["timestamp_cadence"] = test_timestamp_cadence(driver)
-    results["legacy_no_timestamp"] = test_legacy_no_timestamp(driver)
+    results["simple_api_flow"] = test_legacy_no_timestamp(driver)
 
     driver.disconnect()
 
