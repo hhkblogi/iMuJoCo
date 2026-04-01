@@ -26,10 +26,8 @@ jobs:
       - name: Cache Bazel
         uses: actions/cache@v4
         with:
-          path: |
-            ~/.cache/bazelisk
-            ~/.cache/bazel
-          key: bazel-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'MODULE.bazel.lock') }}
+          path: ~/Library/Caches/bazel
+          key: bazel-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel') }}
           restore-keys: |
             bazel-${{ runner.os }}-
 
@@ -44,10 +42,8 @@ jobs:
 
       - name: Build (driver + core + protocol)
         run: |
-          bazel build //driver/... //imujoco/core/... //protocol/... //schema/... \
-            --host_platform=@@apple_support+//platforms:darwin_arm64
+          bazel build //driver/... //imujoco/core/... //protocol/... //schema/...
 
       - name: Run tests
         run: |
-          bazel test //driver/... //imujoco/core/... --test_output=errors \
-            --host_platform=@@apple_support+//platforms:darwin_arm64
+          bazel test //driver/... //imujoco/core/... --test_output=errors
