@@ -1106,7 +1106,6 @@ private:
                     if (received < 0) break;
 
                     last_ctrl_received_ = Clock::now();
-                    ctrl_timed_out_ = false;
                     packets_received++;
 
                     // Empty ctrl with no extended or scalar fields means "no change" — skip
@@ -1119,6 +1118,11 @@ private:
                     // Track whether this packet carries actual control data
                     // (not just scalar metadata like expiry fields)
                     bool has_ctrl_data = received > 0 || has_extended;
+
+                    // Only clear timeout flag when actual control data is received
+                    if (has_ctrl_data) {
+                        ctrl_timed_out_ = false;
+                    }
 
                     // Build a CtrlPayload from received data + extended fields
                     CtrlPayload payload;
