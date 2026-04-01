@@ -230,23 +230,19 @@ using namespace imujoco::schema;
     std::vector<double> mpos = {1.0, 2.0, 3.0};
     std::vector<double> mquat = {1.0, 0.0, 0.0, 0.0};
 
-    auto ctrl_vec = builder.CreateVector(ctrl);
-    auto qfrc_vec = builder.CreateVector(qfrc);
-    auto xfrc_vec = builder.CreateVector(xfrc);
-    auto mpos_vec = builder.CreateVector(mpos);
-    auto mquat_vec = builder.CreateVector(mquat);
+    // Use Object API to avoid positional arg issues with intervening fields
+    ControlPacketT obj;
+    obj.sequence = 42;
+    obj.ctrl = ctrl;
+    obj.host_timestamp_us = 123456;
+    obj.qfrc_applied = qfrc;
+    obj.xfrc_applied = xfrc;
+    obj.mocap_pos = mpos;
+    obj.mocap_quat = mquat;
+    obj.expire_at_sim_time = 2.5;
+    obj.expiry_policy = ExpiryPolicy::HoldLastValid;
 
-    auto control = CreateControlPacket(builder,
-        42,          // sequence
-        ctrl_vec,    // ctrl
-        123456,      // host_timestamp_us
-        qfrc_vec,    // qfrc_applied
-        xfrc_vec,    // xfrc_applied
-        mpos_vec,    // mocap_pos
-        mquat_vec,   // mocap_quat
-        2.5,         // expire_at_sim_time
-        ExpiryPolicy::HoldLastValid  // expiry_policy
-    );
+    auto control = ControlPacket::Pack(builder, &obj);
     builder.Finish(control, ControlPacketIdentifier());
 
     auto buf = builder.GetBufferPointer();
@@ -305,9 +301,10 @@ using namespace imujoco::schema;
 
     for (auto policy : policies) {
         builder.Clear();
-        auto empty_vec = builder.CreateVector(std::vector<double>{});
-        auto control = CreateControlPacket(builder,
-            0, empty_vec, 0, 0, 0, 0, 0, -1.0, policy);
+        ControlPacketBuilder cp_builder(builder);
+        cp_builder.add_expire_at_sim_time(-1.0);
+        cp_builder.add_expiry_policy(policy);
+        auto control = cp_builder.Finish();
         builder.Finish(control);
 
         auto packet = GetControlPacket(builder.GetBufferPointer());

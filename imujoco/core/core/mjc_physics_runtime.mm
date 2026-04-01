@@ -182,51 +182,6 @@ public:
                                   ctrl_out, max_ctrl, meta_out);
     }
 
-    // Extended control data extracted from a ControlPacket
-    struct ParsedControl {
-        std::vector<double> ctrl;
-        std::vector<double> qfrc_applied;
-        std::vector<double> xfrc_applied;
-        std::vector<double> mocap_pos;
-        std::vector<double> mocap_quat;
-        uint64_t host_timestamp_us = 0;
-        double expire_at_sim_time = -1.0;
-        imujoco::schema::ExpiryPolicy expiry_policy = imujoco::schema::ExpiryPolicy::Default;
-    };
-
-    // Parse a FlatBuffers ControlPacket and extract all fields.
-    // Returns true on success, false on invalid buffer.
-    bool ParseControlPacketFull(const uint8_t* data, size_t size, ParsedControl& out) {
-        flatbuffers::Verifier verifier(data, size);
-        if (!imujoco::schema::VerifyControlPacketBuffer(verifier)) {
-            os_log_error(OS_LOG_DEFAULT, "Invalid FlatBuffers ControlPacket buffer");
-            return false;
-        }
-
-        auto packet = imujoco::schema::GetControlPacket(data);
-        packets_received_++;
-
-        out.host_timestamp_us = packet->host_timestamp_us();
-        out.expire_at_sim_time = packet->expire_at_sim_time();
-        out.expiry_policy = packet->expiry_policy();
-
-        auto copy_vec = [](const flatbuffers::Vector<double>* src, std::vector<double>& dst) {
-            if (src && src->size() > 0) {
-                dst.assign(src->begin(), src->end());
-            } else {
-                dst.clear();
-            }
-        };
-
-        copy_vec(packet->ctrl(), out.ctrl);
-        copy_vec(packet->qfrc_applied(), out.qfrc_applied);
-        copy_vec(packet->xfrc_applied(), out.xfrc_applied);
-        copy_vec(packet->mocap_pos(), out.mocap_pos);
-        copy_vec(packet->mocap_quat(), out.mocap_quat);
-
-        return true;
-    }
-
     int ParseControlPacket(const uint8_t* data, size_t size,
                            double* ctrl_out, int max_ctrl,
                            ControlMeta* meta_out) {
@@ -1166,9 +1121,6 @@ private:
                                      || !meta.mocap_pos.empty() || !meta.mocap_quat.empty();
                     if (received <= 0 && !has_extended) continue;
 
-                    // Track last valid control for timeout purposes
-                    last_valid_ctrl_received_ = Clock::now();
-
                     // Build a CtrlPayload from received data + extended fields
                     CtrlPayload payload;
                     if (received > 0) {
@@ -1183,6 +1135,7 @@ private:
                         case MJCControlMode::Live: {
                             static_cast<CtrlPayload&>(latest_ctrl_) = std::move(payload);
                             latest_ctrl_.fresh = true;
+                            last_valid_ctrl_received_ = Clock::now();
                             break;
                         }
                         case MJCControlMode::PacedReplay: {
@@ -1193,6 +1146,7 @@ private:
                             tc.echo_token = meta.echo_token;
                             tc.sequence = meta.sequence;
                             ctrl_queue_.push_back(std::move(tc));
+                            last_valid_ctrl_received_ = Clock::now();
                             break;
                         }
                         case MJCControlMode::SimTimeGuarded: {
@@ -1232,6 +1186,7 @@ private:
                                 // No target time → apply immediately (Live fallback)
                                 static_cast<CtrlPayload&>(latest_ctrl_) = std::move(static_cast<CtrlPayload&>(sc));
                                 latest_ctrl_.fresh = true;
+                                last_valid_ctrl_received_ = Clock::now();
                             } else {
                                 // Push to ring buffer (sorted by monotonic arrival)
                                 scheduled_push_back(std::move(sc));
@@ -1327,6 +1282,7 @@ private:
                             guarded_ctrl_.fresh = false;
                             guarded_ctrl_.expired = false;
                             guarded_ctrl_applied_time_ = Clock::now();
+                            last_valid_ctrl_received_ = guarded_ctrl_applied_time_;
                         } else {
                             // Arrived already expired — discard
                             guarded_ctrl_.fresh = false;
@@ -1346,14 +1302,18 @@ private:
                                 std::fill_n(data_->xfrc_applied, 6 * model_->nbody, 0.0);
                                 if (model_->nmocap > 0) {
                                     std::fill_n(data_->mocap_pos, 3 * model_->nmocap, 0.0);
-                                    std::fill_n(data_->mocap_quat, 4 * model_->nmocap, 0.0);
+                                    for (int m = 0; m < model_->nmocap; m++) {
+                                        data_->mocap_quat[4*m] = 1.0;
+                                        data_->mocap_quat[4*m+1] = 0.0;
+                                        data_->mocap_quat[4*m+2] = 0.0;
+                                        data_->mocap_quat[4*m+3] = 0.0;
+                                    }
                                 }
                                 break;
                             }
                             case MJCExpiryPolicy::ZeroAfterTimeout:
-                                // Start timeout countdown from expiry moment
-                                // (override last_ctrl_received_ so keepalives don't prevent zeroing)
-                                last_valid_ctrl_received_ = guarded_ctrl_applied_time_;
+                                // Start timeout countdown from expiry detection moment
+                                last_valid_ctrl_received_ = Clock::now();
                                 break;
                             case MJCExpiryPolicy::HoldLastValid:
                                 // Values persist — do nothing
@@ -1419,7 +1379,12 @@ private:
                         std::fill_n(data_->xfrc_applied, 6 * model_->nbody, 0.0);
                     if (model_->nmocap > 0) {
                         std::fill_n(data_->mocap_pos, 3 * model_->nmocap, 0.0);
-                        std::fill_n(data_->mocap_quat, 4 * model_->nmocap, 0.0);
+                        for (int m = 0; m < model_->nmocap; m++) {
+                            data_->mocap_quat[4*m] = 1.0;
+                            data_->mocap_quat[4*m+1] = 0.0;
+                            data_->mocap_quat[4*m+2] = 0.0;
+                            data_->mocap_quat[4*m+3] = 0.0;
+                        }
                     }
                     // Clear all mode-specific state
                     ctrl_queue_.clear();
@@ -1650,17 +1615,26 @@ private:
         for (int i = 0; i < copy_count; i++)
             data_->xfrc_applied[i] = payload.xfrc_applied[i];
 
-        int nmocap3 = 3 * model_->nmocap;
-        std::fill(data_->mocap_pos, data_->mocap_pos + nmocap3, 0.0);
-        copy_count = std::min(static_cast<int>(payload.mocap_pos.size()), nmocap3);
-        for (int i = 0; i < copy_count; i++)
-            data_->mocap_pos[i] = payload.mocap_pos[i];
+        if (model_->nmocap > 0) {
+            int nmocap3 = 3 * model_->nmocap;
+            std::fill(data_->mocap_pos, data_->mocap_pos + nmocap3, 0.0);
+            copy_count = std::min(static_cast<int>(payload.mocap_pos.size()), nmocap3);
+            for (int i = 0; i < copy_count; i++)
+                data_->mocap_pos[i] = payload.mocap_pos[i];
 
-        int nmocap4 = 4 * model_->nmocap;
-        std::fill(data_->mocap_quat, data_->mocap_quat + nmocap4, 0.0);
-        copy_count = std::min(static_cast<int>(payload.mocap_quat.size()), nmocap4);
-        for (int i = 0; i < copy_count; i++)
-            data_->mocap_quat[i] = payload.mocap_quat[i];
+            // Reset mocap quaternions to identity (w=1,x=0,y=0,z=0), not zero
+            // (MuJoCo requires unit quaternions; all-zero is invalid)
+            for (int m = 0; m < model_->nmocap; m++) {
+                data_->mocap_quat[4 * m] = 1.0;
+                data_->mocap_quat[4 * m + 1] = 0.0;
+                data_->mocap_quat[4 * m + 2] = 0.0;
+                data_->mocap_quat[4 * m + 3] = 0.0;
+            }
+            int nmocap4 = 4 * model_->nmocap;
+            copy_count = std::min(static_cast<int>(payload.mocap_quat.size()), nmocap4);
+            for (int i = 0; i < copy_count; i++)
+                data_->mocap_quat[i] = payload.mocap_quat[i];
+        }
     }
 
     const uint64_t unique_id_;  // Monotonic ID for per-thread state keying (survives address reuse)
