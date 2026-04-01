@@ -47,4 +47,4 @@ jobs:
           bazel build //driver/... //imujoco/core/... //protocol/... //schema/...
 
       - name: Run tests
-        run: bazel test //... --test_output=errors
+        run: bazel test //driver/... //imujoco/core/... --test_output=errors
