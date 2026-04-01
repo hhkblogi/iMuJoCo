@@ -33,8 +33,18 @@ jobs:
           restore-keys: |
             bazel-${{ runner.os }}-
 
-      - name: Build all targets
-        run: bazel build //...
+      - name: Create stub team_config.bzl
+        run: |
+          cat > imujoco/app/team_config.bzl << 'STUB'
+          # Stub for CI — no real signing credentials
+          TEAM_ID = "XXXXXXXXXX"
+          DEV_PROFILE_NAME = ""
+          APPSTORE_PROFILE_NAME = ""
+          STUB
+
+      - name: Build (driver + core + protocol)
+        run: |
+          bazel build //driver/... //imujoco/core/... //protocol/... //schema/...
 
       - name: Run tests
         run: bazel test //... --test_output=errors
