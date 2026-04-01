@@ -68,7 +68,7 @@ struct DriverConfig {
     // Sync port (0 = derive from control port: port + 1000)
     uint16_t sync_port = 0;
 
-    // Sync exchange interval in ms (100 = typical)
+    // Sync exchange interval in ms (100 = typical, 0 = disable sync exchanges)
     uint32_t sync_interval_ms = 100;
 };
 

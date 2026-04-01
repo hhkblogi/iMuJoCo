@@ -1155,6 +1155,11 @@ private:
                             break;
                         }
                         case MJCControlMode::SimTimeGuarded: {
+                            // Reject already-expired packets to preserve last valid control
+                            if (meta.expire_at_sim_time > 0.0 && data_
+                                && meta.expire_at_sim_time <= data_->time) {
+                                break;
+                            }
                             static_cast<CtrlPayload&>(guarded_ctrl_) = std::move(payload);
                             guarded_ctrl_.expire_at_sim_time = meta.expire_at_sim_time;
                             // Resolve expiry policy: packet override or simulation default
@@ -1617,53 +1622,35 @@ private:
     };
 
     // Apply a CtrlPayload to mjData. Empty fields = "no change" (zero-order hold).
-    // Present fields are zero-filled then overwritten: if the payload vector is shorter
-    // than the model dimension, trailing entries are zeroed. Callers should send
-    // full-length vectors to avoid implicit zeroing of unspecified entries.
+    // Present fields overwrite the provided prefix only — trailing entries are untouched.
     void ApplyCtrlToData(const CtrlPayload& payload) {
         if (!payload.ctrl.empty() && model_->nu > 0) {
-            int nu = model_->nu;
-            std::fill(data_->ctrl, data_->ctrl + nu, 0.0);
-            int copy_count = std::min(static_cast<int>(payload.ctrl.size()), nu);
+            int copy_count = std::min(static_cast<int>(payload.ctrl.size()), model_->nu);
             for (int i = 0; i < copy_count; i++)
                 data_->ctrl[i] = payload.ctrl[i];
         }
 
         if (!payload.qfrc_applied.empty() && model_->nv > 0) {
-            int nv = model_->nv;
-            std::fill(data_->qfrc_applied, data_->qfrc_applied + nv, 0.0);
-            int copy_count = std::min(static_cast<int>(payload.qfrc_applied.size()), nv);
+            int copy_count = std::min(static_cast<int>(payload.qfrc_applied.size()), model_->nv);
             for (int i = 0; i < copy_count; i++)
                 data_->qfrc_applied[i] = payload.qfrc_applied[i];
         }
 
         if (!payload.xfrc_applied.empty() && model_->nbody > 0) {
-            int nxfrc = 6 * model_->nbody;
-            std::fill(data_->xfrc_applied, data_->xfrc_applied + nxfrc, 0.0);
-            int copy_count = std::min(static_cast<int>(payload.xfrc_applied.size()), nxfrc);
+            int copy_count = std::min(static_cast<int>(payload.xfrc_applied.size()), 6 * model_->nbody);
             for (int i = 0; i < copy_count; i++)
                 data_->xfrc_applied[i] = payload.xfrc_applied[i];
         }
 
         if (model_->nmocap > 0) {
             if (!payload.mocap_pos.empty()) {
-                int nmocap3 = 3 * model_->nmocap;
-                std::fill(data_->mocap_pos, data_->mocap_pos + nmocap3, 0.0);
-                int copy_count = std::min(static_cast<int>(payload.mocap_pos.size()), nmocap3);
+                int copy_count = std::min(static_cast<int>(payload.mocap_pos.size()), 3 * model_->nmocap);
                 for (int i = 0; i < copy_count; i++)
                     data_->mocap_pos[i] = payload.mocap_pos[i];
             }
 
             if (!payload.mocap_quat.empty()) {
-                // Reset to identity first (MuJoCo requires unit quaternions)
-                for (int m = 0; m < model_->nmocap; m++) {
-                    data_->mocap_quat[4 * m] = 1.0;
-                    data_->mocap_quat[4 * m + 1] = 0.0;
-                    data_->mocap_quat[4 * m + 2] = 0.0;
-                    data_->mocap_quat[4 * m + 3] = 0.0;
-                }
-                int nmocap4 = 4 * model_->nmocap;
-                int copy_count = std::min(static_cast<int>(payload.mocap_quat.size()), nmocap4);
+                int copy_count = std::min(static_cast<int>(payload.mocap_quat.size()), 4 * model_->nmocap);
                 for (int i = 0; i < copy_count; i++)
                     data_->mocap_quat[i] = payload.mocap_quat[i];
             }
