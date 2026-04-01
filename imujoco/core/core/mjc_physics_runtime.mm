@@ -1148,6 +1148,7 @@ private:
                             tc.target_sim_time = meta.target_sim_time;
                             tc.echo_token = meta.echo_token;
                             tc.sequence = meta.sequence;
+                            tc.has_ctrl_data = has_ctrl_data;
                             ctrl_queue_.push_back(std::move(tc));
                             if (has_ctrl_data) {
                                 last_valid_ctrl_received_ = Clock::now();
@@ -1206,7 +1207,7 @@ private:
                                 last_accepted_ctrl_seq_ = sc.sequence;
                                 last_echo_token_ = sc.echo_token;
                             } else {
-                                // Push to ring buffer (sorted by monotonic arrival)
+                                // Push to ring buffer (sorted by target_sim_time)
                                 scheduled_push_back(std::move(sc));
 
                                 // Rare: out-of-order → bubble backward until sorted
@@ -1281,7 +1282,9 @@ private:
                             step_count++;
                             steps_since_last_frame++;
                             did_paced_step = true;
-                            last_valid_ctrl_received_ = Clock::now();
+                            if (next.has_ctrl_data) {
+                                last_valid_ctrl_received_ = Clock::now();
+                            }
 
                             udp_server_.SendState(model_, data_, step_index_,
                                                   last_accepted_ctrl_seq_, last_echo_token_,
@@ -1608,6 +1611,7 @@ private:
         double target_sim_time = 0.0;
         uint64_t echo_token = 0;
         uint32_t sequence = 0;
+        bool has_ctrl_data = false;
     };
 
     // For SimTimeGuarded mode: latest-value latch with expiry
@@ -1730,7 +1734,8 @@ private:
 
     void scheduled_push_back(ScheduledCtrl&& item) {
         if (scheduled_count_ >= kScheduledCapacity) {
-            scheduled_pop_front();  // Drop oldest when full
+            os_log_info(OS_LOG_DEFAULT, "PTPScheduled: queue full (%zu), dropping oldest control", kScheduledCapacity);
+            scheduled_pop_front();
         }
         size_t tail = (scheduled_head_ + scheduled_count_) % kScheduledCapacity;
         scheduled_buf_[tail] = std::move(item);
