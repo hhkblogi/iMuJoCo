@@ -30,7 +30,7 @@ def get_latest_state(driver, timeout=1.0):
         event.set()
 
     sub_id = driver.subscribe(on_state)
-    driver.send_control([0.0])
+    driver.send_control([])  # Empty ctrl = trigger state without perturbing simulation
     event.wait(timeout)
     driver.unsubscribe(sub_id)
     return result[0]
