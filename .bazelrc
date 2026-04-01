@@ -7,9 +7,6 @@ build --@@rules_python+//python/config_settings:bootstrap_impl=script
 # Auto-load native rules removed in Bazel 9 (needed by gRPC and transitive deps)
 build --incompatible_autoload_externally=+cc_library,+cc_binary,+cc_test,+cc_import,+cc_shared_library,+objc_library,+objc_import,+JavaInfo,+JavaPluginInfo,+java_common,+ProtoInfo,+proto_common_do_not_use
 
-# Force arm64 exec platform (avoid x86_64 tool builds on Apple Silicon)
-build --host_platform=@@apple_support+//platforms:darwin_arm64
-
 # C/C++ standards
 build --cxxopt=-std=c++20
 build --conlyopt=-std=c11

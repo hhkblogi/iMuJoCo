@@ -44,7 +44,10 @@ jobs:
 
       - name: Build (driver + core + protocol)
         run: |
-          bazel build //driver/... //imujoco/core/... //protocol/... //schema/...
+          bazel build //driver/... //imujoco/core/... //protocol/... //schema/... \
+            --host_platform=@@apple_support+//platforms:darwin_arm64
 
       - name: Run tests
-        run: bazel test //driver/... //imujoco/core/... --test_output=errors
+        run: |
+          bazel test //driver/... //imujoco/core/... --test_output=errors \
+            --host_platform=@@apple_support+//platforms:darwin_arm64
