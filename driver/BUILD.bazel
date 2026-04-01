@@ -185,6 +185,7 @@ py_binary(
     name = "verify_multi_sync",
     srcs = ["examples/verify_multi_sync.py"],
     main = "examples/verify_multi_sync.py",
+    data = [":grpc_tester"],
     deps = ["//driver/imujoco_driver"],
 )
 

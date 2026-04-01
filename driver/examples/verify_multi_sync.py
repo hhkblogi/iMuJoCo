@@ -26,20 +26,20 @@ MODEL_NAME = "Humanoid (Supine)"
 
 
 def _find_grpc_tester() -> str:
-    """Find the grpc_tester binary."""
+    """Find the grpc_tester binary via runfiles, workspace, or PATH."""
     import os
     import shutil
-    # Try workspace-relative locations first, then PATH
     for path in [
+        # Bazel runfiles (when declared as data dependency)
+        os.path.join(os.environ.get("RUNFILES_DIR", ""), "_main/driver/grpc_tester"),
+        os.path.join(os.path.dirname(__file__), "../grpc_tester"),
+        # Workspace-relative
         os.path.join(os.environ.get("BUILD_WORKSPACE_DIRECTORY", ""), "bazel-bin/driver/grpc_tester"),
         "bazel-bin/driver/grpc_tester",
     ]:
         if os.path.isfile(path):
             return path
-    which = shutil.which("grpc_tester")
-    if which:
-        return which
-    return "bazel-bin/driver/grpc_tester"  # fallback
+    return shutil.which("grpc_tester") or "grpc_tester"
 
 
 def load_models(host: str) -> bool:

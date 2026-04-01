@@ -85,7 +85,8 @@ struct PerformanceStatsBar: View {
 
                     // Rotate through active sync instances every 5s (10 ticks).
                     // All @State reads/writes are on MainActor to avoid data races.
-                    // Cache syncStats per instance to avoid repeated C++ interop calls.
+                    // Snapshot syncStats once per instance into tuples to avoid
+                    // repeated Swift-C++ interop calls within this tick.
                     let activeSyncInstances: [(instance: SimulationInstance, stats: MJSyncStats)] = instances.compactMap { inst in
                         guard inst.state == .running, let stats = inst.runtime?.syncStats, stats.isRunning else { return nil }
                         return (inst, stats)

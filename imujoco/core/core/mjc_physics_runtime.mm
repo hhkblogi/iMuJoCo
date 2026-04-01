@@ -393,12 +393,11 @@ public:
         camera_.lookat[1] = 0;
         camera_.lookat[2] = 0.5;
 
-        // Start per-instance sync server (port = 10000 + instanceIndex).
-        // SO_REUSEADDR in SyncServer::Start() handles brief overlap during
-        // model reload where old and new runtimes coexist momentarily.
+        // Start per-instance sync server. Derive port from the UDP control port
+        // (+1000) so it tracks any udpPort override, not just instanceIndex.
         {
             auto bind_ip = imujoco::GetLocalBindAddress();
-            uint16_t sync_port = SyncPortForInstance(config.instanceIndex);
+            uint16_t sync_port = udp_port_ + 1000;
             if (!sync_server_.Start(sync_port, bind_ip)) {
                 os_log_error(OS_LOG_DEFAULT,
                     "Instance %d: sync server failed to start on port %u",
