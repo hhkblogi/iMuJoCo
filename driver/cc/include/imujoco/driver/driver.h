@@ -61,7 +61,7 @@ struct DriverConfig {
     // Auto-start receiving on connect (default: true)
     bool auto_start_receiving = true;
 
-    // Sync port (0 = port + 100)
+    // Sync port (0 = derive from control port: port + 1000)
     uint16_t sync_port = 0;
 
     // Sync exchange interval in ms (0 = disable sync)

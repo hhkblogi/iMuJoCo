@@ -85,8 +85,10 @@ struct PerformanceStatsBar: View {
 
                     // Rotate through active sync instances every 5s (10 ticks).
                     // All @State reads/writes are on MainActor to avoid data races.
-                    let activeSyncInstances = instances.filter {
-                        $0.state == .running && $0.runtime?.syncStats.isRunning == true
+                    // Cache syncStats per instance to avoid repeated C++ interop calls.
+                    let activeSyncInstances: [(instance: SimulationInstance, stats: MJSyncStats)] = instances.compactMap { inst in
+                        guard inst.state == .running, let stats = inst.runtime?.syncStats, stats.isRunning else { return nil }
+                        return (inst, stats)
                     }
                     let tick = syncRollingTick + 1
                     let rollingIdx: Int
@@ -97,9 +99,9 @@ struct PerformanceStatsBar: View {
                             ? (syncRollingIndex + 1) % activeSyncInstances.count
                             : syncRollingIndex % max(activeSyncInstances.count, 1)
                     }
-                    let syncStats = activeSyncInstances.isEmpty
+                    let syncStats: MJSyncStats? = activeSyncInstances.isEmpty
                         ? nil
-                        : activeSyncInstances[rollingIdx].runtime?.syncStats
+                        : activeSyncInstances[rollingIdx].stats
                     syncRunning = syncStats?.isRunning ?? false
                     let newPort = syncStats?.port ?? 0
                     if newPort != syncPort {
