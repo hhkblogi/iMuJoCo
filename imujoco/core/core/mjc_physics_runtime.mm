@@ -1118,10 +1118,12 @@ private:
                     ctrl_timed_out_ = false;
                     packets_received++;
 
-                    // Empty ctrl with no extended fields means "no change" — skip
+                    // Empty ctrl with no extended or scalar fields means "no change" — skip
                     bool has_extended = !meta.qfrc_applied.empty() || !meta.xfrc_applied.empty()
                                      || !meta.mocap_pos.empty() || !meta.mocap_quat.empty();
-                    if (received <= 0 && !has_extended) continue;
+                    bool has_scalar_meta = (meta.expire_at_sim_time != -1.0)
+                                        || (meta.expiry_policy != imujoco::schema::ExpiryPolicy::Default);
+                    if (received <= 0 && !has_extended && !has_scalar_meta) continue;
 
                     // Build a CtrlPayload from received data + extended fields
                     CtrlPayload payload;
@@ -1595,7 +1597,7 @@ private:
     };
 
     // Apply a CtrlPayload to mjData. Empty fields = "no change" (zero-order hold).
-    // Only fields present in the payload are written; absent fields are untouched.
+    // Present fields are zero-filled then overwritten (partial vectors zero the remainder).
     void ApplyCtrlToData(const CtrlPayload& payload) {
         if (!payload.ctrl.empty() && model_->nu > 0) {
             int nu = model_->nu;

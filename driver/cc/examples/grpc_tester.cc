@@ -18,6 +18,7 @@
 //   reset_kf      Reset --instance to --keyframe
 //   step          Step --instance one tick
 //   state         Get physics state for --instance
+//   set_mode      Set control mode on --instance (--model = live/paced_replay/sim_time_guarded/ptp_scheduled)
 //   smoke         Run full lifecycle smoke test (default)
 //   race          Race test: ListInstances vs Load/Unload (crash regression)
 

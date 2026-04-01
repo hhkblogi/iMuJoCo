@@ -39,11 +39,11 @@ def get_latest_state(driver, timeout=1.0):
 
 def test_scheduled_future_control(driver):
     """
-    Test 1: Send ctrl with target_sim_time 50ms in the future.
-    Verify it is NOT applied immediately, then appears after ~50ms of sim time.
+    Test 1: Send ctrl with target_sim_time 300ms in the future.
+    Verify it is NOT applied immediately, then appears after sim time reaches target.
     """
     print(f"\n{'='*60}")
-    print(f"TEST 1: Scheduled future control (target = now + 50ms)")
+    print(f"TEST 1: Scheduled future control (target = now + 300ms)")
     print(f"{'='*60}")
 
     # Get current sim time
@@ -325,9 +325,10 @@ def main():
     config.host = args.host
     config.port = args.port
     config.timeout_ms = 100
+    config.enable_sync = True  # PTPScheduled requires PTP time sync
 
     driver = Driver(config)
-    print(f"Connecting to {args.host}:{args.port}...")
+    print(f"Connecting to {args.host}:{args.port} (PTP sync enabled)...")
     if not driver.connect():
         print("Failed to connect!")
         return 1
