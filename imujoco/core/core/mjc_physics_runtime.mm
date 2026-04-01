@@ -1082,9 +1082,6 @@ private:
 
             if (!model_ || !data_) continue;
 
-            // Load control mode once per iteration (atomic)
-            auto ctrl_mode = control_mode_.load(std::memory_order_acquire);
-
             // Clear stale state if mode was changed from another thread
             if (mode_changed_.exchange(false, std::memory_order_acquire)) {
                 latest_ctrl_ = {};
@@ -1094,6 +1091,9 @@ private:
                 replay_anchor_cpu_ = Clock::time_point{};
                 scheduled_clear();
             }
+
+            // Load control mode after handling mode change (ensures consistency)
+            auto ctrl_mode = control_mode_.load(std::memory_order_acquire);
 
             // === UDP Receive: extract controls into mode-appropriate storage ===
             if (udp_server_.IsActive()) {

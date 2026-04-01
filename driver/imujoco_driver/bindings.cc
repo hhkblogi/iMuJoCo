@@ -81,7 +81,7 @@ or dispatch work to your own thread to avoid blocking state reception.
         .def_readwrite("sync_port", &DriverConfig::sync_port,
             "Sync port (0 = control port + 1000)")
         .def_readwrite("sync_interval_ms", &DriverConfig::sync_interval_ms,
-            "Sync exchange interval in ms (default: 100)")
+            "Sync exchange interval in ms (default: 100, 0 = disable sync exchanges)")
         .def("__repr__", [](const DriverConfig& c) {
             return "<DriverConfig host='" + c.host + "' port=" + std::to_string(c.port) + ">";
         });
