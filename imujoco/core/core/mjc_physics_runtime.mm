@@ -1271,7 +1271,8 @@ private:
                             ApplyCtrlToData(next);
                             last_accepted_ctrl_seq_ = next.sequence;
                             last_echo_token_ = next.echo_token;
-                            ctrl_queue_.pop_front();
+                            bool had_ctrl_data = next.has_ctrl_data;
+                            ctrl_queue_.pop_front();  // next is now dangling
 
                             if (ctrl_queue_.empty()) {
                                 replay_anchor_host_us_ = 0;
@@ -1282,7 +1283,7 @@ private:
                             step_count++;
                             steps_since_last_frame++;
                             did_paced_step = true;
-                            if (next.has_ctrl_data) {
+                            if (had_ctrl_data) {
                                 last_valid_ctrl_received_ = Clock::now();
                             }
 
@@ -1390,11 +1391,11 @@ private:
             // Suppress timeout in PTPScheduled mode while future controls are queued.
             bool suppress_timeout = (ctrl_mode == MJCControlMode::PTPScheduled && scheduled_count_ > 0)
                                  || (ctrl_mode == MJCControlMode::PacedReplay && !ctrl_queue_.empty());
+            // Timeout is based strictly on last_valid_ctrl_received_ (non-empty control).
+            // Empty/metadata-only packets do not prevent timeout from firing.
             if (ctrl_timeout_ms_ > 0 && !ctrl_timed_out_ && !suppress_timeout
-                && last_ctrl_received_.time_since_epoch().count() > 0) {
-                auto ref_time = (last_valid_ctrl_received_.time_since_epoch().count() > 0)
-                    ? last_valid_ctrl_received_ : last_ctrl_received_;
-                auto since_last = Clock::now() - ref_time;
+                && last_valid_ctrl_received_.time_since_epoch().count() > 0) {
+                auto since_last = Clock::now() - last_valid_ctrl_received_;
                 if (since_last >= std::chrono::milliseconds(ctrl_timeout_ms_)) {
                     ctrl_timed_out_ = true;
                     int nu = model_->nu;
