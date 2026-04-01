@@ -54,10 +54,11 @@ def load_models(host: str) -> bool:
              "--model", MODEL_NAME],
             capture_output=True, text=True, timeout=30
         )
-        if "success: true" in result.stdout:
+        if result.returncode == 0 and "success: true" in result.stdout:
             print(f"  Instance {i}: loaded '{MODEL_NAME}'")
         else:
-            print(f"  Instance {i}: FAILED to load — {result.stdout.strip()}")
+            detail = result.stdout.strip() or result.stderr.strip() or f"exit code {result.returncode}"
+            print(f"  Instance {i}: FAILED to load — {detail}")
             return False
     return True
 

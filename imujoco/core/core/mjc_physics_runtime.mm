@@ -393,7 +393,9 @@ public:
         camera_.lookat[1] = 0;
         camera_.lookat[2] = 0.5;
 
-        // Start per-instance sync server (port = 10000 + instanceIndex)
+        // Start per-instance sync server (port = 10000 + instanceIndex).
+        // SO_REUSEADDR in SyncServer::Start() handles brief overlap during
+        // model reload where old and new runtimes coexist momentarily.
         {
             auto bind_ip = imujoco::GetLocalBindAddress();
             uint16_t sync_port = SyncPortForInstance(config.instanceIndex);

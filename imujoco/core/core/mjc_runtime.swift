@@ -71,7 +71,7 @@ public struct MJSyncStats {
     public let driverJitterUs: Float
     public let driverExchanges: UInt32
 
-    public init(from cpp: MJSyncServerStats) {
+    init(from cpp: MJSyncServerStats) {
         self.isRunning = cpp.isRunning
         self.responsesSent = cpp.responsesSent
         self.port = cpp.port
