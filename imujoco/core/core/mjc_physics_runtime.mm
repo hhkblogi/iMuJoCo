@@ -1157,7 +1157,7 @@ private:
                         }
                         case MJCControlMode::SimTimeGuarded: {
                             // Reject already-expired packets to preserve last valid control
-                            if (meta.expire_at_sim_time > 0.0 && data_
+                            if (meta.expire_at_sim_time >= 0.0 && data_
                                 && meta.expire_at_sim_time <= data_->time) {
                                 break;
                             }

@@ -479,9 +479,9 @@ grpc::Status SimulationControlServiceImpl::SetControlMode(
         resp->set_error("No operation callback registered");
         return grpc::Status::OK;
     }
-    // Validate enum range before forwarding
+    // Validate enum using protobuf-generated helper
     int32_t mode = static_cast<int32_t>(req->mode());
-    if (mode < 0 || mode > 3) {
+    if (!imujoco::ControlMode_IsValid(mode)) {
         resp->set_success(false);
         resp->set_error("Invalid control mode: " + std::to_string(mode));
         return grpc::Status::OK;
