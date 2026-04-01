@@ -355,6 +355,7 @@ static std::atomic<uint64_t> g_next_instance_id{1};
 // 10001-10004.  The function itself works with any non-negative value.
 static uint16_t SyncPortForInstance(int32_t instanceIndex) {
     if (instanceIndex < 0) instanceIndex = 0;
+    if (instanceIndex > 100) instanceIndex = 100;  // prevent uint16_t overflow
     return imujoco::protocol::MJ_SYNC_PORT + static_cast<uint16_t>(instanceIndex);
 }
 

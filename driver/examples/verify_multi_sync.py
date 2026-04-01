@@ -15,7 +15,6 @@ import argparse
 import subprocess
 import sys
 import time
-import threading
 
 import imujoco_driver
 
@@ -111,6 +110,8 @@ def test_sync_port(host: str, instance: int, duration_s: float = 10.0) -> dict:
 
         sync = driver.get_clock_sync()
         result["locked"] = sync.locked
+        if sync.locked and locked_at is None:
+            locked_at = time.monotonic() - start
         result["lock_time"] = locked_at
         result["exchanges"] = sync.exchanges
 
