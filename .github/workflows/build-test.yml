@@ -1,0 +1,40 @@
+name: Build & Test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel in-progress runs for the same PR/branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bazelisk
+        run: |
+          brew install bazelisk
+          bazel --version
+
+      - name: Cache Bazel
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/bazelisk
+            ~/.cache/bazel
+          key: bazel-${{ runner.os }}-${{ hashFiles('.bazelversion', 'MODULE.bazel', 'MODULE.bazel.lock') }}
+          restore-keys: |
+            bazel-${{ runner.os }}-
+
+      - name: Build all targets
+        run: bazel build //...
+
+      - name: Run tests
+        run: bazel test //... --test_output=errors
