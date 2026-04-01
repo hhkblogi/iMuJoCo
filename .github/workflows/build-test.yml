@@ -20,7 +20,7 @@ jobs:
 
       - name: Setup Bazelisk
         run: |
-          brew install bazelisk
+          HOMEBREW_NO_AUTO_UPDATE=1 brew install bazelisk 2>/dev/null || true
           bazel --version
 
       - name: Cache Bazel
