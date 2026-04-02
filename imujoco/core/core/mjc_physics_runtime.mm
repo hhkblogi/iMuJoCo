@@ -1392,10 +1392,11 @@ private:
             }
 
             // === Ctrl Timeout: zero torque actuators if no valid controls received ===
-            // Suppress timeout in PTPScheduled mode while future controls are queued.
-            // Timeout is based strictly on last_valid_ctrl_received_ (non-empty control).
-            // Empty/metadata-only packets and queued entries do not prevent timeout.
-            if (ctrl_timeout_ms_ > 0 && !ctrl_timed_out_
+            // Suppress timeout when future controls are queued (PTPScheduled/PacedReplay).
+            // Without this, the timeout could clear the queue before controls become due.
+            bool has_pending_controls = (ctrl_mode == MJCControlMode::PTPScheduled && scheduled_count_ > 0)
+                                     || (ctrl_mode == MJCControlMode::PacedReplay && !ctrl_queue_.empty());
+            if (ctrl_timeout_ms_ > 0 && !ctrl_timed_out_ && !has_pending_controls
                 && last_valid_ctrl_received_.time_since_epoch().count() > 0) {
                 auto since_last = Clock::now() - last_valid_ctrl_received_;
                 if (since_last >= std::chrono::milliseconds(ctrl_timeout_ms_)) {
