@@ -1731,7 +1731,17 @@ private:
     ScheduledCtrl& scheduled_front() { return scheduled_buf_[scheduled_head_]; }
 
     void scheduled_pop_front() {
-        scheduled_buf_[scheduled_head_] = {};
+        // Clear scalars/flags but retain vector capacity to avoid heap churn
+        auto& slot = scheduled_buf_[scheduled_head_];
+        slot.ctrl.clear();
+        slot.qfrc_applied.clear();
+        slot.xfrc_applied.clear();
+        slot.mocap_pos.clear();
+        slot.mocap_quat.clear();
+        slot.target_sim_time = 0.0;
+        slot.sequence = 0;
+        slot.echo_token = 0;
+        slot.has_ctrl_data = false;
         scheduled_head_ = (scheduled_head_ + 1) % kScheduledCapacity;
         scheduled_count_--;
     }
