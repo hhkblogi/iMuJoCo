@@ -49,14 +49,31 @@ enum class MJRuntimeState : int32_t {
     Paused = 3
 };
 
+/// Control mode: how incoming driver commands are applied to the simulation
+enum class MJCControlMode : int32_t {
+    Live = 0,            ///< Latest-value latch (zero-order hold) — real-time control
+    PacedReplay = 1,     ///< Timestamp-based cadence matching — trajectory playback
+    SimTimeGuarded = 2,  ///< Expiring controls in simulation-time domain — cross-host
+    PTPScheduled = 3     ///< Apply at target simulation time (PTP-synced scheduling)
+};
+
+/// What happens when a SimTimeGuarded control expires
+enum class MJCExpiryPolicy : int32_t {
+    ZeroImmediate = 0,     ///< Zero all actuators immediately on expiry
+    ZeroAfterTimeout = 1,  ///< Use per-actuator timeout policy (existing mechanism)
+    HoldLastValid = 2      ///< Hold last valid values (safe for servo control)
+};
+
 /// Configuration for creating a runtime instance
 struct MJRuntimeConfig {
     int32_t instanceIndex = 0;      ///< Instance ID (0-3)
     double targetFPS = 60.0;        ///< Target simulation FPS
     bool busyWait = false;          ///< Use busy wait for better timing (uses more CPU)
     uint16_t udpPort = 0;           ///< UDP port for network I/O (0 = default: 9000 + instanceIndex)
-    uint32_t ctrlTimeoutMs = 500;   ///< ms without UDP packet before ctrl fallback (0 = disabled)
+    uint32_t ctrlTimeoutMs = 500;   ///< ms since last valid (non-empty) control before ctrl fallback (0 = disabled)
     bool sendForceData = false;     ///< Include qfrc/cfrc/contact forces in StatePacket
+    MJCControlMode controlMode = MJCControlMode::Live;  ///< Control input mode
+    MJCExpiryPolicy defaultExpiryPolicy = MJCExpiryPolicy::ZeroAfterTimeout;  ///< Default expiry policy for SimTimeGuarded mode
 };
 
 /// Statistics from the physics runtime
@@ -504,6 +521,9 @@ public:
     void setTimestep(double timestep);
     void setRealtimeFactor(double factor);
     double getRealtimeFactor() const;
+
+    /// Change the control mode at runtime (takes effect on next physics loop iteration)
+    void setControlMode(MJCControlMode mode);
 
     // MARK: - Legacy Access (for compatibility with C++ code that needs MuJoCo types)
     // Note: These return opaque pointers when used from Swift

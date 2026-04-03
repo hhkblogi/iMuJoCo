@@ -76,10 +76,12 @@ or dispatch work to your own thread to avoid blocking state reception.
             "Receive timeout in milliseconds (0 = no timeout)")
         .def_readwrite("auto_start_receiving", &DriverConfig::auto_start_receiving,
             "Auto-start receiving on connect (default: true)")
+        .def_readwrite("enable_sync", &DriverConfig::enable_sync,
+            "Enable PTP time sync (default: false, set true for PTPScheduled mode)")
         .def_readwrite("sync_port", &DriverConfig::sync_port,
-            "Sync port (0 = port + 100)")
+            "Sync port (0 = control port + 1000)")
         .def_readwrite("sync_interval_ms", &DriverConfig::sync_interval_ms,
-            "Sync exchange interval in ms (0 = disable sync)")
+            "Sync exchange interval in ms (default: 100, 0 = disable sync exchanges)")
         .def("__repr__", [](const DriverConfig& c) {
             return "<DriverConfig host='" + c.host + "' port=" + std::to_string(c.port) + ">";
         });
@@ -157,6 +159,17 @@ or dispatch work to your own thread to avoid blocking state reception.
                    " ncon=" + std::to_string(s.ncon) + ">";
         });
 
+    // ExpiryPolicy enum
+    py::enum_<imujoco::schema::ExpiryPolicy>(m, "ExpiryPolicy")
+        .value("Default", imujoco::schema::ExpiryPolicy::Default,
+            "Use simulation-side config default")
+        .value("ZeroImmediate", imujoco::schema::ExpiryPolicy::ZeroImmediate,
+            "Zero all actuators immediately on expiry")
+        .value("ZeroAfterTimeout", imujoco::schema::ExpiryPolicy::ZeroAfterTimeout,
+            "Use per-actuator timeout policy")
+        .value("HoldLastValid", imujoco::schema::ExpiryPolicy::HoldLastValid,
+            "Hold the last successfully applied values");
+
     // ControlCommand (schema::ControlPacketT)
     py::class_<ControlCommand>(m, "ControlCommand")
         .def(py::init<>())
@@ -170,6 +183,18 @@ or dispatch work to your own thread to avoid blocking state reception.
             "Target simulation time (0.0 = use existing pacing)")
         .def_readwrite("echo_token", &ControlCommand::echo_token,
             "Opaque token echoed back in state")
+        .def_readwrite("qfrc_applied", &ControlCommand::qfrc_applied,
+            "Generalized forces (length = model.nv)")
+        .def_readwrite("xfrc_applied", &ControlCommand::xfrc_applied,
+            "Cartesian forces on bodies (length = 6*model.nbody)")
+        .def_readwrite("mocap_pos", &ControlCommand::mocap_pos,
+            "Mocap body positions (length = 3*model.nmocap)")
+        .def_readwrite("mocap_quat", &ControlCommand::mocap_quat,
+            "Mocap body quaternions (length = 4*model.nmocap)")
+        .def_readwrite("expire_at_sim_time", &ControlCommand::expire_at_sim_time,
+            "Simulation time after which this control is stale (-1.0 = no expiry)")
+        .def_readwrite("expiry_policy", &ControlCommand::expiry_policy,
+            "What to do when this control expires (SimTimeGuarded mode)")
         .def("__repr__", [](const ControlCommand& c) {
             return "<ControlCommand ctrl[" + std::to_string(c.ctrl.size()) + "]>";
         });

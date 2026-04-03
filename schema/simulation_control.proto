@@ -26,6 +26,9 @@ service SimulationControl {
 
   // State query
   rpc GetState(InstanceRequest) returns (PhysicsState);
+
+  // Runtime configuration
+  rpc SetControlMode(SetControlModeRequest) returns (ControlResponse);
 }
 
 // ============================================================================
@@ -99,6 +102,19 @@ message LoadModelRequest {
 message ResetToKeyframeRequest {
   int32 instance_id = 1;
   int32 keyframe_index = 2;
+}
+
+// Control mode values matching MJCControlMode enum
+enum ControlMode {
+  CONTROL_MODE_LIVE = 0;
+  CONTROL_MODE_PACED_REPLAY = 1;
+  CONTROL_MODE_SIM_TIME_GUARDED = 2;
+  CONTROL_MODE_PTP_SCHEDULED = 3;
+}
+
+message SetControlModeRequest {
+  int32 instance_id = 1;  // 1-based instance id (1..numInstances)
+  ControlMode mode = 2;
 }
 
 // ============================================================================

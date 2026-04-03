@@ -102,6 +102,10 @@ public:
                           const imujoco::InstanceRequest* req,
                           imujoco::PhysicsState* resp) override;
 
+    grpc::Status SetControlMode(grpc::ServerContext* ctx,
+                                const imujoco::SetControlModeRequest* req,
+                                imujoco::ControlResponse* resp) override;
+
 private:
     MJGrpcServerImpl* impl_;
 };
@@ -453,6 +457,38 @@ grpc::Status SimulationControlServiceImpl::GetState(
     resp->set_energy_potential(state.energyPotential);
     resp->set_energy_kinetic(state.energyKinetic);
 
+    return grpc::Status::OK;
+}
+
+grpc::Status SimulationControlServiceImpl::SetControlMode(
+        grpc::ServerContext* /*ctx*/,
+        const imujoco::SetControlModeRequest* req,
+        imujoco::ControlResponse* resp) {
+    impl_->rpcCount.fetch_add(1, std::memory_order_relaxed);
+    if (!validateInstanceId(req->instance_id(), impl_->config.numInstances, resp))
+        return grpc::Status::OK;
+    MJGrpcOperationCallback cb;
+    void* cbCtx;
+    {
+        std::lock_guard<std::mutex> lock(impl_->mutex);
+        cb = impl_->operationCallback;
+        cbCtx = impl_->operationContext;
+    }
+    if (!cb) {
+        resp->set_success(false);
+        resp->set_error("No operation callback registered");
+        return grpc::Status::OK;
+    }
+    // Validate enum using protobuf-generated helper
+    int32_t mode = static_cast<int32_t>(req->mode());
+    if (!imujoco::ControlMode_IsValid(mode)) {
+        resp->set_success(false);
+        resp->set_error("Invalid control mode: " + std::to_string(mode));
+        return grpc::Status::OK;
+    }
+    bool ok = cb(req->instance_id(), MJ_GRPC_OP_SET_CONTROL_MODE, mode, cbCtx);
+    resp->set_success(ok);
+    if (!ok) resp->set_error("SetControlMode failed");
     return grpc::Status::OK;
 }
 

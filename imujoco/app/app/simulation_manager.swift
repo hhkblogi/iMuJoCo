@@ -806,6 +806,13 @@ private func grpcOperationHandler(_ instanceId: Int32, _ op: Int32, _ param: Int
             if wasRunning { instance.pause() }
             success = instance.runtime?.resetToKeyframe(index: param) ?? false
             if wasRunning { instance.start() }
+        case MJ_GRPC_OP_SET_CONTROL_MODE.rawValue:
+            if let mode = MJCControlMode(rawValue: param) {
+                instance.runtime?.setControlMode(mode)
+                success = true
+            } else {
+                logger.error("grpcOperationHandler: invalid control mode \(param)")
+            }
         default:
             logger.error("grpcOperationHandler: unknown op \(op)")
         }

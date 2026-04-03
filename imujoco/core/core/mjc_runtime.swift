@@ -314,6 +314,11 @@ public final class MJRuntime {
         set { runtime.setRealtimeFactor(newValue) }
     }
 
+    /// Change the control mode at runtime
+    public func setControlMode(_ mode: MJCControlMode) {
+        runtime.setControlMode(mode)
+    }
+
     // MARK: - Camera Enumeration
 
     /// Number of cameras defined in the model

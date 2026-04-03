@@ -26,8 +26,8 @@ Driver::Driver(const DriverConfig& config)
       reassembler_(std::make_unique<ReassemblyManager>()) {
     recv_buffer_.resize(kMaxUDPPayload);
 
-    // Start sync client immediately (always-on, independent of Connect/Disconnect)
-    if (config_.sync_interval_ms > 0) {
+    // Start sync client only when explicitly enabled (e.g., for PTPScheduled mode)
+    if (config_.enable_sync && config_.sync_interval_ms > 0) {
         SyncClient::Config sync_config;
         sync_config.host = config_.host;
         // Derive sync port from control port: sync = control + 1000.
