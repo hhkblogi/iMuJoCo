@@ -4,8 +4,10 @@
 
 TEAM_ID = "YOUR_TEAM_ID_HERE"
 
-# Development provisioning profile name (shown in Apple Developer portal)
-DEV_PROFILE_NAME = "iOS Team Provisioning Profile: *"
-
-# App Store distribution provisioning profile name (shown in Apple Developer portal)
-APPSTORE_PROFILE_NAME = "YOUR_APPSTORE_PROFILE_NAME_HERE"
+# Apple Distribution signing identity for App Store builds.
+# Leave empty ("") for development-only setups — App Store targets will be
+# skipped by `bazel build //...`.
+# To find your identity:
+#   security find-identity -v -p codesigning | grep "Apple Distribution"
+# Example: "Apple Distribution: YOUR NAME (TEAM_ID)"
+APPSTORE_IDENTITY = ""
