@@ -10,6 +10,9 @@
 # Profile type is detected by the presence of ProvisionedDevices key:
 #   - Development profiles have ProvisionedDevices + get-task-allow=true
 #   - App Store distribution profiles do NOT have ProvisionedDevices
+#
+# When multiple profiles match, the one expiring latest is chosen
+# (most recently renewed), giving deterministic results.
 
 set -eo pipefail
 
@@ -30,7 +33,12 @@ PROFILE_DIRS=(
 INSTALLED_FPS=$(security find-identity -v -p codesigning 2>/dev/null | \
     awk '{ print $2 }' | grep -E '^[A-F0-9]{40}$' || true)
 
+# Best candidates: "expiration_epoch|path" (cert-matched and fallback).
+# When multiple profiles match, the one expiring latest wins.
+BEST=""
+BEST_EXPIRY=0
 FALLBACK=""
+FALLBACK_EXPIRY=0
 
 for dir in "${PROFILE_DIRS[@]}"; do
     [ -d "$dir" ] || continue
@@ -58,31 +66,47 @@ for dir in "${PROFILE_DIRS[@]}"; do
         if [ "$profile_type" != "$TYPE" ]; then
             continue
         fi
-        # Prefer profiles whose cert matches an installed signing identity.
-        profile_fps=$(printf '%s' "$decoded" | python3 -c '
+        # Extract expiration date (epoch) and cert fingerprints in one pass.
+        eval_output=$(printf '%s' "$decoded" | python3 -c '
 import sys, plistlib, hashlib
 try:
     d = plistlib.loads(sys.stdin.buffer.read())
+    exp = d.get("ExpirationDate")
+    print(int(exp.timestamp()) if exp else 0)
     for cert_der in d.get("DeveloperCertificates", []):
         print(hashlib.sha1(cert_der).hexdigest().upper())
 except Exception:
-    pass
+    print(0)
 ' 2>/dev/null)
-        matched=false
+        exp_epoch=$(echo "$eval_output" | head -1)
+        profile_fps=$(echo "$eval_output" | tail -n +2)
+
+        # Check if any cert in the profile matches an installed signing identity.
+        cert_matched=false
         for pfp in $profile_fps; do
             if echo "$INSTALLED_FPS" | grep -q "$pfp"; then
-                matched=true
+                cert_matched=true
                 break
             fi
         done
-        if [ "$matched" = true ]; then
-            cp "$f" "$OUTPUT"
-            exit 0
+        if [ "$cert_matched" = true ]; then
+            if [ "$exp_epoch" -gt "$BEST_EXPIRY" ] 2>/dev/null; then
+                BEST="$f"
+                BEST_EXPIRY="$exp_epoch"
+            fi
+        else
+            if [ "$exp_epoch" -gt "$FALLBACK_EXPIRY" ] 2>/dev/null; then
+                FALLBACK="$f"
+                FALLBACK_EXPIRY="$exp_epoch"
+            fi
         fi
-        # Keep as fallback if no cert-matching profile found
-        [ -z "$FALLBACK" ] && FALLBACK="$f"
     done
 done
+
+if [ -n "$BEST" ]; then
+    cp "$BEST" "$OUTPUT"
+    exit 0
+fi
 
 if [ -n "$FALLBACK" ]; then
     echo "WARNING: No $TYPE profile found whose cert matches an installed identity." >&2
