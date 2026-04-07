@@ -5,7 +5,8 @@
 #
 # Searches both Xcode-managed and manually-installed profile directories.
 # Matches by application-identifier (team_id.bundle_id) in the profile's
-# entitlements, not by profile name.
+# entitlements, not by profile name. For dev profiles, also accepts
+# wildcard Xcode-managed profiles (team_id.*), preferring exact matches.
 #
 # Profile type is detected by the presence of ProvisionedDevices key:
 #   - Development profiles have ProvisionedDevices + get-task-allow=true
@@ -21,6 +22,7 @@ BUNDLE_ID="$2"
 OUTPUT="$3"
 TYPE="${4:-dev}"
 EXPECTED_APPID="${TEAM_ID}.${BUNDLE_ID}"
+WILDCARD_APPID="${TEAM_ID}.*"
 
 USER_HOME="${HOME:-$(eval echo ~)}"
 
@@ -33,12 +35,17 @@ PROFILE_DIRS=(
 INSTALLED_FPS=$(security find-identity -v -p codesigning 2>/dev/null | \
     awk '{ print $2 }' | grep -E '^[A-F0-9]{40}$' || true)
 
-# Best candidates: "expiration_epoch|path" (cert-matched and fallback).
+# Best candidates, split by exact vs wildcard match (cert-matched and fallback).
 # When multiple profiles match, the one expiring latest wins.
-BEST=""
-BEST_EXPIRY=0
-FALLBACK=""
-FALLBACK_EXPIRY=0
+# Priority: cert-exact > cert-wildcard > fallback-exact > fallback-wildcard.
+BEST_EXACT=""
+BEST_EXACT_EXPIRY=0
+BEST_WILD=""
+BEST_WILD_EXPIRY=0
+FALLBACK_EXACT=""
+FALLBACK_EXACT_EXPIRY=0
+FALLBACK_WILD=""
+FALLBACK_WILD_EXPIRY=0
 
 for dir in "${PROFILE_DIRS[@]}"; do
     [ -d "$dir" ] || continue
@@ -47,7 +54,13 @@ for dir in "${PROFILE_DIRS[@]}"; do
         decoded=$(security cms -D -i "$f" 2>/dev/null) || continue
         appid=$(printf '%s' "$decoded" | \
             xmllint --xpath '//key[text()="application-identifier"]/following-sibling::string[1]/text()' - 2>/dev/null) || continue
-        if [ "$appid" != "$EXPECTED_APPID" ]; then
+        # Match exact bundle ID, or wildcard (TEAMID.*) for dev profiles.
+        is_wildcard=false
+        if [ "$appid" = "$EXPECTED_APPID" ]; then
+            : # exact match
+        elif [ "$appid" = "$WILDCARD_APPID" ] && [ "$TYPE" = "dev" ]; then
+            is_wildcard=true
+        else
             continue
         fi
         # Filter by profile type:
@@ -90,30 +103,49 @@ except Exception:
             fi
         done
         if [ "$cert_matched" = true ]; then
-            if [ "$exp_epoch" -gt "$BEST_EXPIRY" ] 2>/dev/null; then
-                BEST="$f"
-                BEST_EXPIRY="$exp_epoch"
+            if [ "$is_wildcard" = true ]; then
+                if [ "$exp_epoch" -gt "$BEST_WILD_EXPIRY" ] 2>/dev/null; then
+                    BEST_WILD="$f"
+                    BEST_WILD_EXPIRY="$exp_epoch"
+                fi
+            else
+                if [ "$exp_epoch" -gt "$BEST_EXACT_EXPIRY" ] 2>/dev/null; then
+                    BEST_EXACT="$f"
+                    BEST_EXACT_EXPIRY="$exp_epoch"
+                fi
             fi
         else
-            if [ "$exp_epoch" -gt "$FALLBACK_EXPIRY" ] 2>/dev/null; then
-                FALLBACK="$f"
-                FALLBACK_EXPIRY="$exp_epoch"
+            if [ "$is_wildcard" = true ]; then
+                if [ "$exp_epoch" -gt "$FALLBACK_WILD_EXPIRY" ] 2>/dev/null; then
+                    FALLBACK_WILD="$f"
+                    FALLBACK_WILD_EXPIRY="$exp_epoch"
+                fi
+            else
+                if [ "$exp_epoch" -gt "$FALLBACK_EXACT_EXPIRY" ] 2>/dev/null; then
+                    FALLBACK_EXACT="$f"
+                    FALLBACK_EXACT_EXPIRY="$exp_epoch"
+                fi
             fi
         fi
     done
 done
 
-if [ -n "$BEST" ]; then
-    cp "$BEST" "$OUTPUT"
-    exit 0
-fi
+# Priority: cert-exact > cert-wildcard > fallback-exact > fallback-wildcard
+for candidate in "$BEST_EXACT" "$BEST_WILD"; do
+    if [ -n "$candidate" ]; then
+        cp "$candidate" "$OUTPUT"
+        exit 0
+    fi
+done
 
-if [ -n "$FALLBACK" ]; then
-    echo "WARNING: No $TYPE profile found whose cert matches an installed identity." >&2
-    echo "  Using fallback: $FALLBACK" >&2
-    cp "$FALLBACK" "$OUTPUT"
-    exit 0
-fi
+for candidate in "$FALLBACK_EXACT" "$FALLBACK_WILD"; do
+    if [ -n "$candidate" ]; then
+        echo "WARNING: No $TYPE profile found whose cert matches an installed identity." >&2
+        echo "  Using fallback: $candidate" >&2
+        cp "$candidate" "$OUTPUT"
+        exit 0
+    fi
+done
 
 echo "ERROR: No $TYPE provisioning profile found for $EXPECTED_APPID" >&2
 echo "  Install a $TYPE profile for bundle ID '$BUNDLE_ID' (team $TEAM_ID)" >&2

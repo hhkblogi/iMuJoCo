@@ -5,7 +5,7 @@ load("@rules_apple//apple:resources.bzl", "apple_resource_group")
 load("@rules_apple//apple:tvos.bzl", "tvos_application")
 load("@rules_xcodeproj//xcodeproj:xcode_provisioning_profile.bzl", "xcode_provisioning_profile")
 load(":appstore.bzl", "appstore_targets")
-load(":team_config.bzl", "APPSTORE_IDENTITY", "TEAM_ID")
+load(":team_config.bzl", "TEAM_ID")
 
 # ============================================================================
 # App Swift library
@@ -117,11 +117,10 @@ ios_application(
 )
 
 # ============================================================================
-# iOS application — App Store submission (conditional on APPSTORE_IDENTITY)
+# iOS application — App Store submission
 # ============================================================================
 
 appstore_targets(
-    appstore_identity = APPSTORE_IDENTITY,
     team_id = TEAM_ID,
     app_bundle_id = APP_BUNDLE_ID,
     find_profile_tool = "//scripts:find_profile.sh",
