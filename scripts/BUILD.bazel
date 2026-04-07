@@ -1,0 +1,4 @@
+exports_files(
+    ["find_profile.sh"],
+    visibility = ["//visibility:public"],
+)

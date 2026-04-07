@@ -1,11 +1,11 @@
 load("@build_bazel_rules_swift//swift:swift.bzl", "swift_library")
-load("@rules_apple//apple:apple.bzl", "local_provisioning_profile")
 load("@rules_apple//apple:ios.bzl", "ios_application")
 load("@rules_apple//apple:macos.bzl", "macos_application")
 load("@rules_apple//apple:resources.bzl", "apple_resource_group")
 load("@rules_apple//apple:tvos.bzl", "tvos_application")
 load("@rules_xcodeproj//xcodeproj:xcode_provisioning_profile.bzl", "xcode_provisioning_profile")
-load(":team_config.bzl", "APPSTORE_PROFILE_NAME", "DEV_PROFILE_NAME", "TEAM_ID")
+load(":appstore.bzl", "appstore_targets")
+load(":team_config.bzl", "TEAM_ID")
 
 # ============================================================================
 # App Swift library
@@ -43,23 +43,21 @@ swift_library(
 # Provisioning profile (for device deployment via Xcode)
 # ============================================================================
 
-local_provisioning_profile(
+APP_BUNDLE_ID = "com.hhkblogi.imujoco.app"
+
+genrule(
     name = "local_profile",
-    profile_name = DEV_PROFILE_NAME,
-    team_id = TEAM_ID,
+    outs = ["iMuJoCo.mobileprovision"],
+    cmd = "$(location //scripts:find_profile.sh) " + TEAM_ID + " " + APP_BUNDLE_ID + " $@ dev",
+    local = True,
+    tags = ["no-cache"],
+    tools = ["//scripts:find_profile.sh"],
 )
 
 xcode_provisioning_profile(
     name = "xcode_profile",
     managed_by_xcode = True,
     provisioning_profile = ":local_profile",
-    team_id = TEAM_ID,
-)
-
-local_provisioning_profile(
-    name = "appstore_profile",
-    profile_name = APPSTORE_PROFILE_NAME,
-    tags = ["manual"],
     team_id = TEAM_ID,
 )
 
@@ -122,26 +120,10 @@ ios_application(
 # iOS application — App Store submission
 # ============================================================================
 
-ios_application(
-    name = "app_ios_appstore",
-    app_icons = glob(["app/AppIcon.icon/**"]),
-    bundle_id = "com.hhkblogi.imujoco.app",
-    entitlements = "app_ios.entitlements",
-    families = [
-        "iphone",
-        "ipad",
-    ],
-    infoplists = ["Info.plist"],
-    minimum_os_version = "26.0",
-    provisioning_profile = ":appstore_profile",
-    resources = glob(["app/Assets.xcassets/**"]) + [
-        "app/PrivacyInfo.xcprivacy",
-        "//models",
-        "//imujoco/render:mujoco_metallib",
-    ],
-    tags = ["manual"],
-    visibility = ["//visibility:public"],
-    deps = [":app_lib"],
+appstore_targets(
+    team_id = TEAM_ID,
+    app_bundle_id = APP_BUNDLE_ID,
+    find_profile_tool = "//scripts:find_profile.sh",
 )
 
 # ============================================================================
